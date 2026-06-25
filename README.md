@@ -13,8 +13,9 @@ It reads and writes your files directly through the browser's
 [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API),
 so your notes never leave your machine.
 
-> **Requires Chrome or Edge.** Firefox and Safari don't implement the File System
-> Access API needed to read/write a local folder.
+> **Best in Chrome or Edge**, which can read and write your folder directly. Firefox,
+> Safari, and **iPad** lack the File System Access API, so there the app uses an
+> **import / export bridge** instead (see *iPad & other browsers* below).
 
 ## Quick start
 
@@ -25,6 +26,22 @@ so your notes never leave your machine.
 
 Cards are linked parent → child; layout, colours, and positions are stored in each
 note's frontmatter (`mm_x`, `mm_y`, …), so the map travels with the files.
+
+## iPad & other browsers
+
+iPad Safari (and any browser without the File System Access API) can't autosave to a
+real folder, so the app falls back to a self-contained workflow:
+
+1. **Import notes** — pick `.md` files from the Files app (iCloud Drive or *On My iPad*).
+2. Edit with full touch support — **one finger pans**, **pinch zooms**, drag a card to
+   reparent, and use the edit panel's **Rename / Child / Sibling / Duplicate / Delete**
+   buttons (the desktop keyboard shortcuts, made tappable).
+3. Your edits autosave to a private **on-device vault** that persists between visits.
+4. **Export** (toolbar ⬇) downloads a `.zip` of all notes — *Save to Files* puts it
+   back in iCloud or local storage.
+
+Sync is manual (import / export); keep notes in a single folder, since subfolders
+aren't preserved on import. Add `?nofsa` to the URL to preview this mode on desktop.
 
 ## Features
 
@@ -38,8 +55,10 @@ note's frontmatter (`mm_x`, `mm_y`, …), so the map travels with the files.
 ## Architecture
 
 All file I/O lives behind a single swappable `store` adapter (search `const store`
-in `index.html`). It's backed by the File System Access API today; replacing only
-that object would retarget the app to an Obsidian vault or a Tauri/native build.
+in `index.html`). There are two implementations with an identical interface —
+`fsaStore` (File System Access API) and `opfsStore` (Origin Private File System, for
+the import/export bridge) — selected at startup by `HAS_FSA`. Replacing only that
+object would retarget the app to an Obsidian vault or a Tauri/native build.
 
 ## Hosting
 

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Markdown Mindmap</title>
 <style>
   :root {
@@ -99,11 +99,12 @@
   #searchResults .sr-item:hover, #searchResults .sr-item.active { background:var(--node); }
   #searchResults .sr-none { padding:6px 9px; font-size:12px; color:var(--muted); }
 
-  #stage { position:fixed; inset:48px 0 0 0; overflow:hidden; cursor:default; }
+  /* touch-action:none → the browser never steals pan/zoom gestures; we drive them ourselves */
+  #stage { position:fixed; inset:48px 0 0 0; overflow:hidden; cursor:default; touch-action:none; }
   #stage.panning { cursor:grabbing; }
   /* the hand only appears while actually dragging a card; default everywhere else */
   body.grabbing, body.grabbing * { cursor:grabbing !important; }
-  #world { position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; }
+  #world { position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; touch-action:none; }
 
   svg#edges, svg#toggles { position:absolute; top:0; left:0; overflow:visible; }
   svg#edges { z-index:1; pointer-events:none; }      /* curves behind nodes */
@@ -116,7 +117,7 @@
     position:absolute; width:200px; min-height:64px;
     background: var(--card, var(--node)); border:1px solid var(--cardline, var(--node-border));
     border-radius:2px; padding:10px 12px; cursor:default; color:#ffffff;
-    user-select:none;
+    user-select:none; -webkit-touch-callout:none; touch-action:none;
     /* fade opacity (search dim) & selection ring smoothly; NOT left/top — keeps dragging crisp */
     transition: opacity .2s ease, box-shadow .15s ease;
   }
@@ -281,6 +282,23 @@
   .recent-item .ri-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .recent-item .ri-when { font-size:11px; color:var(--muted); }
   .start-note { margin:14px 0 0 !important; font-size:11px !important; }
+
+  /* ---- node action row in the edit panel (rename / duplicate / delete / add) ---- */
+  #edActions { display:flex; flex-wrap:wrap; gap:6px; }
+  #edActions button { flex:1 1 auto; font-size:12px; padding:6px 8px; border-radius:6px; cursor:pointer;
+    background:var(--node); color:var(--text); border:1px solid var(--node-border); }
+  #edActions button:hover { border-color:var(--accent); }
+  #edActions button.danger { color:#e0564f; }
+
+  /* ---- coarse pointer (touch) : bigger hit targets ---- */
+  @media (pointer: coarse) {
+    #toolbar button { width:40px; height:40px; }
+    #toolbar button svg { width:22px; height:22px; }
+    .node .addchild { width:40px; height:40px; right:-18px; bottom:-18px; font-size:24px; }
+    .swatch { width:26px; height:26px; }
+    .layoutchip { padding:6px 10px; }
+    #edActions button { padding:9px 10px; font-size:13px; }
+  }
 </style>
 </head>
 <body>
@@ -297,6 +315,8 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/></svg></button>
     <button id="edgeBtn" title="Edge style: straight / orthogonal / bezier" aria-label="Cycle edge style">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h7a3 3 0 0 1 3 3v7"/></svg></button>
+    <button id="exportBtn" title="Export all notes as a .zip (Save to Files / iCloud)" aria-label="Export notes" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 11l4 4 4-4M5 21h14"/></svg></button>
     <div id="searchWrap">
       <input id="searchBox" type="text" placeholder="Find… (/)" aria-label="Find a card" autocomplete="off" spellcheck="false" />
       <div id="searchResults"></div>
@@ -323,6 +343,13 @@
     <div id="edFields">
       <div id="edMulti" class="editnote"></div>
       <div id="edName" class="ed-name" title="To rename: press F2 or slow-click the card on the canvas"></div>
+      <div id="edActions">
+        <button id="edRename" type="button" title="Rename (F2)">✎ Rename</button>
+        <button id="edAddChild" type="button" title="Add child (Tab)">＋ Child</button>
+        <button id="edAddSibling" type="button" title="Add sibling (Enter)">＋ Sibling</button>
+        <button id="edDuplicate" type="button" title="Duplicate (D)">⧉ Duplicate</button>
+        <button id="edDelete" type="button" class="danger" title="Delete">🗑 Delete</button>
+      </div>
       <div class="fgroup fg-color">
         <label>Color</label>
         <div id="edColors" class="swatches"></div>
@@ -1169,10 +1196,33 @@ let pan = null, marquee = null, spaceHeld = false, spaceUsedForPan = false;
 const marqueeEl = document.createElement('div');
 marqueeEl.id = 'marquee'; stage.appendChild(marqueeEl);
 
-// Empty-canvas drag = rubber-band SELECT. Hold Space (or middle-button) to PAN instead.
+// ---- touch gestures: track each finger that lands on the empty canvas. One finger pans,
+// two fingers pinch-zoom + pan. (Mouse keeps Space-to-pan / marquee-select behaviour.)
+const gPointers = new Map();   // pointerId -> {x,y}
+let pinch = null;              // { dist, cx, cy } of the active two-finger gesture
+const gDist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
+function startPinch(){
+  const [a,b] = [...gPointers.values()];
+  pinch = { dist: gDist(a,b), cx:(a.x+b.x)/2, cy:(a.y+b.y)/2 };
+}
+
+// Empty-canvas drag = rubber-band SELECT (mouse) or PAN (touch). Hold Space / middle-button to PAN.
 stage.addEventListener('pointerdown', (e) => {
-  if (e.target.closest('.node')) return;
+  if (e.target.closest('.node')) return;            // node drags capture their own pointer
   cancelViewAnim();
+
+  if (e.pointerType !== 'mouse'){                   // touch / pen
+    gPointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (gPointers.size === 1){                      // one finger → pan (no Space key needed)
+      pan = { sx:e.clientX, sy:e.clientY, ox:state.view.x, oy:state.view.y };
+      stage.classList.add('panning');
+    } else if (gPointers.size === 2){               // second finger → pinch-zoom + two-finger pan
+      pan = null; marquee = null; marqueeEl.style.display = 'none';
+      startPinch();
+    }
+    return;
+  }
+
   if (spaceHeld || e.button === 1){                 // hand-pan
     if (spaceHeld) spaceUsedForPan = true;
     pan = { sx:e.clientX, sy:e.clientY, ox:state.view.x, oy:state.view.y };
@@ -1185,6 +1235,21 @@ stage.addEventListener('pointerdown', (e) => {
   marqueeEl.style.display = 'block';
 });
 window.addEventListener('pointermove', (e) => {
+  if (gPointers.has(e.pointerId)){
+    gPointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (pinch && gPointers.size >= 2){
+      const [a,b] = [...gPointers.values()];
+      const nd = gDist(a,b), ncx = (a.x+b.x)/2, ncy = (a.y+b.y)/2;
+      const r = stage.getBoundingClientRect();
+      if (pinch.dist > 0) zoomAt(ncx - r.left, ncy - r.top, nd / pinch.dist);
+      state.view.x += ncx - pinch.cx;               // pan by the midpoint's movement
+      state.view.y += ncy - pinch.cy;
+      applyView();
+      pinch.dist = nd; pinch.cx = ncx; pinch.cy = ncy;
+      return;
+    }
+    // single finger falls through to the pan branch below
+  }
   if (pan){
     state.view.x = pan.ox + (e.clientX - pan.sx);
     state.view.y = pan.oy + (e.clientY - pan.sy);
@@ -1196,7 +1261,24 @@ window.addEventListener('pointermove', (e) => {
     if (marquee.moved) selectWithinMarquee(e.clientX, e.clientY);
   }
 });
-window.addEventListener('pointerup', () => {
+function endGesturePointer(e){
+  if (!gPointers.has(e.pointerId)) return false;
+  const wasOne = gPointers.size === 1, start = pan;
+  gPointers.delete(e.pointerId);
+  if (gPointers.size < 2) pinch = null;
+  if (gPointers.size === 1){                         // back to one finger → resume panning
+    const p = [...gPointers.values()][0];
+    pan = { sx:p.x, sy:p.y, ox:state.view.x, oy:state.view.y };
+  } else if (gPointers.size === 0){
+    pan = null; stage.classList.remove('panning');
+    // a tap that didn't pan and wasn't a pinch → deselect (mirrors mouse click-on-empty)
+    if (wasOne && start && Math.abs(e.clientX-start.sx) + Math.abs(e.clientY-start.sy) <= 6 && state.sel.size)
+      selectNode(null);
+  }
+  return true;
+}
+window.addEventListener('pointerup', (e) => {
+  if (endGesturePointer(e)) return;
   if (pan){ pan = null; stage.classList.remove('panning'); return; }
   if (marquee){
     marqueeEl.style.display = 'none';
@@ -1204,6 +1286,7 @@ window.addEventListener('pointerup', () => {
     marquee = null;
   }
 });
+window.addEventListener('pointercancel', endGesturePointer);
 function drawMarquee(cx, cy){
   const r = stage.getBoundingClientRect();
   marqueeEl.style.left   = (Math.min(marquee.sx, cx) - r.left) + 'px';
@@ -1266,12 +1349,14 @@ stage.addEventListener('wheel', (e) => {
 let gestureStartK = 1, gestureMid = {x:0,y:0};
 stage.addEventListener('gesturestart', (e) => {
   e.preventDefault();
+  if (gPointers.size) return;   // touchscreen pinch is handled via pointer events instead
   gestureStartK = state.view.k;
   const r = stage.getBoundingClientRect();
   gestureMid = { x: e.clientX - r.left, y: e.clientY - r.top };
 });
 stage.addEventListener('gesturechange', (e) => {
   e.preventDefault();
+  if (gPointers.size) return;   // …so we don't double-apply zoom on iPad
   const k0 = state.view.k;
   const target = Math.min(2.5, Math.max(0.2, gestureStartK * e.scale));
   zoomAt(gestureMid.x, gestureMid.y, target / k0);
@@ -2053,6 +2138,14 @@ document.getElementById('collapseAllBtn').onclick = () => setAllCollapsed(true);
 document.getElementById('expandAllBtn').onclick = () => setAllCollapsed(false);
 document.getElementById('homeBtn').onclick = showStart;   // icon + folder name → home screen
 
+// ---- edit-panel action buttons: on-screen equivalents of the keyboard shortcuts,
+// so every editing action is reachable on a touch device with no keyboard ----
+document.getElementById('edRename').onclick = () => { if (state.selId) startInlineEdit(state.nodes.get(state.selId)); };
+document.getElementById('edAddChild').onclick = () => { if (state.selId) addChild(state.selId); };
+document.getElementById('edAddSibling').onclick = () => { if (state.selId) createSibling(state.selId); };
+document.getElementById('edDuplicate').onclick = () => { if (state.selId) duplicateNode(state.selId); };
+document.getElementById('edDelete').onclick = () => { if (state.sel.size) deleteSelection(); };
+
 // ---------- find / jump to a card ----------
 const searchBox = document.getElementById('searchBox');
 const searchResults = document.getElementById('searchResults');
@@ -2127,7 +2220,11 @@ window.addEventListener('keydown', (e) => {
 //  pick/list/write/remove/watch for the Vault API or native fs. The rest of
 //  the app speaks to `store` by relative path and never sees a directory handle.
 // ============================================================
-const store = {
+// iPad / Firefox / desktop Safari lack the File System Access API; on those we fall back
+// to an OPFS-backed vault (defined below) plus the import/export bridge.
+const HAS_FSA = !location.search.includes('nofsa') && !!window.showDirectoryPicker;
+
+const fsaStore = {
   _dir: null,                                  // FileSystemDirectoryHandle (FSA-specific)
   get isOpen(){ return !!this._dir; },
   get name(){ return this._dir ? this._dir.name : ''; },
@@ -2218,6 +2315,65 @@ const store = {
   },
 };
 
+// OPFS backend — same interface as fsaStore. The Origin Private File System exposes the
+// identical handle API (getDirectoryHandle / getFileHandle / createWritable / removeEntry /
+// entries), so list/write/remove are line-for-line the same; only the differences below
+// matter: no native picker, no permission model, no external watcher. Persists across
+// sessions; notes get in/out via the import / export bridge.
+const opfsStore = {
+  _dir: null, _opened: false,
+  get isOpen(){ return this._opened; },
+  get name(){ return 'On-device vault'; },
+
+  async _root(){
+    if (this._dir) return this._dir;
+    const root = await navigator.storage.getDirectory();
+    this._dir = await root.getDirectoryHandle('vault', { create:true });
+    return this._dir;
+  },
+  // "Open" just ensures the persistent vault exists — the real way data arrives is import().
+  async pick(){
+    try { await this._root(); this._opened = true; return 'ok'; }
+    catch { return 'error'; }
+  },
+  async openRecent(){ return this.pick(); },
+
+  async list(){
+    const out = [];
+    const walk = async (handle, prefix) => {
+      for await (const [name, h] of handle.entries()){
+        if (h.kind === 'directory'){ await walk(h, prefix + name + '/'); continue; }
+        if (!name.endsWith('.md')) continue;
+        out.push({ path: prefix + name, text: await (await h.getFile()).text() });
+      }
+    };
+    await walk(await this._root(), '');
+    return out;
+  },
+  async write(path, text){
+    let d = await this._root();
+    const parts = path.split('/');
+    for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i], { create:true });
+    const h = await d.getFileHandle(parts[parts.length-1], { create:true });
+    const w = await h.createWritable(); await w.write(text); await w.close();
+  },
+  async remove(path){
+    try {
+      const parts = path.split('/'); let d = await this._root();
+      for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i]);
+      await d.removeEntry(parts[parts.length-1]);
+    } catch { /* already gone — fine */ }
+  },
+  // how many notes are already cached on-device (drives "continue where you left off")
+  async count(){ try { return (await this.list()).length; } catch { return 0; } },
+  watch(){ /* OPFS can't change underneath us — nothing external to watch */ },
+  recents(){ return []; },
+};
+
+// Single backend the rest of the app talks to. Desktop Chrome/Edge → real folders;
+// everywhere else → the OPFS vault + import/export.
+const store = HAS_FSA ? fsaStore : opfsStore;
+
 async function openFolder() {
   const r = await store.pick();
   if (r === 'unsupported') {
@@ -2240,6 +2396,96 @@ async function openRecentFolder(key) {
   if (r === 'denied') { alert('Write permission was denied for this folder.'); return; }
   hideStart();
   await loadFromDir();
+}
+
+// ============================================================
+//  Import / export bridge — for browsers without the File System Access API (iPad &c).
+//  Import: read .md files the user picks from the Files app (iCloud / on-device) into the
+//  OPFS vault. Export: pack every note into a .zip the user can "Save to Files".
+// ============================================================
+const importInput = document.createElement('input');
+importInput.type = 'file';
+importInput.accept = '.md,.markdown,text/markdown';
+importInput.multiple = true;
+importInput.style.display = 'none';
+document.body.appendChild(importInput);
+importInput.addEventListener('change', async () => {
+  const files = [...importInput.files];
+  importInput.value = '';                 // let the same file be re-picked later
+  if (files.length) await importFiles(files);
+});
+
+async function importFiles(files){
+  await store.pick();                      // ensure the on-device vault exists & is open
+  let n = 0;
+  for (const f of files){
+    if (!/\.(md|markdown)$/i.test(f.name)) continue;
+    await store.write(f.name, await f.text());   // iOS gives flat names; subfolders aren't kept
+    n++;
+  }
+  if (!n){ setStatus('No Markdown files in that selection.'); return; }
+  hideStart();
+  await loadFromDir();
+  setStatus(`Imported ${n} file${n===1?'':'s'} into the on-device vault.`);
+}
+
+// Pack the current map into a .zip (store / no compression — tiny, zero-dependency).
+function exportZip(){
+  const nodes = [...state.nodes.values()];
+  if (!nodes.length){ setStatus('Nothing to export yet.'); return; }
+  const used = new Set();
+  const files = nodes.map(n => {
+    let name = n.file || (safeName(n.title) + '.md');
+    while (used.has(name)) name = name.replace(/(\.md)?$/, '') + '-1.md';   // dedupe zip entries
+    used.add(name);
+    return { name, data: serializeMd(n) };
+  });
+  const blob = zipBlob(files);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mindmap.zip';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  setStatus(`Exported ${files.length} notes → mindmap.zip`);
+}
+
+// ---- minimal ZIP writer (store method, no compression; ~CRC32 + headers, no library) ----
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n=0;n<256;n++){ let c=n; for (let k=0;k<8;k++) c = (c&1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); t[n]=c>>>0; }
+  return t;
+})();
+function crc32(bytes){
+  let c = 0xFFFFFFFF;
+  for (let i=0;i<bytes.length;i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function zipBlob(files){
+  const enc = new TextEncoder();
+  const u16 = v => [v & 0xFF, (v>>>8) & 0xFF];
+  const u32 = v => [v & 0xFF, (v>>>8) & 0xFF, (v>>>16) & 0xFF, (v>>>24) & 0xFF];
+  const body = [], central = [];
+  let offset = 0;
+  for (const f of files){
+    const name = enc.encode(f.name), data = enc.encode(f.data), crc = crc32(data);
+    const local = [
+      ...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0),
+    ];
+    body.push(new Uint8Array(local), name, data);
+    central.push(new Uint8Array([
+      ...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length),
+      ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset),
+    ]), name);
+    offset += local.length + name.length + data.length;
+  }
+  let centralSize = 0; for (const c of central) centralSize += c.length;
+  const eocd = new Uint8Array([
+    ...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length),
+    ...u32(centralSize), ...u32(offset), ...u16(0),
+  ]);
+  return new Blob([...body, ...central, eocd], { type:'application/zip' });
 }
 async function loadFromDir({ keepView = false } = {}) {
   state.nodes.clear(); state.toDelete = []; world.querySelectorAll('.node').forEach(e=>e.remove());
@@ -2483,9 +2729,42 @@ const startScreen = document.getElementById('startScreen');
 function showStart(){ startScreen.classList.remove('hidden'); renderRecents(); }
 function hideStart(){ startScreen.classList.add('hidden'); }
 document.getElementById('startOpen').onclick = () => openFolder();
+document.getElementById('exportBtn').onclick = exportZip;
+
+// On a browser without the File System Access API, swap the folder flow for the
+// import/export bridge: import .md from Files/iCloud, autosave to the OPFS vault, export back.
+async function setupPlatformUI(){
+  if (HAS_FSA) return;                       // desktop Chrome/Edge keeps the native-folder flow
+  document.body.classList.add('no-fsa');
+  document.getElementById('exportBtn').style.display = '';   // reveal Export in the toolbar
+  try { await navigator.storage?.persist?.(); } catch {}      // ask the browser not to evict OPFS
+
+  const startOpen = document.getElementById('startOpen');
+  startOpen.textContent = '📥 Import notes…';
+  startOpen.onclick = () => importInput.click();
+
+  const desc = document.querySelector('#startScreen .start-card p');
+  if (desc) desc.innerHTML = 'Import your <code>.md</code> notes to map them. Edits are kept on '
+    + 'this device and you can <b>Export</b> them back to Files / iCloud anytime.';
+  const note = document.querySelector('#startScreen .start-note');
+  if (note) note.textContent = 'Pick files from iCloud Drive or “On My iPad”. '
+    + 'Keep notes in one folder — subfolders aren’t preserved on import.';
+
+  // offer to resume the on-device vault if it already holds notes from a previous visit
+  const have = await opfsStore.count();
+  if (have > 0){
+    const cont = document.createElement('button');
+    cont.className = 'primary';
+    cont.style.marginTop = '8px';
+    cont.textContent = `↩ Continue on-device vault (${have})`;
+    cont.onclick = async () => { await store.pick(); hideStart(); await loadFromDir(); };
+    startOpen.insertAdjacentElement('afterend', cont);
+  }
+}
 
 applyView();
 showStart();   // ask for a folder on every load, with recents for quick start
+setupPlatformUI();
 </script>
 </body>
 </html>
