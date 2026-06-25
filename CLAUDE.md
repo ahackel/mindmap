@@ -38,23 +38,31 @@ field and the note body verbatim — be careful to keep that property when touch
 frontmatter code (`parseFM`/`fmSet`/`fmRemove`).
 
 **The `store` adapter is the single swappable I/O boundary.** All disk access
-(`pick`, `openRecent`, `list`, `write`, `remove`, `watch`) goes through it. There are
-**two implementations with the same interface**, selected at startup by
-`const HAS_FSA = !!window.showDirectoryPicker`:
+(`pick`, `openRecent`, `list`, `write`, `remove`, `watch`) goes through it. `store` is a
+reassignable `let` (each start-screen entry point activates its backend via `useStore`),
+and there are **two implementations with the same interface**. `const HAS_FSA =
+!!window.showDirectoryPicker` picks the default (`fsaStore` on Chrome/Edge, else
+`webdavStore`); a WebDAV connect swaps in `webdavStore` on any browser:
 - `fsaStore` — File System Access API (Chrome/Edge): reads/writes a real local folder.
-- `opfsStore` — Origin Private File System: a sandboxed on-device vault for browsers
-  without FSA (iPad Safari, Firefox). Its handle methods (`getFileHandle`,
-  `createWritable`, `entries`, `removeEntry`) match FSA, so `list`/`write`/`remove` are
-  the same; it just has no native picker, no permission model, and no external watcher.
+  Directory handles persist in IndexedDB (`idbGet`/`idbPut`); the "recent folders" list
+  is in localStorage.
+- `webdavStore` — the cross-device path, and the **only** option on iPad / no-FSA
+  browsers: Mac + iPad point at the **same** WebDAV server, so the `.md` files are
+  genuinely shared (last-write-wins per file). `list` = recursive `PROPFIND` + `GET`,
+  `write` = `MKCOL` parents + `PUT`, `remove` = `DELETE`, Basic auth. Config
+  (`{url,user,pass}`) lives in `localStorage` (`WEBDAV_KEY`); the server **must** send
+  CORS headers for this origin (PROPFIND/PUT/DELETE/MKCOL + Authorization/Depth).
 
-On the OPFS path, notes enter via **import** (a hidden `<input type=file>` → `importFiles`,
-reaching iCloud/local through the Files app) and leave via **export** (`exportZip`, a
-tiny inline zero-dependency ZIP writer). `setupPlatformUI` swaps the start screen and
-reveals the Export button when `!HAS_FSA`; `?nofsa` forces this path for testing on
-desktop. Retargeting to an Obsidian vault or Tauri build still means replacing only the
-`store` object — don't scatter FSA/OPFS calls elsewhere. Directory handles (FSA only)
-are persisted in IndexedDB (`idbGet`/`idbPut`); the "recent folders" list is in
-localStorage.
+`setupWebDAV` wires the connect/reconnect form (shown on every platform). `setupPlatformUI`
+adapts the start screen when `!HAS_FSA` — it hides the "Open folder" button and makes the
+WebDAV form the primary path; `?nofsa` forces that no-FSA layout for testing on desktop.
+Retargeting to an Obsidian vault or Tauri build still means replacing only the `store`
+object — don't scatter FSA/WebDAV calls elsewhere. The focus/visibility reload is a single
+shared listener (`installWatch`) re-pointed at the active store, so it keeps working across
+a backend switch.
+
+(An earlier OPFS-vault + zip import/export bridge for iPad was **removed** in favor of
+WebDAV — if you see references to `opfsStore`/`importFiles`/`exportZip`, they're stale.)
 
 **Touch input:** pan/zoom on the canvas is a unified Pointer-Events gesture layer on
 `#stage` (one finger pans, two fingers pinch-zoom + pan); node drag/reparent uses the

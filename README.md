@@ -13,9 +13,10 @@ It reads and writes your files directly through the browser's
 [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API),
 so your notes never leave your machine.
 
-> **Best in Chrome or Edge**, which can read and write your folder directly. Firefox,
-> Safari, and **iPad** lack the File System Access API, so there the app uses an
-> **import / export bridge** instead (see *iPad & other browsers* below).
+> **Best in Chrome or Edge**, which can read and write a local folder directly. Firefox,
+> Safari, and **iPad** lack the File System Access API, so there you connect a
+> **WebDAV server** instead — the same files, synced across devices (see *iPad & other
+> browsers* below).
 
 ## Quick start
 
@@ -27,21 +28,27 @@ so your notes never leave your machine.
 Cards are linked parent → child; layout, colours, and positions are stored in each
 note's frontmatter (`mm_x`, `mm_y`, …), so the map travels with the files.
 
-## iPad & other browsers
+## iPad & other browsers — WebDAV sync
 
 iPad Safari (and any browser without the File System Access API) can't autosave to a
-real folder, so the app falls back to a self-contained workflow:
+local folder, so there you connect a **WebDAV server** (Nextcloud, Synology, etc.) and
+work on the very same `.md` files as on your Mac:
 
-1. **Import notes** — pick `.md` files from the Files app (iCloud Drive or *On My iPad*).
+1. On the start screen, open *☁ Sync with a WebDAV server*, enter the collection URL +
+   an **app password**, and **Connect**. The config is remembered for one-tap reconnect.
 2. Edit with full touch support — **one finger pans**, **pinch zooms**, drag a card to
    reparent, and use the edit panel's **Rename / Child / Sibling / Duplicate / Delete**
    buttons (the desktop keyboard shortcuts, made tappable).
-3. Your edits autosave to a private **on-device vault** that persists between visits.
-4. **Export** (toolbar ⬇) downloads a `.zip` of all notes — *Save to Files* puts it
-   back in iCloud or local storage.
+3. Edits autosave straight to the server. The same form is on the Mac start screen, so
+   point both devices at the same server and the files are shared (last-write-wins per
+   file; switching back to a tab re-reads the other device's changes).
 
-Sync is manual (import / export); keep notes in a single folder, since subfolders
-aren't preserved on import. Add `?nofsa` to the URL to preview this mode on desktop.
+Add `?nofsa` to the URL to preview this mode on desktop.
+
+> The server must send **CORS** headers allowing this site to use
+> `PROPFIND / PUT / DELETE / MKCOL` with the `Authorization` and `Depth` headers —
+> otherwise the browser blocks the requests. Credentials stay in this browser's
+> `localStorage`.
 
 ## Features
 
@@ -54,11 +61,12 @@ aren't preserved on import. Add `?nofsa` to the URL to preview this mode on desk
 
 ## Architecture
 
-All file I/O lives behind a single swappable `store` adapter (search `const store`
-in `index.html`). There are two implementations with an identical interface —
-`fsaStore` (File System Access API) and `opfsStore` (Origin Private File System, for
-the import/export bridge) — selected at startup by `HAS_FSA`. Replacing only that
-object would retarget the app to an Obsidian vault or a Tauri/native build.
+All file I/O lives behind a single swappable `store` adapter (search `let store`
+in `index.html`). There are three implementations with an identical interface —
+`fsaStore` (File System Access API, for a local folder on Chrome/Edge) and `webdavStore`
+(cross-device sync, and the only option on iPad / no-FSA browsers) — chosen by `HAS_FSA`
+and the start-screen actions. Replacing only that object would retarget the app to an
+Obsidian vault or a Tauri/native build.
 
 ## Hosting
 
