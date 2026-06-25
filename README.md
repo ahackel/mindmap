@@ -4,7 +4,7 @@ A single-file, zero-build mindmap editor for a **local folder of Markdown notes*
 Open a folder, and every `.md` file becomes a card on an infinite canvas; edits are
 saved straight back to disk as plain Markdown.
 
-**[▶ Open the app](https://ahackel.github.io/mindmap/)**
+**[▶ Open the app](https://andreashackel.de/mindmap/)**
 
 ## How it works
 
@@ -18,7 +18,7 @@ so your notes never leave your machine.
 
 ## Quick start
 
-1. Open the [app](https://ahackel.github.io/mindmap/).
+1. Open the [app](https://andreashackel.de/mindmap/).
 2. Click **Open folder** and pick a directory of Markdown notes (grant write access).
 3. Pan with two-finger scroll (or **Space** + drag), zoom with pinch / ctrl-scroll,
    and press **F** with nothing selected to fit everything.
