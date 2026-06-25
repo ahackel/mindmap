@@ -1,0 +1,2491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Markdown Mindmap</title>
+<style>
+  :root {
+    --bg: #11151c;
+    --grid: #1b212c;
+    --node: #1e2733;
+    --node-border: #34465c;
+    --node-sel: #5aa9ff;
+    --edge: #4a5d75;
+    --text: #e6ecf3;
+    --muted: #8a99ad;
+    --accent: #5aa9ff;
+    --panel: #0d1117;
+  }
+  /* ---- light theme: override the base variables ---- */
+  body.light {
+    --bg: #e7eaef;
+    --grid: #d4d9e1;
+    --node: #ffffff;
+    --node-border: #cfd6e0;
+    --node-sel: #2f6fe0;
+    --edge: #9aa6b6;
+    --text: #1a2230;
+    --muted: #5d6b7e;
+    --accent: #2f6fe0;
+    --panel: #ffffff;
+  }
+
+  /* 8-colour muted palette — fills the whole card background (dark theme) */
+  /* card colours are identical in both themes; text on a card is always white */
+  .c-slate  { --card:#4860c0; --cardline:#7088e0; }
+  .c-red    { --card:#d62f48; --cardline:#f25c72; }
+  .c-amber  { --card:#d18a1d; --cardline:#f2ab44; }
+  .c-green  { --card:#1ba85a; --cardline:#3fcf81; }
+  .c-teal   { --card:#129fb3; --cardline:#33c5d8; }
+  .c-blue   { --card:#2f7fe8; --cardline:#5fa3f5; }
+  .c-violet { --card:#7a42da; --cardline:#9d70f0; }
+  .c-pink   { --card:#d6368e; --cardline:#f262ad; }
+  .c-grey   { --card:#2b3645; --cardline:#4a5a6e; }
+  /* "none" = no colour at all: blend into the canvas, no border (border returns when selected) */
+  .c-none   { --card:var(--bg); --cardline:transparent; }
+
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; overflow:hidden;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); }
+
+  #toolbar {
+    position: fixed; top:0; left:0; right:0; height:48px; z-index:20;
+    display:flex; align-items:center; gap:10px; padding:0 14px;
+    background: var(--panel); border-bottom:1px solid var(--grid);
+  }
+  #toolbar h1 { font-size:14px; font-weight:600; margin:0 8px 0 0; letter-spacing:.2px; }
+  #toolbar .sep { flex:1; }
+  button {
+    background: var(--node); color: var(--text); border:1px solid var(--node-border);
+    border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color:#fff; border-color: var(--accent); font-weight:600; }
+  button.active { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity:.45; cursor:default; }
+  /* toolbar buttons are borderless, monochrome clickable icons (icon = currentColor) */
+  #toolbar button {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; padding:0; border-radius:8px;
+    background:transparent; border:none; color:var(--muted);
+  }
+  #toolbar button:hover { background:var(--node); color:var(--text); }
+  #toolbar button.primary { color:var(--accent); }
+  #toolbar button.active { color:var(--accent); }
+  #toolbar button#roBtn.locked { color:#e0564f; }   /* red while read-only is locked */
+  #toolbar button#roBtn.locked:hover { color:#e0564f; background:var(--node); }
+  #toolbar button svg { width:18px; height:18px; display:block; }
+  #status { display:none; }   /* transient log messages are not shown in the toolbar */
+  /* home button = folder icon + loaded-folder name as one clickable element */
+  #toolbar button#homeBtn { width:auto; gap:6px; padding:0 9px; }
+  #homeBtn #folderName { font-size:13px; font-weight:600; color:var(--text);
+    max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #homeBtn #folderName:empty { display:none; }   /* icon-only until a folder is loaded */
+  #toolbar button#homeBtn:hover #folderName { color:var(--text); }
+  /* find / jump-to-card */
+  #searchWrap { position:relative; }
+  #searchBox { width:160px; height:30px; padding:0 10px; border-radius:8px; font-size:13px;
+    background:var(--node); border:1px solid var(--node-border); color:var(--text); }
+  #searchBox:focus { outline:none; border-color:var(--accent); width:220px; }
+  #searchResults { position:absolute; top:36px; left:0; min-width:240px; max-height:50vh; overflow:auto;
+    background:var(--panel); border:1px solid var(--grid); border-radius:8px; padding:4px;
+    display:none; z-index:30; }
+  #searchResults.open { display:block; }
+  #searchResults .sr-item { display:block; width:100%; text-align:left; padding:6px 9px; border-radius:6px;
+    font-size:13px; color:var(--text); background:transparent; border:none; cursor:pointer;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #searchResults .sr-item:hover, #searchResults .sr-item.active { background:var(--node); }
+  #searchResults .sr-none { padding:6px 9px; font-size:12px; color:var(--muted); }
+
+  #stage { position:fixed; inset:48px 0 0 0; overflow:hidden; cursor:default; }
+  #stage.panning { cursor:grabbing; }
+  /* the hand only appears while actually dragging a card; default everywhere else */
+  body.grabbing, body.grabbing * { cursor:grabbing !important; }
+  #world { position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; }
+
+  svg#edges, svg#toggles { position:absolute; top:0; left:0; overflow:visible; }
+  svg#edges { z-index:1; pointer-events:none; }      /* curves behind nodes */
+  .node { z-index:2; }                               /* nodes in the middle */
+  svg#toggles { z-index:3; pointer-events:none; }    /* toggles on top; group re-enables events */
+  svg#edges path { fill:none; stroke:var(--edge); stroke-width:4;
+    stroke-linejoin:round; stroke-linecap:round; }
+
+  .node {
+    position:absolute; width:200px; min-height:64px;
+    background: var(--card, var(--node)); border:1px solid var(--cardline, var(--node-border));
+    border-radius:2px; padding:10px 12px; cursor:default; color:#ffffff;
+    user-select:none;
+    /* fade opacity (search dim) & selection ring smoothly; NOT left/top — keeps dragging crisp */
+    transition: opacity .2s ease, box-shadow .15s ease;
+  }
+  /* only while expanding/collapsing: glide cards to their new spots (added/removed in JS) */
+  .node.lt-anim { transition: opacity .2s ease, box-shadow .15s ease,
+    left .3s cubic-bezier(.22,1,.36,1), top .3s cubic-bezier(.22,1,.36,1); }
+  /* bodyless cards shrink to just fit the title (no reserved body height) */
+  .node.no-body { min-height:0; }
+  .node.no-body .title { margin-bottom:0; }
+  /* an uncoloured card sits on the page background, so its text follows the theme, not white */
+  .node.c-none { color: var(--text); }
+  .node.sel { border-color: var(--node-sel); box-shadow:0 0 0 2px var(--node-sel); }
+  .node.drop-target { outline:2px dashed #5ac978; outline-offset:3px;
+    box-shadow:0 0 0 2px #5ac978; }
+  /* while poised over a valid parent the dragged card becomes just a dotted outline,
+     so the parent underneath stays visible */
+  .node.reparent-ghost { background:transparent !important; box-shadow:none !important;
+    border:2px dashed var(--node-sel); }
+  .node.reparent-ghost > * { visibility:hidden; }
+  /* break long words / URLs and clip anything that still overflows the card horizontally */
+  .node .title { font-weight:600; font-size:14px; margin-bottom:9px; padding-right:16px;
+    overflow-wrap:anywhere; overflow:hidden; }
+  /* inline title rename (slow-click / F2 / on-create): edit the card's title in place */
+  .node .title.editing { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;
+    cursor:text; white-space:pre-wrap; overflow:visible; background:rgba(255,255,255,.06); }
+  .node .title.editing.invalid { outline-color:#e0564a; }
+  .node .body  { font-size:12px; color:inherit; opacity:.9; line-height:1.4;
+    overflow-wrap:anywhere; overflow:hidden; }
+  /* markdown elements inside a card body — tight spacing, clipped preview */
+  .node .body > :first-child { margin-top:0; }
+  .node .body > :last-child  { margin-bottom:0; }
+  .node .body ul, .node .body ol,
+  .node .body blockquote, .node .body pre { margin:.3em 0; }
+  .node .body p { margin:.3em 0 .75em; }   /* a little breathing room after each paragraph */
+  .node .body h1,.node .body h2,.node .body h3,
+  .node .body h4,.node .body h5,.node .body h6 { margin:.3em 0; font-size:12px; font-weight:700; }
+  .node .body ul,.node .body ol { padding-left:1.1em; }
+  .node .body li { margin:.1em 0; }
+  .node .body li.task { list-style:none; margin-left:-1.0em; display:flex; align-items:flex-start; gap:.4em; }
+  .node .body li.task .taskbox { margin:.15em 0 0; cursor:pointer; accent-color:var(--accent); flex:none; }
+  .node .body strong { font-weight:700; }
+  .node .body em { font-style:italic; }
+  .node .body del { opacity:.7; }
+  .node .body code { font-family:ui-monospace,Menlo,monospace; font-size:11px;
+    background:rgba(255,255,255,.16); padding:0 3px; border-radius:3px; }
+  .node .body pre { background:rgba(0,0,0,.28); padding:6px 8px; border-radius:4px; overflow:hidden; }
+  .node .body pre code { background:none; padding:0; }
+  .node .body blockquote { border-left:2px solid rgba(255,255,255,.4); padding-left:8px;
+    margin-left:0; opacity:.85; }
+  .node .body hr { border:none; border-top:1px solid rgba(255,255,255,.3); margin:.4em 0; }
+  .node .body .lk { color:#fff; text-decoration:underline; text-underline-offset:2px;
+    cursor:pointer; font-weight:600; opacity:1; }
+  .node .body .lk:hover { text-decoration-thickness:2px; }
+  .node .badge { display:inline-block; margin-top:6px; font-size:10px; letter-spacing:.4px;
+    text-transform:uppercase; color:var(--tint); border:1px solid var(--tint);
+    border-radius:6px; padding:1px 6px; opacity:.85; }
+  /* add-child button, only on selected node */
+  .node .addchild { position:absolute; right:-14px; bottom:-14px; width:28px; height:28px;
+    border-radius:50%; background:var(--accent); color:#04101f;
+    font-size:18px; line-height:1; cursor:pointer; display:none;
+    align-items:center; justify-content:center; font-weight:700; }
+  .node.solo .addchild { display:flex; }   /* add-child only on a lone selection, not multi-select */
+  body.readonly .node .addchild { display:none !important; }   /* no add-child in read-only */
+  .node.search-dim { opacity:.2; }         /* dimmed while a find query excludes this card */
+  .node .addchild:hover { transform:scale(1.12); }
+  /* count chip shown when a node's children are collapsed — centred on the card's
+     upper-right corner, clear of the add-child (+) button at the lower-right */
+  .node .hidden-count { position:absolute; right:0; top:0; transform:translate(50%,-50%);
+    background:var(--accent);
+    color:#04101f; font-size:11px; font-weight:700; border-radius:11px; padding:2px 8px;
+    line-height:1; display:none; align-items:center; justify-content:center; }
+  .node.has-collapsed .hidden-count { display:inline-flex; }
+  .node.has-collapsed { border-style:dashed; }   /* hint that this node holds folded children */
+  /* matching empty-swatch in light theme */
+  body.light .swatch.inherit { background:repeating-linear-gradient(45deg,#fff,#fff 5px,#e7ebf1 5px,#e7ebf1 10px); }
+
+  #editor {
+    position:fixed; top:48px; right:0; bottom:0; width:380px; z-index:15;
+    background:var(--panel); border-left:1px solid var(--grid); padding:16px;
+    display:flex; flex-direction:column; gap:10px;
+    transform:translateX(100%);                 /* parked off-screen when closed */
+    transition:transform .25s cubic-bezier(.4,0,.2,1);
+  }
+  #editor.open { transform:translateX(0); }      /* slide in from the right */
+  #edFields { flex:1; display:flex; flex-direction:column; gap:10px; min-height:0; }
+  #edFields .fgroup { display:flex; flex-direction:column; gap:6px; }
+  #edFields .fg-body { flex:1; min-height:0; }
+  .fg-body-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  #extractBtn { font-size:11px; padding:3px 8px; border-radius:6px; cursor:pointer;
+    background:var(--node); color:var(--text); border:1px solid var(--node-border); }
+  #extractBtn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+  #extractBtn:disabled { opacity:.4; cursor:default; }
+  /* empty state vs. fields: only one shows at a time, driven by .has-selection */
+  #editor #edFields { display:none; }
+  #editor.has-selection #edFields { display:flex; }
+  #editor.has-selection #edEmpty { display:none; }
+  /* multi-select: only the colour picker applies; hide single-node fields, show the count */
+  #edMulti { display:none; }
+  #editor.multi #edMulti { display:block; }
+  #editor.multi #edName, #editor.multi .fg-tags,
+  #editor.multi .fg-body, #editor.multi .ed-help { display:none; }
+  /* read-only node name shown at the top of the sidebar (renaming happens on the canvas) */
+  #editor .ed-name { font-size:16px; font-weight:600; color:var(--text); line-height:1.3;
+    overflow-wrap:anywhere; padding-bottom:8px; border-bottom:1px solid var(--grid); }
+  /* rubber-band marquee drawn over the canvas while drag-selecting */
+  #marquee { position:absolute; display:none; z-index:5; pointer-events:none;
+    border:1px dotted var(--accent); background:color-mix(in srgb, var(--accent) 15%, transparent); }
+  #editor label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+  #editor input, #editor textarea, #editor select {
+    background:var(--node); color:var(--text); border:1px solid var(--node-border);
+    border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; width:100%;
+  }
+  #editor textarea { flex:1; resize:none; font-family: ui-monospace, "SF Mono", Menlo, monospace; line-height:1.5; }
+  #editor .row { display:flex; gap:8px; }
+  #editor .editnote { font-size:11px; color:var(--muted); line-height:1.5; }
+  /* all swatches share one row and shrink to fit (inherit + 9 colours + none) */
+  .swatches { display:flex; gap:6px; flex-wrap:nowrap; }
+  .swatch { flex:1 1 0; min-width:0; aspect-ratio:1; border-radius:7px; cursor:pointer;
+    border:2px solid transparent; background:var(--sw); }
+  .swatch:hover { transform:scale(1.12); }
+  .swatch.active { border-color:var(--text); }
+  /* inherit (the default): striped chip = "take the parent's colour" */
+  .swatch.inherit { background:repeating-linear-gradient(45deg,#1e2733,#1e2733 5px,#2a3543 5px,#2a3543 10px); }
+  /* explicit no-colour: a blank chip with a diagonal slash — does NOT inherit */
+  .swatch.nofill { border:2px solid var(--node-border); background:
+    linear-gradient(to top right, transparent calc(50% - 1.2px), #e0564a calc(50% - 1.2px),
+      #e0564a calc(50% + 1.2px), transparent calc(50% + 1.2px)), var(--bg); }
+  /* layout pickers: each row is one segmented toolbar (joined icon buttons) */
+  .layoutrow { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .layoutchips { display:inline-flex; border:1px solid var(--node-border);
+    border-radius:8px; overflow:hidden; background:var(--node); }
+  .layoutchip { width:40px; height:30px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    background:transparent; color:var(--muted); border:0; }
+  .layoutchip + .layoutchip { border-left:1px solid var(--node-border); }   /* segment dividers */
+  .layoutchip svg { width:20px; height:20px; }
+  .layoutchip:hover { color:var(--text); background:color-mix(in srgb, var(--text) 8%, transparent); }
+  .layoutchip.active { color:#fff; background:var(--accent); }
+  .layoutchip.disabled { opacity:.35; cursor:default; }
+  .layoutchip.disabled:hover { color:var(--muted); background:transparent; }
+
+  kbd { background:var(--node); border:1px solid var(--node-border); border-radius:4px;
+    padding:0 5px; font-size:11px; }
+
+  /* start screen */
+  #startScreen { position:fixed; inset:0; z-index:40; display:flex;
+    align-items:center; justify-content:center; background:var(--bg); }
+  #startScreen.hidden { display:none; }
+  .start-card { width:min(440px, 90vw); background:var(--panel); border:1px solid var(--grid);
+    border-radius:16px; padding:28px; }
+  .start-card h2 { margin:0 0 6px; font-size:20px; }
+  .start-card p { margin:0 0 18px; color:var(--muted); font-size:13px; line-height:1.5; }
+  .start-card .primary { width:100%; padding:11px; font-size:14px; margin-bottom:14px; }
+  .start-card .ghost { width:100%; padding:9px; background:transparent; color:var(--muted);
+    margin-top:6px; }
+  .recent-label { font-size:11px; text-transform:uppercase; letter-spacing:.5px;
+    color:var(--muted); margin:6px 0 8px; }
+  .recent-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+    padding:9px 11px; margin-bottom:6px; background:var(--node); border:1px solid var(--node-border);
+    border-radius:9px; cursor:pointer; font-size:13px; }
+  .recent-item:hover { border-color:var(--accent); }
+  .recent-item .ri-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .recent-item .ri-when { font-size:11px; color:var(--muted); }
+  .start-note { margin:14px 0 0 !important; font-size:11px !important; }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <button id="homeBtn" class="primary" title="Home — recent folders / open another" aria-label="Home — recent folders">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span id="folderName"></span></button>
+    <button id="addBtn" title="New node (Space)" aria-label="New node">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 9v6M9 12h6"/></svg></button>
+    <button id="collapseAllBtn" title="Collapse every node" aria-label="Collapse all">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5l4 4 4-4M8 19l4-4 4 4"/></svg></button>
+    <button id="expandAllBtn" title="Expand every node" aria-label="Expand all">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4M8 15l4 4 4-4"/></svg></button>
+    <button id="fitBtn" title="Focus selected card · fit whole map if none (F)" aria-label="Focus selected or fit map">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/></svg></button>
+    <button id="edgeBtn" title="Edge style: straight / orthogonal / bezier" aria-label="Cycle edge style">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h7a3 3 0 0 1 3 3v7"/></svg></button>
+    <div id="searchWrap">
+      <input id="searchBox" type="text" placeholder="Find… (/)" aria-label="Find a card" autocomplete="off" spellcheck="false" />
+      <div id="searchResults"></div>
+    </div>
+    <span class="sep"></span>
+    <span id="status"></span>
+    <button id="roBtn" title="Read-only mode (R) — view & collapse only, nothing is saved" aria-label="Toggle read-only mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
+    <button id="sidebarBtn" title="Show / hide the edit panel (S)" aria-label="Toggle edit panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M15 5v14"/></svg></button>
+    <button id="themeBtn" title="Toggle light / dark mode" aria-label="Toggle theme"></button>
+  </div>
+
+  <div id="stage">
+    <div id="world">
+      <svg id="edges"></svg>
+      <!-- toggles overlay renders ABOVE node divs so collapse dots are always visible -->
+      <svg id="toggles"></svg>
+    </div>
+  </div>
+
+  <div id="editor" class="open">
+    <div id="edEmpty" class="editnote">Select a node to edit it, or press <kbd>Space</kbd> for a new one.</div>
+    <div id="edFields">
+      <div id="edMulti" class="editnote"></div>
+      <div id="edName" class="ed-name" title="To rename: press F2 or slow-click the card on the canvas"></div>
+      <div class="fgroup fg-color">
+        <label>Color</label>
+        <div id="edColors" class="swatches"></div>
+      </div>
+      <div class="fgroup fg-layout">
+        <label>Layout (how children align)</label>
+        <div class="layoutrow">
+          <div id="edLayoutTypes" class="layoutchips"></div>
+          <div id="edLayoutDirs" class="layoutchips"></div>
+        </div>
+      </div>
+      <div class="fgroup fg-tags">
+        <label>Tags (comma)</label>
+        <input id="edTags" type="text" placeholder="mechanic, system" />
+      </div>
+      <div class="fgroup fg-body">
+        <div class="fg-body-head">
+          <label>Body (markdown)</label>
+          <button id="extractBtn" type="button" disabled
+            title="Move the selected text into a new child card (⌘⇧E)">⤷ Extract to child</button>
+        </div>
+        <textarea id="edBody" spellcheck="false"></textarea>
+      </div>
+      <div class="editnote ed-help">Changes save to the <code>.md</code> file as you type.
+        <kbd>Space</kbd> new node · <kbd>Enter</kbd> sibling · <kbd>Tab</kbd> child · <kbd>F2</kbd> / slow-click rename · <kbd>F</kbd> focus selected / fit map · <kbd>D</kbd> duplicate · <kbd>S</kbd> sidebar · <kbd>⌘/Ctrl-click</kbd> multi-select · <kbd>Esc</kbd> then <kbd>Delete</kbd> removes.</div>
+    </div>
+  </div>
+
+  <!-- start screen: choose / recall a folder before the canvas loads -->
+  <div id="startScreen">
+    <div class="start-card">
+      <h2>🧠 Markdown Mindmap</h2>
+      <p>Pick a folder of <code>.md</code> notes to map. Changes save back to those files.</p>
+      <button id="startOpen" class="primary">Open folder…</button>
+      <div id="recentWrap" style="display:none">
+        <div class="recent-label">Recent</div>
+        <div id="recentList"></div>
+      </div>
+      <p class="start-note">Chrome or Edge required for local file access.</p>
+    </div>
+  </div>
+
+<script type="module">
+/* ============================================================
+   Markdown Mindmap — PoC v2: hierarchy + collapse + add-child
+   Storage: one .md per node. Layout lives in each note's frontmatter as mm_* keys
+   (mm_parent = parent note's path, mm_x/mm_y, mm_collapsed) — no sidecar, no ids on disk.
+   The filename IS the node's identity; in-memory ids are ephemeral, minted per load.
+   Edges are DERIVED from parent — no separate edge list.
+   ============================================================ */
+
+const state = {
+  dir: null,
+  nodes: new Map(),   // id -> {id,file,x,y,parent,collapsed,title,status,tags[],body,el,dirty}
+  view: { x: 80, y: 40, k: 1 },
+  selId: null,         // the "primary" selected node — drives the single-node editor fields
+  sel: new Set(),      // full selection set (⌘-click / marquee); colour applies to all of these
+  edgeStyle: 'orthogonal',   // 'straight' | 'orthogonal' | 'bezier' — restored from localStorage
+  searchMatch: null,         // Set of ids matching the find query, or null when not searching
+  readOnly: false,           // read-only mode: no saves, no edits; collapse/expand only
+  idSeq: 1,
+  toDelete: [],
+  sidebarOpen: true,   // edit panel is open by default; toolbar button toggles it
+};
+
+const world = document.getElementById('world');
+const stage = document.getElementById('stage');
+const edgesSvg = document.getElementById('edges');
+const togglesSvg = document.getElementById('toggles');
+const statusEl = document.getElementById('status');
+const setStatus = (t) => statusEl.textContent = t;
+
+// ---------- theme (light / dark) ----------
+const THEME_KEY = 'mindmap.theme';
+const ICON_MOON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
+const ICON_SUN  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
+function applyTheme(theme){
+  const light = theme === 'light';
+  document.body.classList.toggle('light', light);
+  const btn = document.getElementById('themeBtn');
+  if (btn) btn.innerHTML = light ? ICON_MOON : ICON_SUN;   // icon = the mode you'd switch TO
+}
+function initTheme(){
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch {}
+  // fall back to the OS preference the first time
+  if (!saved) saved = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  applyTheme(saved);
+}
+function toggleTheme(){
+  const next = document.body.classList.contains('light') ? 'dark' : 'light';
+  applyTheme(next);
+  try { localStorage.setItem(THEME_KEY, next); } catch {}
+}
+document.getElementById('themeBtn').onclick = toggleTheme;
+initTheme();
+
+// escape text for safe insertion into SVG/HTML markup
+function esc(s){ return String(s).replace(/[&<>"']/g, c => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------- markdown -> HTML (compact, self-contained; the card is a clipped preview) ----------
+// Inline emphasis on a PLAIN text run (escaped first so user text can't inject markup).
+function mdEmphasis(s){
+  return esc(s)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+)__/g,     '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, '$1<em>$2</em>')
+    .replace(/(^|[^_\w])_([^_\s][^_]*?)_/g,  '$1<em>$2</em>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+}
+// Links/wikilinks within a text run; emphasis is applied to the gaps and link labels.
+//   [text](url) / bare https?:// → external link (new tab)
+//   [[Note]] or [[Note|alias]]   → wikilink → focuses that node in the map
+function mdLinks(text){
+  const re = /\[([^\]]+)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|(https?:\/\/[^\s)]+)/g;
+  let out = '', last = 0, m;
+  while ((m = re.exec(text))){
+    out += mdEmphasis(text.slice(last, m.index));
+    if (m[2])      out += `<a class="lk" href="${esc(m[2])}" target="_blank" rel="noopener">${mdEmphasis(m[1])}</a>`;
+    else if (m[3]) out += `<a class="lk wikilink" data-target="${esc(m[3].trim())}">${esc((m[4]||m[3]).trim())}</a>`;
+    else           out += `<a class="lk" href="${esc(m[5])}" target="_blank" rel="noopener">${esc(m[5])}</a>`;
+    last = re.lastIndex;
+  }
+  out += mdEmphasis(text.slice(last));
+  return out;
+}
+// Full inline pass: protect `code` spans first (no formatting inside), then links + emphasis.
+function mdInline(text){
+  let out = '', last = 0, m;
+  const re = /`([^`]+)`/g;
+  while ((m = re.exec(text))){
+    out += mdLinks(text.slice(last, m.index));
+    out += `<code>${esc(m[1])}</code>`;
+    last = re.lastIndex;
+  }
+  out += mdLinks(text.slice(last));
+  return out;
+}
+// Block-level pass: headings, lists, blockquotes, fenced code, rules, paragraphs.
+function renderBodyHTML(md){
+  const src = (md || '').replace(/\r\n?/g, '\n').trim();
+  if (!src) return '';                 // empty body → nothing (no stray blank line under the title)
+  const lines = src.split('\n');
+  let html = '', i = 0, taskIdx = 0;   // taskIdx: nth checkbox in the body, for write-back on toggle
+  const BLOCK = /^(#{1,6}\s|```|\s*>|\s*[-*+]\s|\s*\d+\.\s)/;
+  while (i < lines.length){
+    const line = lines[i];
+    if (/^```/.test(line)){                                   // fenced code block
+      i++; const code = [];
+      while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]);
+      i++;                                                    // skip closing fence
+      html += `<pre><code>${esc(code.join('\n'))}</code></pre>`; continue;
+    }
+    let h;
+    if ((h = line.match(/^(#{1,6})\s+(.*)$/))){               // heading
+      html += `<h${h[1].length}>${mdInline(h[2])}</h${h[1].length}>`; i++; continue;
+    }
+    if (/^\s*(?:[-*_]\s*){3,}$/.test(line)){ html += '<hr>'; i++; continue; }   // horizontal rule
+    if (/^\s*>/.test(line)){                                   // blockquote
+      const q = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, ''));
+      html += `<blockquote>${q.map(mdInline).join('<br>')}</blockquote>`; continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)){                            // unordered list (incl. [ ]/[x] tasks)
+      const items = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*+]\s+/, ''));
+      html += '<ul>' + items.map(it => {
+        const tm = it.match(/^\[([ xX])\]\s+(.*)$/);
+        if (tm) return `<li class="task"><input type="checkbox" class="taskbox" data-ti="${taskIdx++}"`
+                     + `${tm[1].toLowerCase()==='x' ? ' checked' : ''}>${mdInline(tm[2])}</li>`;
+        return `<li>${mdInline(it)}</li>`;
+      }).join('') + '</ul>'; continue;
+    }
+    if (/^\s*\d+\.\s+/.test(line)){                            // ordered list
+      const items = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+\.\s+/, ''));
+      html += `<ol>${items.map(it => `<li>${mdInline(it)}</li>`).join('')}</ol>`; continue;
+    }
+    // text run: gather until the next block. Every blank line is KEPT and rendered as an empty
+    // line (like Obsidian) — including blanks right before/after a list or other block. A run
+    // that's only blank lines (a gap between two blocks) becomes that many empty lines.
+    const para = [];
+    while (i < lines.length && !BLOCK.test(lines[i])) para.push(lines[i++]);
+    if (para.some(l => l.trim())) html += `<p>${para.map(mdInline).join('<br>')}</p>`;
+    else html += '<br>'.repeat(para.length);
+  }
+  return html;
+}
+
+// ---------- hierarchy helpers ----------
+function childrenOf(id){ return [...state.nodes.values()].filter(n => n.parent === id); }
+function isRoot(n){ return !n.parent || !state.nodes.has(n.parent); }
+// A node's `collapsed` flag means "this branch is folded": the node ITSELF and all
+// `collapsed` on a node hides its CHILDREN but keeps the node itself visible (outliner
+// model). So a node is hidden only if one of its ANCESTORS is collapsed.
+function isHidden(n){
+  let p = n.parent && state.nodes.get(n.parent);
+  while (p){
+    if (p.collapsed) return true;
+    p = p.parent && state.nodes.get(p.parent);
+  }
+  return false;
+}
+function descendantCount(id){
+  let c = 0; for (const ch of childrenOf(id)) c += 1 + descendantCount(ch.id); return c;
+}
+// guard against cycles when re-parenting
+function isAncestor(maybeAncestorId, nodeId){
+  let p = state.nodes.get(nodeId);
+  p = p && p.parent && state.nodes.get(p.parent);
+  while (p){ if (p.id === maybeAncestorId) return true; p = p.parent && state.nodes.get(p.parent); }
+  return false;
+}
+
+// ---------- markdown frontmatter parse/serialize ----------
+// ---------- frontmatter: parsed as ORDERED entries so unknown keys round-trip untouched ----------
+// Each entry groups a top-level `key:` line with any following continuation lines (indented
+// values, `- list` items, blanks, comments) until the next top-level key. This lets us rewrite
+// only the app-owned keys (tags/color/mm_*) while preserving everything else verbatim.
+function parseFM(fmText){
+  const entries = [];
+  for (const line of fmText.split('\n')){
+    const m = line.match(/^([\w-]+):(.*)$/);
+    if (m) entries.push({ key: m[1], lines: [line] });
+    else if (entries.length) entries[entries.length-1].lines.push(line);   // continuation
+    else entries.push({ key: null, lines: [line] });
+  }
+  return entries;
+}
+function fmEntry(entries, key){ return entries.find(e => e.key === key); }
+function fmValue(entries, key){
+  const e = fmEntry(entries, key); if (!e) return '';
+  return e.lines[0].slice(e.lines[0].indexOf(':')+1).trim();
+}
+function fmTags(entries){
+  const e = fmEntry(entries, 'tags'); if (!e) return [];
+  const inline = e.lines[0].slice(e.lines[0].indexOf(':')+1).trim();
+  if (inline) return inline.replace(/^\[|\]$/g,'').split(',').map(s=>s.trim()).filter(Boolean);
+  return e.lines.slice(1).map(l=>l.trim()).filter(l=>l.startsWith('-'))   // YAML list form
+    .map(l=>l.replace(/^-\s*/,'').replace(/^["']|["']$/g,'').trim()).filter(Boolean);
+}
+function fmSet(entries, key, line){
+  const e = fmEntry(entries, key);
+  if (e) e.lines = [line]; else entries.push({ key, lines:[line] });
+}
+function fmRemove(entries, key){
+  const i = entries.findIndex(e => e.key === key);
+  if (i >= 0) entries.splice(i, 1);
+}
+
+function parseMd(text, fileName) {
+  const m = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  const entries = m ? parseFM(m[1]) : [];
+  const body = m ? m[2] : text;
+  // The TITLE is always the filename (without .md) — it's the node's identity on disk.
+  const title = (fileName || 'Untitled').replace(/\.md$/i, '').trim() || 'Untitled';
+  const num = (v) => (v !== '' && !isNaN(+v)) ? +v : null;
+  return {
+    title,
+    fmEntries: entries,                    // full original frontmatter, preserved on save
+    color: fmValue(entries, 'color'),      // palette key, e.g. 'blue'
+    keepStatus: fmValue(entries, 'status'),
+    tags: fmTags(entries),
+    body: body.trim(),
+    // mindmap layout — note identity is its filename; parent stored as the PARENT note's path.
+    mm: {
+      parent: fmValue(entries, 'mm_parent'),
+      x: num(fmValue(entries, 'mm_x')),
+      y: num(fmValue(entries, 'mm_y')),
+      collapsed: fmValue(entries, 'mm_collapsed') === 'true',
+      layout: fmValue(entries, 'mm_layout') || 'none',   // none(inherit) | free | line | fan | two-sided
+      dir: fmValue(entries, 'mm_dir') || 'right',         // left | right | top | bottom
+    },
+  };
+}
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+// Rebuild the file from the ORIGINAL frontmatter entries, touching only the app-owned keys:
+// tags, color, and the mm_* layout. `date`, `category`, `aliases`, custom fields, etc. are
+// kept verbatim; `date` is stamped only when the note has none yet (never overwritten).
+function serializeMd(n) {
+  const entries = (n.fmEntries || []).map(e => ({ key: e.key, lines: [...e.lines] }));
+  entries.filter(e => e.key && e.key.startsWith('mm_')).forEach(e => fmRemove(entries, e.key));
+  // (re-add layout fresh below; strip any stale mm_* first)
+  for (const k of ['mm_parent','mm_x','mm_y','mm_collapsed','mm_layout','mm_dir']) fmRemove(entries, k);
+  fmSet(entries, 'tags', `tags: ${n.tags.length ? `[${n.tags.join(', ')}]` : '[]'}`);
+  if (n.color) fmSet(entries, 'color', `color: ${n.color}`); else fmRemove(entries, 'color');
+  if (!fmEntry(entries, 'date')) entries.unshift({ key:'date', lines:[`date: ${todayISO()}`] });
+  const parentNode = n.parent && state.nodes.get(n.parent);
+  if (parentNode) entries.push({ key:'mm_parent', lines:[`mm_parent: ${parentNode.file}`] });
+  entries.push({ key:'mm_x', lines:[`mm_x: ${Math.round(n.x)}`] });
+  entries.push({ key:'mm_y', lines:[`mm_y: ${Math.round(n.y)}`] });
+  if (n.collapsed) entries.push({ key:'mm_collapsed', lines:['mm_collapsed: true'] });
+  if (n.layoutType && n.layoutType !== 'none'){   // none (inherit) is the default — omit from file
+    entries.push({ key:'mm_layout', lines:[`mm_layout: ${n.layoutType}`] });
+    entries.push({ key:'mm_dir',    lines:[`mm_dir: ${n.layoutDir || 'right'}`] });
+  }
+  const fm = entries.flatMap(e => e.lines).join('\n');
+  const body = n.body.trim();
+  return `---\n${fm}\n---\n` + (body ? '\n' + body + '\n' : '\n');
+}
+
+// ---------- rendering ----------
+function applyView() {
+  world.style.transform = `translate(${state.view.x}px,${state.view.y}px) scale(${state.view.k})`;
+}
+// Smoothly glide the view to (tx,ty) instead of snapping. Any direct pan/zoom cancels it
+// (cancelViewAnim) so the animation never fights the user's own input.
+let viewAnim = null;
+function cancelViewAnim(){ if (viewAnim){ cancelAnimationFrame(viewAnim); viewAnim = null; } }
+function animateViewTo(tx, ty, tk = state.view.k, dur = 420){
+  cancelViewAnim();
+  const sx = state.view.x, sy = state.view.y, sk = state.view.k;
+  if (Math.abs(tx-sx) < 1 && Math.abs(ty-sy) < 1 && Math.abs(tk-sk) < .001){
+    state.view.x = tx; state.view.y = ty; state.view.k = tk; applyView(); return;
+  }
+  const t0 = performance.now();
+  const ease = t => t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;   // easeInOutCubic
+  function step(now){
+    const p = Math.min(1, (now - t0)/dur), e = ease(p);
+    state.view.x = sx + (tx-sx)*e;
+    state.view.y = sy + (ty-sy)*e;
+    // zoom is perceptually multiplicative, so interpolate k geometrically — with the eased
+    // parameter this gives a smooth ease-in/ease-out zoom rather than a linear ramp.
+    state.view.k = sk * Math.pow(tk/sk, e);
+    applyView();
+    viewAnim = p < 1 ? requestAnimationFrame(step) : null;
+  }
+  viewAnim = requestAnimationFrame(step);
+}
+function nodeEl(n) {
+  if (n.el) return n.el;
+  const el = document.createElement('div');
+  el.dataset.id = n.id;
+  el.innerHTML = `<div class="title"></div><div class="body"></div>
+    <span class="hidden-count"></span><div class="addchild" title="add child (Tab)">+</div>`;
+  world.appendChild(el);
+  n.el = el;
+  bindNodeDrag(n);
+  el.querySelector('.addchild').addEventListener('pointerdown', (e)=>{ e.stopPropagation(); });
+  el.querySelector('.addchild').addEventListener('click', (e)=>{ e.stopPropagation(); addChild(n.id); });
+  // body links: open externally, or jump to a wikilink's node. Don't let the click bubble to
+  // the card (which would select / toggle the panel); pointerdown is stopped in bindNodeDrag.
+  el.querySelector('.body').addEventListener('click', (e)=>{
+    const a = e.target.closest('a.lk'); if (!a) return;
+    e.stopPropagation();
+    if (a.classList.contains('wikilink')){
+      e.preventDefault();
+      focusByTitle(a.dataset.target);
+    }
+  });
+  // task checkboxes: toggle the matching [ ]/[x] in the body and persist
+  el.querySelector('.body').addEventListener('change', (e)=>{
+    const cb = e.target.closest('input.taskbox'); if (!cb) return;
+    e.stopPropagation();
+    toggleTask(n, +cb.dataset.ti);
+  });
+  // inline title rename: typing reflows + validates; Enter/Tab commit, Escape cancels, blur commits
+  const titleEl = el.querySelector('.title');
+  titleEl.addEventListener('input',   ()  => onInlineInput(n));
+  titleEl.addEventListener('keydown', (e) => onInlineKeydown(e, n));
+  titleEl.addEventListener('blur',    ()  => { if (inlineEdit && inlineEdit.id === n.id) endInlineEdit(); });
+  // double-click a node to collapse/expand its children (cancels a pending slow-click rename)
+  el.addEventListener('dblclick', (e)=>{
+    e.stopPropagation(); e.preventDefault();
+    clearTimeout(renameTimer);          // a double-click means "fold", not "rename"
+    toggleCollapse(n.id);
+  });
+  return el;
+}
+// A card's colour is its own, or — if unset — inherited from the nearest coloured ancestor.
+// While Alt-dragging to detach, preview the result: treat the dragged node as a root (stop the
+// ancestor walk there), so it — and its descendants — show the colour they'd have once cut loose.
+function effectiveColor(n){
+  const detachId = (drag && drag.alt && !drag.shift) ? drag.active.id : null;
+  for (let c = n; c; c = (c.id === detachId) ? null : (c.parent && state.nodes.get(c.parent)))
+    if (c.color) return c.color;
+  return 'none';
+}
+function paintNode(n) {
+  const el = nodeEl(n);
+  if (isHidden(n)) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const collapsedKids = n.collapsed && childrenOf(n.id).length > 0;
+  el.className = 'node c-' + effectiveColor(n)
+    + (state.sel.has(n.id) ? ' sel' : '')
+    + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
+    + (collapsedKids ? ' has-collapsed' : '')
+    + ((n.body && n.body.trim()) ? '' : ' no-body')
+    + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '');
+  el.style.left = n.x + 'px';
+  el.style.top = n.y + 'px';
+  // don't clobber the title while it's being inline-edited (the user is typing into it)
+  if (!(inlineEdit && inlineEdit.id === n.id)) el.querySelector('.title').textContent = n.title;
+  el.querySelector('.body').innerHTML = renderBodyHTML(n.body);
+  if (collapsedKids) el.querySelector('.hidden-count').textContent = '+' + descendantCount(n.id);
+}
+const NODE_W = 200;
+function nodeH(n){ return (n.el && n.el.offsetHeight) || 64; } // live height (falls back pre-render)
+function nodeCenter(n){ return { x: n.x + NODE_W/2, y: n.y + nodeH(n)/2 }; }
+
+// Bright per-branch line colours (match the .c-*-cardline borders); 'none' falls back to --edge.
+const EDGE_TINT = { slate:'#7088e0', red:'#f25c72', amber:'#f2ab44', green:'#3fcf81',
+  teal:'#33c5d8', blue:'#5fa3f5', violet:'#9d70f0', pink:'#f262ad', grey:'#4a5a6e' };
+const EDGE_GAP = 0;    // px the line stops short of a card border (0 = touch the border)
+const EDGE_R   = 12;   // corner radius on orthogonal elbows
+// polyline → path with rounded corners (quadratic at each interior vertex, clamped to leg length)
+function roundedPath(pts, r){
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 1; i < pts.length-1; i++){
+    const p = pts[i], prev = pts[i-1], next = pts[i+1];
+    const toward = (q, dist) => {
+      const dx = q.x-p.x, dy = q.y-p.y, L = Math.hypot(dx, dy) || 1;
+      return { x: p.x + dx/L*dist, y: p.y + dy/L*dist };
+    };
+    const e1 = toward(prev, Math.min(r, Math.hypot(p.x-prev.x, p.y-prev.y)/2));
+    const e2 = toward(next, Math.min(r, Math.hypot(p.x-next.x, p.y-next.y)/2));
+    d += ` L ${e1.x} ${e1.y} Q ${p.x} ${p.y} ${e2.x} ${e2.y}`;
+  }
+  const last = pts[pts.length-1];
+  return d + ` L ${last.x} ${last.y}`;
+}
+// Build an SVG path `d` for a parent→child edge in the current style:
+//   straight    — one diagonal segment between the facing borders
+//   orthogonal  — right-angle elbow with rounded corners (H & V only)
+//   bezier      — smooth curve with tangents along the dominant axis
+// All styles leave a small gap at each card border.
+// Which border a parent→child edge leaves from. A line/fan parent owns its children's side,
+// so every edge leaves from its layoutDir border; a free parent connects each child from the
+// nearest dominant-axis border (so a child dragged left connects on the left, etc.).
+function edgeSide(parent, child){
+  // Use the EFFECTIVE layout, not the raw field: a node with type `none` that inherits
+  // line/fan from an ancestor owns its children's side too, so its edges must leave from
+  // the inherited direction's border — otherwise an inherited-fan node draws free-style
+  // edges and looks different from an explicit-fan node with the same placement.
+  const eff = effectiveLayout(parent);
+  if (eff.type === 'line' || eff.type === 'fan') return dirSide(eff.dir);
+  const pc = nodeCenter(parent), cc = nodeCenter(child);
+  // two-sided splits along the direction's AXIS, so the edge must leave from the axis end that
+  // matches the child's wing — never the cross axis (outer children spread wide on the cross
+  // axis would otherwise pick left/right on an up/down split).
+  if (eff.type === 'two-sided'){
+    const horizAxis = dirSide(eff.dir) === 'left' || dirSide(eff.dir) === 'right';
+    return horizAxis ? (cc.x >= pc.x ? 'right' : 'left') : (cc.y >= pc.y ? 'down' : 'up');
+  }
+  const dx = cc.x - pc.x, dy = cc.y - pc.y;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'right' : 'left';
+  return dy >= 0 ? 'down' : 'up';
+}
+function edgePath(parent, child){
+  const pc = nodeCenter(parent), cc = nodeCenter(child);
+  const side = edgeSide(parent, child);
+  const horizontal = side === 'left' || side === 'right';
+  let a, b;
+  if (side === 'down')      { a = { x:pc.x, y:parent.y + nodeH(parent) }; b = { x:cc.x, y:child.y }; }
+  else if (side === 'up')   { a = { x:pc.x, y:parent.y };                 b = { x:cc.x, y:child.y + nodeH(child) }; }
+  else if (side === 'right'){ a = { x:parent.x + NODE_W, y:pc.y };        b = { x:child.x, y:cc.y }; }
+  else                      { a = { x:parent.x, y:pc.y };                 b = { x:child.x + NODE_W, y:cc.y }; }
+  if (state.edgeStyle === 'straight') return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
+  if (state.edgeStyle === 'bezier'){
+    if (horizontal){ const k = (b.x - a.x)/2; return `M ${a.x} ${a.y} C ${a.x+k} ${a.y} ${b.x-k} ${b.y} ${b.x} ${b.y}`; }
+    const k = (b.y - a.y)/2;  return `M ${a.x} ${a.y} C ${a.x} ${a.y+k} ${b.x} ${b.y-k} ${b.x} ${b.y}`;
+  }
+  // orthogonal: rounded elbow (H→V→H when horizontal, V→H→V when vertical)
+  const pts = horizontal
+    ? [a, { x:(a.x+b.x)/2, y:a.y }, { x:(a.x+b.x)/2, y:b.y }, b]
+    : [a, { x:a.x, y:(a.y+b.y)/2 }, { x:b.x, y:(a.y+b.y)/2 }, b];
+  return roundedPath(pts, EDGE_R);
+}
+function paintEdges() {
+  // While filtering, hide ALL lines — dimmed cards are semi-transparent, so faint lines would
+  // show through them and read as clutter. Cleaner to drop the lines entirely until search ends.
+  if (state.searchMatch){ edgesSvg.innerHTML = ''; togglesSvg.innerHTML = ''; return; }
+  let svg = '';
+  // Draw a connector for every parent→child edge where BOTH ends are visible.
+  // A collapsed node hides its children, so those edges simply don't appear.
+  for (const n of state.nodes.values()) {
+    if (isRoot(n)) continue;
+    const parent = state.nodes.get(n.parent);
+    if (!parent) continue;
+    if (isHidden(parent) || isHidden(n)) continue;
+    // While Alt-dragging this node we're previewing detach-to-root, so drop its parent
+    // edge entirely (no line, not even a dotted one).
+    if (drag && drag.alt && !drag.shift && drag.n.id === n.id) continue;
+    // tint by the child's branch colour
+    const tint = EDGE_TINT[effectiveColor(n)];
+    const style = tint ? ` style="stroke:${tint}"` : '';
+    svg += `<path${style} d="${edgePath(parent, n)}"/>`;
+  }
+  edgesSvg.innerHTML = svg;
+  togglesSvg.innerHTML = '';             // no edge toggles anymore
+}
+function paintAll() {
+  for (const n of state.nodes.values()) paintNode(n);
+  paintEdges();
+}
+
+// ---------- animated relayout (expand / collapse) ----------
+function prefersReducedMotion(){ try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } }
+function placeNodeEl(n){ if (n.el){ n.el.style.left = n.x + 'px'; n.el.style.top = n.y + 'px'; } }
+function setNodeElXY(n, x, y){ if (n.el){ n.el.style.left = x + 'px'; n.el.style.top = y + 'px'; } }
+// Newly revealed cards emanate from the nearest ancestor that was already on screen.
+function ancestorStart(node, before){
+  let p = node.parent ? state.nodes.get(node.parent) : null;
+  while (p){ const b = before.get(p.id); if (b) return b; p = p.parent ? state.nodes.get(p.parent) : null; }
+  return { x: node.x, y: node.y };
+}
+// Cards glide to new spots via a CSS transition; SVG edges can't transition, so for the duration
+// we redraw them each frame from the cards' live (animating) on-screen positions.
+let animToken = 0;
+function followEdges(tok, ms){
+  const t0 = performance.now();
+  const tick = (now) => {
+    if (tok !== animToken) return;                  // superseded by a newer animation
+    const saved = [];
+    for (const n of state.nodes.values()){
+      if (!n.el || isHidden(n)) continue;
+      const c = getComputedStyle(n.el);             // interpolated left/top while transitioning
+      saved.push([n, n.x, n.y]);
+      n.x = parseFloat(c.left) || n.x; n.y = parseFloat(c.top) || n.y;
+    }
+    paintEdges();
+    for (const [n,x,y] of saved){ n.x = x; n.y = y; }   // restore logical (final) positions
+    if (now - t0 < ms) requestAnimationFrame(tick); else paintEdges();
+  };
+  requestAnimationFrame(tick);
+}
+// Run a structural change (a collapse toggle) and CSS-animate the resulting reflow.
+function withLayoutAnimation(mutate){
+  const before = new Map();
+  for (const m of state.nodes.values()) if (m.el && !isHidden(m)) before.set(m.id, { x:m.x, y:m.y });
+  mutate();
+  paintAll();          // reveal/hide DOM and measure real heights
+  applyLayouts();      // compute FINAL positions into n.x/n.y (DOM not updated yet)
+  const visible = [...state.nodes.values()].filter(m => m.el && !isHidden(m));
+  const tok = ++animToken;                           // supersede any in-flight animation
+  if (prefersReducedMotion()){ for (const m of visible){ m.el.classList.remove('lt-anim'); placeNodeEl(m); } paintEdges(); return; }
+  // 1) park every visible card at its STARTING spot with no transition; just-revealed cards
+  //    also start invisible so they fade in (covers free layouts where nothing reflows)
+  for (const m of visible){
+    m.el.classList.remove('lt-anim');
+    const s = before.get(m.id) || ancestorStart(m, before);
+    setNodeElXY(m, s.x, s.y);
+    if (!before.has(m.id)) m.el.style.opacity = '0';
+  }
+  void document.body.offsetWidth;                    // commit the start positions before transitioning
+  // 2) turn on the transition and move every card to its FINAL spot → the browser animates left/top
+  const DUR = 320;
+  for (const m of visible){ m.el.classList.add('lt-anim'); placeNodeEl(m); m.el.style.opacity = ''; }
+  // 3) edges follow the moving cards; drop the transition class once it's done
+  followEdges(tok, DUR + 20);
+  setTimeout(() => { if (tok !== animToken) return; for (const m of visible) m.el && m.el.classList.remove('lt-anim'); paintEdges(); }, DUR + 60);
+}
+
+// ---------- edge style (straight / orthogonal / bezier), persisted ----------
+const EDGE_KEY = 'mindmap.edgeStyle';
+const EDGE_STYLES = ['orthogonal', 'bezier', 'straight'];
+function initEdgeStyle(){
+  let saved = null;
+  try { saved = localStorage.getItem(EDGE_KEY); } catch {}
+  if (EDGE_STYLES.includes(saved)) state.edgeStyle = saved;
+}
+function cycleEdgeStyle(){
+  const i = EDGE_STYLES.indexOf(state.edgeStyle);
+  state.edgeStyle = EDGE_STYLES[(i + 1) % EDGE_STYLES.length];
+  try { localStorage.setItem(EDGE_KEY, state.edgeStyle); } catch {}
+  paintEdges();
+  setStatus(`Edge style: ${state.edgeStyle}`);
+}
+initEdgeStyle();
+
+// Toggle one node's collapse (folds/unfolds its direct children & everything below them).
+function toggleCollapse(id){
+  const n = state.nodes.get(id); if (!n) return;
+  if (childrenOf(n.id).length === 0) return;   // nothing to fold on a leaf
+  // animate the reflow; withLayoutAnimation paints, measures heights, and lays out the children
+  withLayoutAnimation(() => { n.collapsed = !n.collapsed; n.dirtyLayout = true; });
+  scheduleSave();
+  setStatus(n.collapsed ? `Collapsed “${n.title}”` : `Expanded “${n.title}”`);
+}
+// Flip the idx-th task checkbox in a node's body and write the change back to disk.
+function toggleTask(n, idx){
+  if (state.readOnly) return;
+  let i = 0;
+  n.body = n.body.replace(/^(\s*[-*+]\s+)\[([ xX])\]/gm, (m, pre, mark) =>
+    i++ === idx ? pre + (mark === ' ' ? '[x]' : '[ ]') : m);
+  n.dirty = true;
+  if (state.selId === n.id) edBody.value = n.body;   // keep the sidebar editor in sync
+  paintNode(n); scheduleSave();
+}
+
+// ---------- node dragging (moves the whole subtree) ----------
+let drag = null;
+let autoPanRAF = null;
+// While a node is dragged to the screen edge, pan the view so you can drop onto cards that are
+// currently off-screen. The view pans toward the edge the cursor sits in, and the dragged subtree
+// is shifted in world-space by the inverse so it stays glued under the (stationary) cursor.
+function stopAutoPan(){ if (autoPanRAF){ cancelAnimationFrame(autoPanRAF); autoPanRAF = null; } }
+function autoPanStep(){
+  autoPanRAF = null;
+  if (!drag || !drag.moved || state.readOnly) return;
+  // Available canvas = the stage minus the toolbar (above it) and the edit panel (to its right).
+  // Panning kicks in as the cursor reaches those obstructions, so you can drag onto / past them.
+  const r = stage.getBoundingClientRect();
+  const ed = document.getElementById('editor');
+  const right = (ed && ed.classList.contains('open')) ? Math.min(r.right, ed.getBoundingClientRect().left) : r.right;
+  const M = 56, MAX = 16;   // edge band (px) and max pan speed (px/frame)
+  let vx = 0, vy = 0;
+  const x = drag.cx, y = drag.cy;
+  if (x < r.left + M)     vx =  Math.min(1, (r.left + M - x) / M);
+  else if (x > right - M) vx = -Math.min(1, (x - (right - M)) / M);
+  if (y < r.top + M)        vy =  Math.min(1, (r.top + M - y) / M);
+  else if (y > r.bottom - M) vy = -Math.min(1, (y - (r.bottom - M)) / M);
+  if (vx || vy){
+    cancelViewAnim();
+    vx *= MAX; vy *= MAX;
+    state.view.x += vx; state.view.y += vy; applyView();
+    // shift the dragged subtree's anchors opposite the pan so the cursor-to-card offset never
+    // changes (only `targets` — `start` keeps its own positions for clone/reset).
+    const wdx = -vx / state.view.k, wdy = -vy / state.view.k;
+    for (const s of drag.targets.values()){ s.x += wdx; s.y += wdy; }
+    const ddx = (drag.cx - drag.sx) / state.view.k, ddy = (drag.cy - drag.sy) / state.view.k;
+    for (const [id, s] of drag.targets){
+      const m = state.nodes.get(id); if (!m) continue;
+      m.x = s.x + ddx; m.y = s.y + ddy; m.dirtyLayout = true; paintNode(m);
+    }
+    paintEdges();
+    if (!drag.multi) updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
+  }
+  autoPanRAF = requestAnimationFrame(autoPanStep);
+}
+let inlineEdit = null;   // { id, orig, el } while a card title is being renamed in place
+let renameTimer = null;  // pending slow-click rename; any node interaction cancels it
+function subtreeIds(id){
+  // id + every descendant
+  const out = [id];
+  for (const ch of childrenOf(id)) out.push(...subtreeIds(ch.id));
+  return out;
+}
+function bindNodeDrag(n) {
+  const el = n.el;
+  el.addEventListener('pointerdown', (e) => {
+    if (e.target.classList.contains('addchild')) return;
+    if (e.target.closest('a.lk, input.taskbox')) { e.stopPropagation(); return; }  // let links/checkboxes click, not drag
+    // while this card's title is being renamed, let clicks place the caret — don't start a drag
+    if (inlineEdit && inlineEdit.id === n.id) { e.stopPropagation(); return; }
+    clearTimeout(renameTimer);   // any fresh interaction cancels a pending slow-click rename
+    e.stopPropagation();
+    el.setPointerCapture(e.pointerId);
+    // Dragging a card that's part of a multi-selection moves the WHOLE selection at once;
+    // otherwise just this card's subtree. `active` is the node dragged/dropped; `targets`
+    // are the nodes that follow the cursor (or, after a Shift-clone, just the clone).
+    const multi = state.sel.has(n.id) && state.sel.size > 1;
+    const rootIds = multi ? [...state.sel] : [n.id];
+    const ids = [...new Set(rootIds.flatMap(id => subtreeIds(id)))];
+    const start = new Map(ids.map(id => {
+      const m = state.nodes.get(id); return [id, { x:m.x, y:m.y }];
+    }));
+    // targets gets its OWN {x,y} objects (not new Map(start), which shares the value refs) so the
+    // edge auto-pan can shift the dragged anchors without also moving the pinned `start` positions.
+    const targets = new Map([...start].map(([id, s]) => [id, { x:s.x, y:s.y }]));
+    drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets,
+             moved:false, dropTarget:null, alt:e.altKey, shift:e.shiftKey, cloned:false,
+             meta: e.metaKey || e.ctrlKey };   // ⌘/Ctrl-click toggles this card in the selection
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!drag || drag.n !== n) return;
+    if (state.readOnly) return;        // no moving/reparenting in read-only (click & dbl-click still work)
+    drag.alt = e.altKey; drag.shift = drag.shift || e.shiftKey; // Shift = clone, Alt = detach
+    drag.cx = e.clientX; drag.cy = e.clientY;   // remembered for edge auto-pan
+    const dx = (e.clientX - drag.sx)/state.view.k, dy = (e.clientY - drag.sy)/state.view.k;
+    if (Math.abs(dx)+Math.abs(dy) > 2){ drag.moved = true; document.body.classList.add('grabbing'); }
+    // Shift+drag: leave the ORIGINAL where it is and drag a fresh clone away instead.
+    // (Clone applies to a single card only; a multi-selection drag is always a plain move.)
+    if (!drag.multi && drag.shift && drag.moved && !drag.cloned){
+      drag.cloned = true;
+      for (const [id, s] of drag.start){            // pin the original subtree back to start
+        const m = state.nodes.get(id); if (m){ m.x = s.x; m.y = s.y; m.dirtyLayout = false; }
+      }
+      const sp = drag.start.get(n.id);
+      const clone = leaveClone(drag.active, sp);     // clone sits at the original's start spot
+      drag.active = clone;                           // …and becomes the thing we drag/drop
+      drag.targets = new Map([[clone.id, { x:sp.x, y:sp.y }]]);
+      paintAll();                                    // render + bind the new clone node
+    }
+    // follow the cursor smoothly while dragging; the snap-to-grid happens on drop so
+    // the motion feels soft but items always come to rest on the 20px grid.
+    for (const [id, s] of drag.targets){
+      const m = state.nodes.get(id); if (!m) continue;
+      m.x = s.x + dx; m.y = s.y + dy; m.dirtyLayout = true;
+      paintNode(m);
+    }
+    paintEdges();
+    // reconnect: highlight a valid drop target (single-card drag only; multi-drag just moves)
+    if (drag.moved && !drag.multi) updateDropTarget(drag.active, e);
+    if (drag.moved && !autoPanRAF) autoPanRAF = requestAnimationFrame(autoPanStep);  // edge auto-pan
+  });
+  el.addEventListener('pointerup', () => {
+    stopAutoPan();
+    if (drag && drag.n === n) {
+      const act = drag.active;
+      if (!drag.moved) {
+        if (drag.meta) toggleSel(n.id);                 // ⌘/Ctrl-click: add/remove from selection
+        else if (state.selId !== n.id || state.sel.size !== 1) selectNode(n.id);
+        else if (!state.readOnly) {
+          // a second (slow) click on the already-sole-selected card = rename in place, Finder-style.
+          // Delay it so a double-click (which fires dblclick first) can cancel it and fold instead.
+          clearTimeout(renameTimer);
+          renameTimer = setTimeout(() => startInlineEdit(n), 260);
+        }
+      } else {
+        // dropped onto a node? re-parent. Alt+drop on empty canvas? detach to root.
+        // Otherwise it's just a move.
+        const tgt = drag.dropTarget;
+        clearDropTarget();
+        act.el?.classList.remove('reparent-ghost');
+        if (tgt && tgt !== act.parent) {
+          // reparent in place: the card keeps its ORIGINAL position, only its parent changes
+          // (a clone keeps where you dropped it, since that's a fresh card you're placing).
+          if (!drag.cloned){
+            for (const [id, s] of drag.targets){
+              const m = state.nodes.get(id); if (m){ m.x = s.x; m.y = s.y; m.dirtyLayout = true; }
+            }
+          }
+          reparent(act.id, tgt);
+        } else {
+          // snap onto the 20px grid: align the dragged node, shift the rest of its
+          // subtree by the same delta so relative layout is preserved.
+          const GRID = 20;
+          const ddx = Math.round(act.x / GRID) * GRID - act.x;
+          const ddy = Math.round(act.y / GRID) * GRID - act.y;
+          for (const id of drag.targets.keys()){
+            const m = state.nodes.get(id); if (!m) continue;
+            m.x += ddx; m.y += ddy; m.dirtyLayout = true;
+          }
+          if (drag.alt && !drag.shift && act.parent) {
+            act.parent = null;
+            setStatus(`“${act.title}” is now a root`);
+          }
+          paintAll();
+        }
+        reorderDraggedParents(drag.targets.keys());   // a drag is the ONLY thing that reorders siblings
+        applyLayouts(); paintAll();   // re-snap any dragged child back into its parent's layout
+        if (drag.cloned) selectNode(act.id);   // select the new clone you just dragged out
+        scheduleSave();
+      }
+    }
+    drag = null;
+    document.body.classList.remove('grabbing');
+  });
+}
+// Update the detach preview the instant Alt is pressed/released mid-drag, even if the pointer
+// isn't moving: repaint the dragged subtree (its colour previews the detached result) and the edges.
+function paintDetachPreview(){
+  if (drag) for (const id of subtreeIds(drag.active.id)){ const m = state.nodes.get(id); if (m) paintNode(m); }
+  paintEdges();
+}
+window.addEventListener('keydown', (e) => { if (drag && e.key === 'Alt'){ drag.alt = true;  paintDetachPreview(); } });
+window.addEventListener('keyup',   (e) => { if (drag && e.key === 'Alt'){ drag.alt = false; paintDetachPreview(); } });
+
+// ---------- reconnect (re-parent by drag-and-drop) ----------
+function updateDropTarget(dragged, e){
+  const sub = new Set(subtreeIds(dragged.id)); // dragged card + all its descendants
+  // topmost .node under the cursor that isn't the dragged card itself
+  let hovered = null;
+  for (const el of document.elementsFromPoint(e.clientX, e.clientY)){
+    const nd = el.closest && el.closest('.node');
+    if (nd && nd.dataset.id !== dragged.id){ hovered = nd.dataset.id; break; }
+  }
+  clearDropTarget();
+  let target = null;
+  // Refusing to drop onto your own child/descendant would make a cycle — say so out loud,
+  // otherwise the drag just silently does nothing and looks broken.
+  if (hovered && sub.has(hovered)){
+    setStatus(`Can’t parent “${dragged.title}” onto its own child/descendant`);
+  } else if (hovered && hovered === dragged.parent){   // already its parent — nothing to do
+    const p = state.nodes.get(hovered);
+    setStatus(`“${dragged.title}” is already a child of “${p ? p.title : 'that card'}”`);
+  } else if (hovered){
+    target = hovered;
+  }
+  if (drag) drag.dropTarget = target;
+  if (target){
+    const tEl = state.nodes.get(target)?.el;
+    if (tEl) tEl.classList.add('drop-target');
+  }
+  // poised over a valid parent → ghost the dragged card so the parent shows through
+  if (dragged.el) dragged.el.classList.toggle('reparent-ghost', !!target);
+}
+function clearDropTarget(){
+  document.querySelectorAll('.node.drop-target').forEach(el => el.classList.remove('drop-target'));
+}
+function reparent(childId, newParentId){
+  if (state.readOnly) return;
+  const child = state.nodes.get(childId);
+  if (!child || childId === newParentId) return;
+  if (isAncestor(childId, newParentId)) return; // would create a cycle
+  child.parent = newParentId;
+  child.dirtyLayout = true;
+  applyLayouts(); paintAll();
+  setStatus(`Re-parented “${child.title}” → “${state.nodes.get(newParentId).title}”`);
+}
+
+// ---------- add child ----------
+function addChild(parentId){
+  if (state.readOnly) return;
+  const parent = state.nodes.get(parentId); if (!parent) return;
+  if (parent.collapsed){ parent.collapsed = false; } // reveal so the new child is visible
+  const sibs = childrenOf(parentId);
+  const id = 'n' + (state.idSeq++);
+  const n = {
+    id, file:null,
+    x: parent.x + 40 + sibs.length * 30,
+    y: parent.y + 150 + sibs.length * 10,
+    parent: parentId, collapsed:false,
+    title: uniqueTitle('New Node'), color:'', keepStatus:'', tags:[], body:'',
+    layoutType:'none', layoutDir:'right',
+    dirty:true, dirtyLayout:true,
+  };
+  state.nodes.set(id, n);
+  applyLayouts();        // a line/fan parent immediately slots the new child into place
+  paintAll();
+  selectNode(id);
+  startInlineEdit(n);    // drop straight into renaming the fresh card
+  scheduleSave();
+}
+
+// Add a SIBLING of `refId` — a new node sharing its parent. For a parented node we delegate
+// to addChild so the parent's order/layout handling stays in one place; a root-level node has
+// no parent, so its "sibling" is a fresh unconnected node placed just below it.
+function createSibling(refId){
+  if (state.readOnly) return;
+  const ref = state.nodes.get(refId); if (!ref) return;
+  if (ref.parent != null) return addChild(ref.parent);
+  return createNode({ x: ref.x, y: ref.y + nodeH(ref) + 40 });
+}
+
+// ---------- pan / zoom ----------
+function screenToWorld(sx, sy) {
+  const r = stage.getBoundingClientRect();
+  return { x:(sx - r.left - state.view.x)/state.view.k, y:(sy - r.top - state.view.y)/state.view.k };
+}
+let pan = null, marquee = null, spaceHeld = false, spaceUsedForPan = false;
+const marqueeEl = document.createElement('div');
+marqueeEl.id = 'marquee'; stage.appendChild(marqueeEl);
+
+// Empty-canvas drag = rubber-band SELECT. Hold Space (or middle-button) to PAN instead.
+stage.addEventListener('pointerdown', (e) => {
+  if (e.target.closest('.node')) return;
+  cancelViewAnim();
+  if (spaceHeld || e.button === 1){                 // hand-pan
+    if (spaceHeld) spaceUsedForPan = true;
+    pan = { sx:e.clientX, sy:e.clientY, ox:state.view.x, oy:state.view.y };
+    stage.classList.add('panning');
+    return;
+  }
+  // start a marquee. ⌘/Ctrl keeps the existing selection and adds to it.
+  marquee = { sx:e.clientX, sy:e.clientY, add:e.metaKey||e.ctrlKey, base:new Set(state.sel), moved:false };
+  drawMarquee(e.clientX, e.clientY);
+  marqueeEl.style.display = 'block';
+});
+window.addEventListener('pointermove', (e) => {
+  if (pan){
+    state.view.x = pan.ox + (e.clientX - pan.sx);
+    state.view.y = pan.oy + (e.clientY - pan.sy);
+    applyView(); return;
+  }
+  if (marquee){
+    if (Math.abs(e.clientX-marquee.sx) + Math.abs(e.clientY-marquee.sy) > 3) marquee.moved = true;
+    drawMarquee(e.clientX, e.clientY);
+    if (marquee.moved) selectWithinMarquee(e.clientX, e.clientY);
+  }
+});
+window.addEventListener('pointerup', () => {
+  if (pan){ pan = null; stage.classList.remove('panning'); return; }
+  if (marquee){
+    marqueeEl.style.display = 'none';
+    if (!marquee.moved && !marquee.add) selectNode(null);   // plain click on empty = deselect
+    marquee = null;
+  }
+});
+function drawMarquee(cx, cy){
+  const r = stage.getBoundingClientRect();
+  marqueeEl.style.left   = (Math.min(marquee.sx, cx) - r.left) + 'px';
+  marqueeEl.style.top    = (Math.min(marquee.sy, cy) - r.top)  + 'px';
+  marqueeEl.style.width  = Math.abs(cx - marquee.sx) + 'px';
+  marqueeEl.style.height = Math.abs(cy - marquee.sy) + 'px';
+}
+function selectWithinMarquee(cx, cy){
+  const a = screenToWorld(Math.min(marquee.sx, cx), Math.min(marquee.sy, cy));
+  const b = screenToWorld(Math.max(marquee.sx, cx), Math.max(marquee.sy, cy));
+  const hits = [];
+  for (const n of state.nodes.values()){
+    if (isHidden(n)) continue;
+    if (n.x < b.x && n.x + NODE_W > a.x && n.y < b.y && n.y + nodeH(n) > a.y) hits.push(n.id);
+  }
+  setSelectionSet(marquee.add ? new Set([...marquee.base, ...hits]) : hits);
+}
+// zoom toward a screen point (mx,my are relative to the stage) by a multiplier
+function zoomAt(mx, my, factor){
+  cancelViewAnim();
+  const k0 = state.view.k;
+  const k1 = Math.min(2.5, Math.max(0.2, k0 * factor));
+  state.view.x = mx - (mx - state.view.x) * (k1 / k0);
+  state.view.y = my - (my - state.view.y) * (k1 / k0);
+  state.view.k = k1;
+  applyView();
+}
+
+// Trackpad on macOS delivers BOTH gestures as wheel events:
+//  · pinch          → wheel with ctrlKey = true  → zoom toward the cursor
+//  · two-finger pan → wheel with ctrlKey = false → pan by deltaX/deltaY
+// (A mouse wheel also lands here with ctrlKey = false; we treat its vertical delta as zoom.)
+stage.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  cancelViewAnim();
+  const r = stage.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+
+  if (e.ctrlKey){
+    // pinch-zoom — deltaY is small & continuous; convert to a gentle factor
+    zoomAt(mx, my, Math.exp(-e.deltaY * 0.01));
+    return;
+  }
+  // a plain MOUSE wheel: deltaMode is "lines" (1) not "pixels" (0), or it's the classic
+  // 100/120-px notch. Trackpad scroll is always pixel-mode with fractional deltas, so this
+  // won't catch it — trackpad users zoom by pinching (handled above).
+  const isMouseWheel = e.deltaX === 0 &&
+    (e.deltaMode === 1 || Math.abs(e.deltaY) === 100 || Math.abs(e.deltaY) === 120);
+  if (isMouseWheel){
+    zoomAt(mx, my, e.deltaY < 0 ? 1.15 : 0.87);
+    return;
+  }
+  // two-finger scroll → pan
+  state.view.x -= e.deltaX;
+  state.view.y -= e.deltaY;
+  applyView();
+}, { passive:false });
+
+// Safari fires native gesture events for pinch instead of ctrl+wheel.
+let gestureStartK = 1, gestureMid = {x:0,y:0};
+stage.addEventListener('gesturestart', (e) => {
+  e.preventDefault();
+  gestureStartK = state.view.k;
+  const r = stage.getBoundingClientRect();
+  gestureMid = { x: e.clientX - r.left, y: e.clientY - r.top };
+});
+stage.addEventListener('gesturechange', (e) => {
+  e.preventDefault();
+  const k0 = state.view.k;
+  const target = Math.min(2.5, Math.max(0.2, gestureStartK * e.scale));
+  zoomAt(gestureMid.x, gestureMid.y, target / k0);
+});
+stage.addEventListener('gestureend', (e) => e.preventDefault());
+
+function fit() {
+  const ns = [...state.nodes.values()].filter(n => !isHidden(n));
+  if (!ns.length) return;
+  const minX = Math.min(...ns.map(n=>n.x)), minY = Math.min(...ns.map(n=>n.y));
+  const maxX = Math.max(...ns.map(n=>n.x+200)), maxY = Math.max(...ns.map(n=>n.y+90));
+  const r = stage.getBoundingClientRect();
+  const k = Math.min(1.4, Math.min(r.width/(maxX-minX+120), r.height/(maxY-minY+120)));
+  state.view.k = k;
+  state.view.x = (r.width - (maxX-minX)*k)/2 - minX*k;
+  state.view.y = (r.height - (maxY-minY)*k)/2 - minY*k;
+  applyView();
+}
+
+// Zoom + glide so a set of nodes fits, honouring the space the editor sidebar takes from the
+// right. Zoom is clamped so we never blow things up huge. Shared by focus-selected and fit-all.
+const FOCUS_MIN_K = 0.2, FOCUS_MAX_K = 1.0, FOCUS_PAD = 80;
+function frameBox(nodes){
+  const group = nodes.filter(n => n && !isHidden(n));
+  if (!group.length) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of group){
+    minX = Math.min(minX, n.x);            minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + NODE_W);   maxY = Math.max(maxY, n.y + nodeH(n));
+  }
+  const bw = maxX - minX, bh = maxY - minY, cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+  // available canvas = stage minus the sidebar (when open). The sidebar sits on the RIGHT,
+  // so the usable region spans x:[0, availW] and we centre the box within it.
+  const r = stage.getBoundingClientRect();
+  const ed = document.getElementById('editor');
+  const availW = r.width - (ed.classList.contains('open') ? ed.offsetWidth : 0);
+  const availH = r.height;
+  const k = Math.max(FOCUS_MIN_K, Math.min(FOCUS_MAX_K,
+    Math.min((availW - 2*FOCUS_PAD) / bw, (availH - 2*FOCUS_PAD) / bh)));
+  animateViewTo(availW/2 - cx*k, availH/2 - cy*k, k);   // glide + zoom, never jump
+}
+// Focus a card: un-collapse hiding ancestors, select it, frame it + all its visible descendants.
+function focusNode(target){
+  if (!target) return;
+  let revealed = false;
+  for (let p = target.parent && state.nodes.get(target.parent); p; p = p.parent && state.nodes.get(p.parent)){
+    if (p.collapsed){ p.collapsed = false; p.dirtyLayout = true; revealed = true; }
+  }
+  selectNode(target.id);                       // paint first so heights are known / editor opens
+  frameBox(subtreeIds(target.id).map(id => state.nodes.get(id)));
+  if (revealed && store.isOpen) scheduleSave();
+}
+// Follow a [[wikilink]]: find the node by title (case-insensitive) and focus it.
+function focusByTitle(title){
+  const t = title.trim().toLowerCase();
+  const target = [...state.nodes.values()].find(n => n.title.trim().toLowerCase() === t);
+  if (!target){ setStatus(`No node titled “${title}” in this map`); return; }
+  focusNode(target);
+}
+// The "focus" command (toolbar button + F): frame the selected card (+ its subtree), or
+// frame the whole map when nothing is selected — both glide with the same easing.
+function focusOrFit(){
+  if (state.selId && state.nodes.has(state.selId)) focusNode(state.nodes.get(state.selId));
+  else frameBox([...state.nodes.values()]);
+}
+
+// ---------- radial (first-load) layout ----------
+// Lay each root tree out as a radial "sunburst": root in the centre, each deeper level on
+// a wider ring. A subtree gets an angular wedge sized by how many leaves it contains, so
+// crowded branches get more room. Hidden (collapsed-away) nodes are skipped, so the layout
+// reflects what's actually on screen and stays compact.
+// number of leaves under a node (a collapsed node counts as a single leaf, since its
+// subtree is hidden and shouldn't claim angular space)
+function leafCount(id){
+  const node = state.nodes.get(id);
+  if (node && node.collapsed) return 1;
+  const kids = childrenOf(id);
+  if (kids.length === 0) return 1;
+  let s = 0; for (const k of kids) s += leafCount(k.id); return s;
+}
+// Lay out a single subtree radially around `root`, keeping `root` where it already is
+// (so re-laying a branch doesn't teleport it). Children fan out on widening rings; a
+// collapsed node's subtree is skipped.
+function radialLayoutFrom(root){
+  if (!root) return;
+  const RING = 280;
+  const ox = root.x, oy = root.y;     // pivot stays put
+  const place = (node, depth, a0, a1) => {
+    if (depth > 0){
+      const mid = (a0 + a1) / 2, radius = depth * RING;
+      node.x = ox + Math.cos(mid) * radius;
+      node.y = oy + Math.sin(mid) * radius;
+      node.dirtyLayout = true;
+    }
+    if (node.collapsed) return;        // don't lay out a folded subtree
+    const kids = childrenOf(node.id);
+    if (!kids.length) return;
+    const total = kids.reduce((s,k)=>s + leafCount(k.id), 0) || 1;
+    const span  = (depth === 0) ? Math.PI*2 : (a1 - a0);
+    let cur     = (depth === 0) ? -Math.PI/2 : a0;
+    for (const k of kids){
+      const frac = leafCount(k.id) / total;
+      place(k, depth+1, cur, cur + span*frac);
+      cur += span * frac;
+    }
+  };
+  place(root, 0, 0, Math.PI*2);
+}
+
+// ---------- per-node layout (free / line / fan) ----------
+// Every node carries its own layout that decides how its CHILDREN sit relative to it:
+//   · free — children keep wherever they're dragged (the default; direction ignored)
+//   · line — children chained one after another ALONG the direction (e.g. a column going down)
+//   · fan  — children spread ACROSS the direction at one distance (the classic mindmap branch)
+// `layoutDir` (left/right/top/bottom) picks the side. Line/fan nodes OWN their children's
+// positions, so layout re-runs after every structural or drag change (there's no manual Tidy).
+const LAYOUT_MAIN  = 60;   // gap between a card and its children along the growth axis
+const LAYOUT_CROSS = 22;   // gap between FANNED sibling subtrees (spread across the side)
+const LAYOUT_CHAIN = 12;   // gap between CHAINED sibling subtrees (a line along the direction)
+
+// top/bottom are the user-facing names; internally the side axis uses up/down.
+function dirSide(dir){ return dir === 'top' ? 'up' : dir === 'bottom' ? 'down' : (dir || 'right'); }
+
+// Bounding box over a node + its VISIBLE descendants (what the layout actually placed).
+function subtreeBox(node){
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const id of subtreeIds(node.id)){
+    const n = state.nodes.get(id); if (!n || isHidden(n)) continue;
+    x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
+    x1 = Math.max(x1, n.x + NODE_W); y1 = Math.max(y1, n.y + nodeH(n));
+  }
+  return { x0, y0, x1, y1 };
+}
+function shiftSubtree(node, dx, dy){
+  // Saved positions are integers; layout targets are floats. Ignore sub-pixel nudges so a
+  // re-opened, already-laid-out map settles to zero movement (no spurious rewrites, no drift).
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+  for (const id of subtreeIds(node.id)){
+    const n = state.nodes.get(id); if (!n || isHidden(n)) continue;
+    n.x += dx; n.y += dy; n.dirtyLayout = true;
+  }
+}
+// A node's EFFECTIVE layout. `none` (the default) inherits its parent's effective type AND
+// direction, walking up until an explicit free/line/fan is found; a root with no explicit layout
+// resolves to free (children stay where dragged).
+function effectiveLayout(node){
+  let n = node, guard = 0;
+  while (n && guard++ < 4096){
+    const t = n.layoutType || 'none';
+    if (t !== 'none') return { type: t, dir: n.layoutDir || 'right' };
+    n = n.parent ? state.nodes.get(n.parent) : null;
+  }
+  return { type: 'free', dir: 'right' };   // unset root → free
+}
+// Sibling order along the axis a parent stacks its children on (fan → cross axis, line → main).
+// Ties break by filename so the seeded order is deterministic across reloads (folder iteration
+// order is not stable, so we must never depend on it).
+function kidsByPosition(node, kids){
+  const eff = effectiveLayout(node);
+  const side = dirSide(eff.dir), horiz = side === 'left' || side === 'right';
+  const useX = (eff.type === 'fan' || eff.type === 'two-sided') ? !horiz : horiz;
+  const pos = useX ? (n=>n.x) : (n=>n.y);
+  const tie = n => n.file || n.title || n.id;
+  return kids.slice()
+    .sort((a,b) => (pos(a)-pos(b)) || (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0))
+    .map(k => k.id);
+}
+// A parent's child order is STORED (in memory) and only changes when a child is directly
+// dragged — never on an incidental relayout. So moving a parent, editing text, or collapsing
+// never reshuffles children; order is seeded from saved positions the first time it's needed.
+function orderedKids(node, kids){
+  const have = new Set(kids.map(k => k.id));
+  let order = (node.kidOrder || []).filter(id => have.has(id));   // drop removed children
+  const known = new Set(order);
+  const fresh = kids.filter(k => !known.has(k.id));                // new children → append by position
+  if (fresh.length) order = order.concat(kidsByPosition(node, fresh));
+  node.kidOrder = order;
+  const rank = new Map(order.map((id,i)=>[id,i]));
+  return kids.slice().sort((a,b)=>rank.get(a.id) - rank.get(b.id));
+}
+// After a drag the dropped positions are authoritative (heights didn't change), so refresh the
+// sibling order of every parent that had a child moved — this is the ONLY place order changes.
+function reorderDraggedParents(movedIds){
+  const parents = new Set();
+  for (const id of movedIds){ const n = state.nodes.get(id); if (n && n.parent) parents.add(n.parent); }
+  for (const pid of parents){
+    const p = state.nodes.get(pid); if (!p) continue;
+    const t = effectiveLayout(p).type;
+    if (t === 'line' || t === 'fan' || t === 'two-sided')
+      p.kidOrder = kidsByPosition(p, childrenOf(p.id).filter(k => !isHidden(k)));
+  }
+}
+// Arrange a node's children per its own layoutType/layoutDir, then recurse into them.
+// The node itself stays put — only its children (and their whole subtrees) move. A `free`
+// node leaves its children wherever they are. Sibling ORDER is read from the children's
+// CURRENT positions, so dragging a child past a sibling reorders them on the next pass.
+function layoutSubtree(node){
+  if (node.collapsed) return;
+  const kids = childrenOf(node.id).filter(k => !isHidden(k));
+  if (!kids.length) return;
+  // lay out each child's own subtree first, so subtreeBox() reflects the grandchildren
+  for (const k of kids) layoutSubtree(k);
+
+  const eff  = effectiveLayout(node);                 // `none` inherits the parent's layout
+  const type = eff.type;
+  if (type !== 'line' && type !== 'fan' && type !== 'two-sided') return;  // free (or unset root): children stay manual
+
+  const side  = dirSide(eff.dir);
+  const horiz = side === 'left' || side === 'right';  // direction axis is x
+  const boxOf = new Map(kids.map(k => [k.id, subtreeBox(k)]));
+  const ax = node.x, ay = node.y;
+
+  const sorted = orderedKids(node, kids);   // stored order — only a direct child-drag changes it
+
+  // FAN of a given set of children to ONE side: every child the same distance out, spread
+  // along the cross axis and centred on the parent. Used by `fan` (one call) and by
+  // `two-sided` (two calls, left + right).
+  const fanSide = (ids, sd) => {
+    const hz = sd === 'left' || sd === 'right';
+    const cross = ids.map(k => { const b=boxOf.get(k.id); return hz ? (b.y1-b.y0) : (b.x1-b.x0); });
+    const total = cross.reduce((s,v)=>s+v,0) + LAYOUT_CROSS*Math.max(0, ids.length-1);
+    let cur = (hz ? ay + nodeH(node)/2 : ax + NODE_W/2) - total/2;
+    ids.forEach((k,i)=>{
+      const b = boxOf.get(k.id); let dx=0, dy=0;
+      if (hz){ dx = sd==='right' ? (ax+NODE_W+LAYOUT_MAIN - b.x0) : (ax-LAYOUT_MAIN - b.x1); dy = cur - b.y0; }
+      else   { dy = sd==='down'  ? (ay+nodeH(node)+LAYOUT_MAIN - b.y0) : (ay-LAYOUT_MAIN - b.y1); dx = cur - b.x0; }
+      shiftSubtree(k, dx, dy); cur += cross[i] + LAYOUT_CROSS;
+    });
+  };
+
+  if (type === 'fan'){
+    fanSide(sorted, side);
+  } else if (type === 'two-sided'){
+    // TWO-SIDED: spread children to BOTH ends of the direction's axis, greedily balancing the
+    // two wings by cross-axis extent. dir picks the axis — left/right → a horizontal split (the
+    // classic mind-map shape), up/down → a vertical split. Best on a root.
+    const horizAxis = side === 'left' || side === 'right';
+    const sideA = horizAxis ? 'right' : 'down', sideB = horizAxis ? 'left' : 'up';
+    let a = 0, b = 0; const A = [], B = [];
+    for (const k of sorted){
+      const box = boxOf.get(k.id);
+      const ext = horizAxis ? (box.y1 - box.y0) : (box.x1 - box.x0);
+      if (a <= b){ A.push(k); a += ext + LAYOUT_CROSS; } else { B.push(k); b += ext + LAYOUT_CROSS; }
+    }
+    fanSide(A, sideA); fanSide(B, sideB);
+  } else {
+    // LINE: children chained one after another ALONG the direction, centred on the cross axis.
+    // The chain grows in the direction's sign, so for left/up we walk the order in REVERSE — that
+    // way the first child in stored (top-to-bottom / left-to-right) order ends up at the visual
+    // top/left, not nearest the parent. (Otherwise dragging a child to the top snaps it to the bottom.)
+    let cur = horiz ? (side==='right' ? ax+NODE_W+LAYOUT_MAIN : ax-LAYOUT_MAIN)
+                    : (side==='down'  ? ay+nodeH(node)+LAYOUT_MAIN : ay-LAYOUT_MAIN);
+    const seq = (side==='left' || side==='up') ? sorted.slice().reverse() : sorted;
+    seq.forEach((k)=>{
+      const b = boxOf.get(k.id); let dx=0, dy=0;
+      if (horiz){
+        const w = b.x1 - b.x0;
+        dx = side==='right' ? (cur - b.x0) : (cur - b.x1);
+        dy = (ay + nodeH(node)/2) - (k.y + nodeH(k)/2);   // centre child on the parent's y
+        cur += side==='right' ? (w+LAYOUT_CHAIN) : -(w+LAYOUT_CHAIN);
+      } else {
+        const h = b.y1 - b.y0;
+        dy = side==='down' ? (cur - b.y0) : (cur - b.y1);
+        dx = (ax + NODE_W/2) - (k.x + NODE_W/2);          // centre child on the parent's x
+        cur += side==='down' ? (h+LAYOUT_CHAIN) : -(h+LAYOUT_CHAIN);
+      }
+      shiftSubtree(k, dx, dy);
+    });
+  }
+}
+
+// Re-apply every node's layout across the whole forest. Free nodes keep their manual
+// positions; line/fan nodes own their children's. Cheap enough to run after any change.
+// Runs in read-only too (e.g. expanding a node must re-flow its children) — read-only just
+// never persists: scheduleSave is a no-op there, so the in-memory positions are discarded
+// when read-only is left and the map is reloaded from disk.
+function applyLayouts(){
+  for (const n of state.nodes.values()) if (isRoot(n)) layoutSubtree(n);
+}
+
+// Used on first-ever load of a big map: lay every root out radially, side by side.
+function radialLayout(){
+  const roots = [...state.nodes.values()].filter(n => isRoot(n));
+  let ox = 0;
+  for (const root of roots){
+    root.x = ox; root.y = 0;
+    radialLayoutFrom(root);
+    ox += (leafCount(root.id) * 60) + 600;   // separate multiple roots
+  }
+}
+
+// ---------- auto-collapse deep branches ----------
+// Fold every branch at a given depth. A collapsed node folds into a "+" stub on its
+// parent's edge (hiding itself + its subtree), so collapsing all nodes at `depth` leaves
+// the shallower levels on screen as expandable stubs. depth = 1 → root stays, each of its
+// children becomes a collapsed section you click to open.
+function collapseAtDepth(depth = 1){
+  const depthOf = (n) => { let d=0,p=n; while(p && p.parent){ p=state.nodes.get(p.parent); d++; } return d; };
+  for (const n of state.nodes.values()){
+    n.collapsed = depthOf(n) === depth && childrenOf(n.id).length > 0;
+  }
+}
+// collapse / expand EVERY node (only nodes with children are meaningfully collapsible)
+function setAllCollapsed(collapsed){
+  withLayoutAnimation(() => {
+    for (const n of state.nodes.values()) n.collapsed = collapsed && childrenOf(n.id).length > 0;
+  });
+  fit();
+  if (store.isOpen) scheduleSave();
+  setStatus(collapsed ? 'Collapsed all nodes' : 'Expanded all nodes');
+}
+
+// ---------- selection + editor ----------
+// Selection and the edit panel are decoupled: a node can stay selected while the
+// panel is closed (press Esc). That closed-but-selected state is when Delete works.
+const editor = document.getElementById('editor');
+const edName  = document.getElementById('edName');   // read-only node name at the top of the sidebar
+const edTags  = document.getElementById('edTags');
+const edBody  = document.getElementById('edBody');
+const edLayoutTypes = document.getElementById('edLayoutTypes');
+const edLayoutDirs  = document.getElementById('edLayoutDirs');
+const edColors = document.getElementById('edColors');
+
+// colour palette (keys match the .c-* CSS classes); 'grey' is the old neutral "none" look
+const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey'];
+const SWATCH_BG = { slate:'#4860c0', red:'#d62f48', amber:'#d18a1d', green:'#1ba85a',
+  teal:'#129fb3', blue:'#2f7fe8', violet:'#7a42da', pink:'#d6368e', grey:'#2b3645' };
+// build the swatch row once: inherit (default) + the palette colours + explicit "none".
+// '' = inherit the nearest coloured ancestor (effectiveColor walks up); 'none' = no colour, terminal.
+(function buildSwatches(){
+  let html = `<div class="swatch inherit" data-color="" title="inherit colour from parent (default)"></div>`;
+  for (const c of PALETTE)
+    html += `<div class="swatch" data-color="${c}" title="${c}" style="--sw:${SWATCH_BG[c]}"></div>`;
+  html += `<div class="swatch nofill" data-color="none" title="no colour — don’t inherit"></div>`;
+  edColors.innerHTML = html;
+  edColors.querySelectorAll('.swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      const ids = state.sel.size ? [...state.sel] : (state.selId ? [state.selId] : []);
+      if (!ids.length) return;
+      for (const id of ids){ const n = state.nodes.get(id); if (n){ n.color = sw.dataset.color; n.dirty = true; } }
+      markActiveSwatch(sw.dataset.color);
+      paintAll(); scheduleSave();
+    });
+  });
+})();
+function markActiveSwatch(color){
+  edColors.querySelectorAll('.swatch').forEach(sw =>
+    sw.classList.toggle('active', sw.dataset.color === (color || '')));
+}
+
+// ---------- layout pickers (icon chips, like the colour swatches) ----------
+const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+const DOT = (cx,cy,r=2.2) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="currentColor" stroke="none"/>`;
+const LAYOUT_TYPES = [
+  { key:'none', label:'None — inherit layout & direction from the parent (default)',
+    icon: SVG_OPEN + '<rect x="5" y="7" width="14" height="10" rx="2" stroke-dasharray="3 2.5"/></svg>' },
+  { key:'free', label:'Free — children stay where you drag them',
+    icon: SVG_OPEN + DOT(6,7) + DOT(17,8) + DOT(11,17) + '</svg>' },
+  { key:'line', label:'Line — children chained along the direction',
+    icon: SVG_OPEN + DOT(4,12) + '<path d="M6.5 12h3"/>' + DOT(12,12) + '<path d="M14.5 12h3"/>' + DOT(20,12) + '</svg>' },
+  { key:'fan', label:'Fan — children spread out to one side',
+    icon: SVG_OPEN + DOT(4,12) + '<path d="M6 12l6-6M6 12h6M6 12l6 6"/>' + DOT(14,6,1.8) + DOT(14,12,1.8) + DOT(14,18,1.8) + '</svg>' },
+  { key:'two-sided', label:'Two-sided — children split to both ends of the direction’s axis, balanced (classic mind-map; best on a root)',
+    icon: SVG_OPEN + DOT(12,12) + '<path d="M12 12l6-5M12 12l6 5M12 12l-6-5M12 12l-6 5"/>' + DOT(18,7,1.8) + DOT(18,17,1.8) + DOT(6,7,1.8) + DOT(6,17,1.8) + '</svg>' },
+];
+const LAYOUT_DIRS = [
+  { key:'left',   label:'Left',   icon: SVG_OPEN + '<path d="M15 5l-7 7 7 7"/></svg>' },
+  { key:'right',  label:'Right',  icon: SVG_OPEN + '<path d="M9 5l7 7-7 7"/></svg>' },
+  { key:'top',    label:'Top',    icon: SVG_OPEN + '<path d="M5 15l7-7 7 7"/></svg>' },
+  { key:'bottom', label:'Bottom', icon: SVG_OPEN + '<path d="M5 9l7 7 7-7"/></svg>' },
+];
+// the ids currently being edited (one or many) — layout applies to all of them
+function selectedIds(){ return state.sel.size ? [...state.sel] : (state.selId ? [state.selId] : []); }
+// build the two chip rows once
+(function buildLayoutChips(){
+  edLayoutTypes.innerHTML = LAYOUT_TYPES.map(t =>
+    `<div class="layoutchip" data-type="${t.key}" title="${t.label}">${t.icon}</div>`).join('');
+  edLayoutDirs.innerHTML = LAYOUT_DIRS.map(d =>
+    `<div class="layoutchip" data-dir="${d.key}" title="${d.label}">${d.icon}</div>`).join('');
+  edLayoutTypes.querySelectorAll('.layoutchip').forEach(c =>
+    c.addEventListener('click', () => setLayout({ type: c.dataset.type })));
+  edLayoutDirs.querySelectorAll('.layoutchip').forEach(c =>
+    c.addEventListener('click', () => { if (!c.classList.contains('disabled')) setLayout({ dir: c.dataset.dir }); }));
+})();
+// apply a type and/or direction to every selected card, then re-snap their children
+function setLayout({ type, dir }){
+  const ids = selectedIds(); if (!ids.length) return;
+  for (const id of ids){
+    const n = state.nodes.get(id); if (!n) continue;
+    if (type != null) n.layoutType = type;
+    if (dir  != null) n.layoutDir  = dir;
+    n.dirty = true;
+  }
+  markLayoutChips();
+  applyLayouts(); paintAll(); scheduleSave();
+}
+// reflect the selection's current layout: a chip is active when ALL selected share that value
+// (mixed → none active). Direction greys out when every selected card is Free or None (None
+// inherits its direction from the parent, Free ignores it).
+function markLayoutChips(){
+  const ids = selectedIds();
+  const types = new Set(ids.map(id => state.nodes.get(id)?.layoutType || 'none'));
+  const dirs  = new Set(ids.map(id => state.nodes.get(id)?.layoutDir  || 'right'));
+  const t = types.size === 1 ? [...types][0] : null;
+  const d = dirs.size  === 1 ? [...dirs][0]  : null;
+  const dirDisabled = t === 'free' || t === 'none';   // two-sided keeps dir: it picks the axis
+  edLayoutTypes.querySelectorAll('.layoutchip').forEach(c =>
+    c.classList.toggle('active', c.dataset.type === t));
+  edLayoutDirs.querySelectorAll('.layoutchip').forEach(c => {
+    c.classList.toggle('disabled', dirDisabled);
+    c.classList.toggle('active', !dirDisabled && c.dataset.dir === d);
+  });
+}
+
+function openEditor(n){
+  editor.classList.remove('multi');
+  edName.textContent = n.title;             // name is read-only here — rename on the canvas
+  edTags.value = n.tags.join(', ');
+  edBody.value = n.body;
+  markActiveSwatch(n.color);
+  markLayoutChips();
+  editor.classList.add('has-selection');   // show fields instead of the empty hint
+}
+// many nodes selected → show just the colour picker + a count; swatches recolour all of them
+function openMultiEditor(){
+  const ids = [...state.sel];
+  document.getElementById('edMulti').textContent =
+    `${ids.length} cards selected — colour & layout apply to all`;
+  const colors = new Set(ids.map(id => state.nodes.get(id)?.color || ''));
+  markActiveSwatch(colors.size === 1 ? [...colors][0] : ' ');  // none active when mixed
+  markLayoutChips();
+  editor.classList.add('has-selection', 'multi');
+}
+// no node selected → keep the sidebar open but show the empty hint
+function showEmptyEditor(){ editor.classList.remove('has-selection', 'multi'); }
+// reflect state.sel in the canvas + the editor panel
+function applySelection(){ paintAll(); updateEditor(); }
+function updateEditor(){
+  const n = state.sel.size;
+  if (n === 0) showEmptyEditor();
+  else if (n === 1) openEditor(state.nodes.get(state.selId));
+  else openMultiEditor();
+  refreshExtractBtn();   // a fresh card has no selection → disable extract
+}
+// Replace the whole selection with `ids` (a Set or array), recomputing the primary.
+function setSelectionSet(ids){
+  state.sel = new Set(ids);
+  if (state.sel.size === 0) state.selId = null;
+  else if (state.sel.size === 1) state.selId = [...state.sel][0];
+  else if (!state.selId || !state.sel.has(state.selId)) state.selId = [...state.sel].pop();
+  applySelection();
+}
+// ⌘/Ctrl-click: add or remove one card from the selection.
+function toggleSel(id){
+  if (state.sel.has(id)){
+    state.sel.delete(id);
+    if (state.selId === id) state.selId = state.sel.size ? [...state.sel].pop() : null;
+  } else {
+    state.sel.add(id); state.selId = id;
+  }
+  applySelection();
+}
+
+// The sidebar stays open by default; the toolbar button is the only thing that
+// toggles its visibility. Selection only swaps fields vs. empty hint.
+const sidebarBtn = document.getElementById('sidebarBtn');
+function applySidebar(){
+  const open = state.sidebarOpen && !state.readOnly;   // sidebar is always hidden in read-only
+  editor.classList.toggle('open', open);
+  sidebarBtn.classList.toggle('active', open);
+}
+function toggleSidebar(){ if (state.readOnly) return; state.sidebarOpen = !state.sidebarOpen; applySidebar(); }
+sidebarBtn.onclick = toggleSidebar;
+applySidebar();
+
+// ---------- read-only mode ----------
+// View & collapse only: nothing saves, the sidebar hides, editing icons grey out, and the
+// add-child + is hidden. Collapsing is allowed but in-memory only — leaving read-only reloads
+// from disk so the saved collapse state is restored.
+const roBtn = document.getElementById('roBtn');
+// closed padlock (locked) vs open padlock (unlocked)
+const ICON_LOCK_CLOSED = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+const ICON_LOCK_OPEN   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>`;
+function applyReadOnly(){
+  const ro = state.readOnly;
+  document.body.classList.toggle('readonly', ro);
+  roBtn.classList.toggle('locked', ro);          // red when locked
+  roBtn.innerHTML = ro ? ICON_LOCK_CLOSED : ICON_LOCK_OPEN;
+  roBtn.title = ro ? 'Read-only — click to unlock & edit (R)' : 'Lock to read-only (R) — view & collapse only';
+  for (const id of ['addBtn','sidebarBtn']) document.getElementById(id).disabled = ro;
+  applySidebar();
+  setStatus(ro ? 'Read-only — nothing is saved' : 'Editing enabled');
+}
+applyReadOnly();   // set the initial open-padlock icon
+async function setReadOnly(on){
+  if (on === state.readOnly) return;
+  if (on){
+    clearTimeout(saveTimer);
+    await flushSave();                                   // persist anything pending before locking
+    state.readOnly = true;
+    selectNode(null);                                    // close any open edit
+  } else {
+    state.readOnly = false;
+    if (store.isOpen) await loadFromDir({ keepView:true }); // discard in-memory collapses, restore disk state
+  }
+  applyReadOnly();
+}
+roBtn.onclick = () => setReadOnly(!state.readOnly);
+
+// Select exactly one node (or clear with null), replacing any multi-selection.
+function selectNode(id, _openPanel = true) {
+  if (id == null){ state.sel.clear(); state.selId = null; }
+  else { state.sel = new Set([id]); state.selId = id; }
+  applySelection();
+}
+// Why a title is invalid (empty or already used by another node), else '' (ok).
+// Filenames collide case-insensitively on macOS/Windows, so compare lowercased.
+function titleProblem(title, selfId){
+  const t = title.trim();
+  if (!t) return 'Title can’t be empty';
+  const lc = t.toLowerCase();
+  for (const o of state.nodes.values()){
+    if (o.id !== selfId && o.title.trim().toLowerCase() === lc)
+      return 'A node with this title already exists';
+  }
+  return '';
+}
+// Tags / body / colour apply live from the sidebar. The TITLE is not editable here — renaming
+// happens on the canvas (F2 / slow-click → inline edit), so the sidebar only displays the name.
+function applyRest(){
+  const n = state.nodes.get(state.selId); if (!n) return;
+  n.tags = edTags.value.split(',').map(s=>s.trim()).filter(Boolean);
+  n.body = edBody.value;
+  n.dirty = true;
+  // paint first so the card's height is up to date, then reflow: a taller/shorter card pushes
+  // its siblings (and its own children) under any non-free parent. Order is untouched.
+  paintAll(); applyLayouts(); paintAll(); scheduleSave();
+}
+edTags.addEventListener('input', applyRest);
+edBody.addEventListener('input', applyRest);
+// (layout is set via the icon chips above — see setLayout / buildLayoutChips)
+
+// ---------- extract selected body text into a new child card ----------
+const extractBtn = document.getElementById('extractBtn');
+function refreshExtractBtn(){
+  extractBtn.disabled = !state.selId || edBody.selectionStart === edBody.selectionEnd;
+}
+// track selection so the button enables only when there's something to extract
+['select','keyup','mouseup','input'].forEach(ev => edBody.addEventListener(ev, refreshExtractBtn));
+function extractToChild(){
+  if (state.readOnly) return;
+  const n = state.nodes.get(state.selId); if (!n) return;
+  const s = edBody.selectionStart, e = edBody.selectionEnd;
+  if (s === e){ setStatus('Select some body text to extract'); return; }
+  const sel = edBody.value.slice(s, e);
+  const lines = sel.split('\n');
+  let ti = lines.findIndex(l => l.trim()); if (ti < 0) ti = 0;
+  const title = uniqueTitle(
+    lines[ti].replace(/^\s*(#{1,6}|[-*+]|>|\d+\.)\s*/, '').trim() || 'New Node');
+  const childBody = lines.slice(ti+1).join('\n').trim();
+  // cut the selection out of the parent (tidy up the blank lines it leaves)
+  n.body = (edBody.value.slice(0, s) + edBody.value.slice(e)).replace(/\n{3,}/g, '\n\n').trim();
+  edBody.value = n.body; n.dirty = true;
+  // make the child below the parent and jump to it
+  const sibs = childrenOf(n.id);
+  if (n.collapsed) n.collapsed = false;
+  const id = 'n' + (state.idSeq++);
+  const child = {
+    id, file:null, x: n.x + 40 + sibs.length*30, y: n.y + 180 + sibs.length*10,
+    parent: n.id, collapsed:false, title, color:'', keepStatus:'', tags:[], body: childBody,
+    layoutType:'none', layoutDir:'right',
+    dirty:true, dirtyLayout:true,
+  };
+  state.nodes.set(id, child);
+  applyLayouts(); paintAll(); selectNode(id); scheduleSave();
+  setStatus(`Extracted “${title}” as a child`);
+}
+extractBtn.addEventListener('click', extractToChild);
+edBody.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'e' || e.key === 'E')){
+    e.preventDefault(); extractToChild();
+  }
+});
+// While a title is being renamed (inline, on the canvas) we DON'T rename the file on every
+// keystroke (that would litter the folder with M.md, Ma.md, Mag.md…) — the save loop defers the
+// file rename until editing ends. These flags are set/cleared by startInlineEdit / endInlineEdit.
+let titleEditing = false;
+let titleEditId = null;
+
+// ---------- inline title rename (edit the title on the card itself) ----------
+// Entered via slow-click (a second click on the already-selected card), F2, or automatically
+// when a node is created. Reuses titleEditing/titleEditId so the save loop still defers the file
+// rename until editing ends (no M.md, Ma.md… litter).
+function startInlineEdit(n){
+  if (state.readOnly || !n || !n.el) return;
+  if (inlineEdit) endInlineEdit();                              // close any other open editor first
+  if (state.selId !== n.id || state.sel.size !== 1) selectNode(n.id);
+  const titleEl = n.el.querySelector('.title');
+  inlineEdit = { id:n.id, orig:n.title, el:titleEl };
+  titleEditing = true; titleEditId = n.id;
+  titleEl.setAttribute('contenteditable', 'plaintext-only');
+  titleEl.classList.add('editing'); titleEl.classList.remove('invalid');
+  titleEl.focus();
+  const r = document.createRange(); r.selectNodeContents(titleEl);     // select-all so typing replaces
+  const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+// Live: validate + reflow as the user types. We never touch n.title here (layout uses the live DOM
+// height, not the stored title), so a half-typed invalid title can't corrupt anything.
+function onInlineInput(n){
+  if (!inlineEdit || inlineEdit.id !== n.id) return;
+  const val = inlineEdit.el.textContent;
+  const problem = titleProblem(val, n.id);
+  inlineEdit.el.classList.toggle('invalid', !!problem);
+  edName.textContent = val;     // mirror the live name into the sidebar's read-only header
+  applyLayouts(); paintAll();   // a taller/shorter title reflows siblings (title text stays, guarded)
+}
+function onInlineKeydown(e, n){
+  if (!inlineEdit || inlineEdit.id !== n.id) return;
+  if (e.key === 'Enter' || e.key === 'Tab'){ e.preventDefault(); e.stopPropagation(); endInlineEdit(); }
+  else if (e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); endInlineEdit({ cancel:true }); }
+}
+// Commit (or cancel) the rename: keep the typed title if valid, else fall back to the node's
+// current (last-valid) title. Restores canonical text, then reflows + saves.
+function endInlineEdit({ cancel = false } = {}){
+  const ie = inlineEdit; if (!ie) return;
+  inlineEdit = null;                                  // null first → the blur handler becomes a no-op
+  const n = state.nodes.get(ie.id);
+  ie.el.removeAttribute('contenteditable');
+  ie.el.classList.remove('editing', 'invalid');
+  titleEditing = false; titleEditId = null;
+  if (!n) return;
+  const val = ie.el.textContent.replace(/[\r\n]+/g, ' ').trim();   // titles map to filenames — no newlines
+  if (!cancel && !titleProblem(val, n.id)) n.title = val;
+  ie.el.textContent = n.title;                        // restore the canonical text
+  n.dirty = true;
+  edName.textContent = n.title;                       // keep the sidebar header in sync
+  paintAll(); applyLayouts(); paintAll();             // title may have changed height → reflow
+  scheduleSave();
+}
+
+function deleteNode(id) {
+  if (state.readOnly) return;
+  const n = state.nodes.get(id); if (!n) return;
+  // re-parent children up to this node's parent (don't orphan a subtree silently)
+  for (const ch of childrenOf(id)){ ch.parent = n.parent || null; ch.dirtyLayout = true; }
+  state.nodes.delete(id); n.el?.remove();
+  if (n.file) state.toDelete.push(n.file);
+  applyLayouts(); selectNode(null); paintAll();
+  scheduleSave();
+}
+// Delete every selected card (children re-parent up to each deleted node's parent).
+function deleteSelection() {
+  if (state.readOnly) return;
+  const ids = [...state.sel];
+  if (!ids.length) return;
+  state.sel.clear(); state.selId = null;
+  for (const id of ids){
+    const n = state.nodes.get(id); if (!n) continue;
+    for (const ch of childrenOf(id)){ if (!state.sel.has(ch.id)){ ch.parent = n.parent || null; ch.dirtyLayout = true; } }
+    state.nodes.delete(id); n.el?.remove();
+    if (n.file) state.toDelete.push(n.file);
+  }
+  applyLayouts(); applySelection(); scheduleSave();
+  setStatus(`Deleted ${ids.length} card${ids.length===1?'':'s'}`);
+}
+
+// keyboard:
+//  · Space          → new node (only when nothing is selected)
+//  · Enter          → add a sibling of the selected node
+//  · Tab            → add a child of the selected node
+//  · F2             → rename the selected node in place (also: slow-click its title)
+//  · Delete/Backspace → delete the selected node (only when the edit panel is closed)
+// A focused title editor (the sidebar field OR an in-card inline rename) counts as "typing",
+// so these card shortcuts stay out of the way while you're naming something.
+window.addEventListener('keydown', (e) => {
+  const typing = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)
+    || !!document.activeElement?.isContentEditable;
+  // Esc blurs the active field (so Delete works next), or deselects when not typing.
+  if (e.key === 'Escape'){
+    e.preventDefault();
+    if (typing) { document.activeElement?.blur?.(); }
+    else if (state.sel.size) selectNode(null);
+    return;
+  }
+  if (typing) return;
+  if (e.key === 'r' || e.key === 'R'){ e.preventDefault(); setReadOnly(!state.readOnly); return; }
+  if (e.key === '/'){ e.preventDefault(); searchBox.focus(); searchBox.select(); return; }   // find a card
+  // Space = hand-tool to pan while held; a quick tap (released without panning) makes a node.
+  if (e.key === ' '){ e.preventDefault(); if (!e.repeat){ spaceHeld = true; spaceUsedForPan = false; } return; }
+  if (e.key === 'f' || e.key === 'F'){ e.preventDefault(); focusOrFit(); return; }
+  if (e.key === 's' || e.key === 'S'){ e.preventDefault(); toggleSidebar(); return; }
+  if ((e.key === 'd' || e.key === 'D') && state.selId){ e.preventDefault(); duplicateNode(state.selId); return; }
+  if (e.key === 'F2' && state.selId){ e.preventDefault(); startInlineEdit(state.nodes.get(state.selId)); return; }
+  if (e.key === 'Enter' && state.selId){ e.preventDefault(); createSibling(state.selId); return; }
+  if (e.key === 'Tab' && state.selId){ e.preventDefault(); addChild(state.selId); return; }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && state.sel.size){
+    e.preventDefault(); deleteSelection();
+  }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key !== ' ') return;
+  const wasPan = spaceUsedForPan;
+  spaceHeld = false; spaceUsedForPan = false;
+  const typing = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)
+    || !!document.activeElement?.isContentEditable;
+  if (!typing && !wasPan && !pan && state.sel.size === 0) createNode();   // tap = new node
+});
+
+// ---------- create / duplicate nodes ----------
+// Make a new UNCONNECTED node (parent:null) at the viewport centre (or a given spot).
+function createNode(opts = {}) {
+  if (state.readOnly) return;
+  const id = 'n' + (state.idSeq++);
+  const c = screenToWorld(window.innerWidth/2, window.innerHeight/2);
+  const n = {
+    id, file:null,
+    x: opts.x ?? (c.x - 100), y: opts.y ?? (c.y - 40),
+    parent: opts.parent ?? null, collapsed:false,
+    title: opts.title ?? uniqueTitle('New Node'),  // avoid colliding with an existing "New Node"
+    color: opts.color ?? '', keepStatus:'',
+    tags: opts.tags ? [...opts.tags] : [], body: opts.body ?? '',
+    layoutType: opts.layoutType ?? 'none', layoutDir: opts.layoutDir ?? 'right',
+    dirty:true, dirtyLayout:true,
+  };
+  state.nodes.set(id, n);
+  applyLayouts(); paintAll(); selectNode(id); startInlineEdit(n);
+  scheduleSave();
+  return n;
+}
+// Pick a title not already in use. "Tether Gun" -> "Tether Gun copy" -> "Tether Gun copy 2"…
+// For brand-new nodes, "New Node" -> "New Node 2" -> "New Node 3"…
+function uniqueTitle(base, { copy = false } = {}) {
+  const taken = new Set([...state.nodes.values()].map(n => n.title.trim().toLowerCase()));
+  let cand = copy ? `${base} copy` : base;
+  if (!taken.has(cand.toLowerCase())) return cand;
+  let i = 2;
+  while (taken.has((copy ? `${base} copy ${i}` : `${base} ${i}`).toLowerCase())) i++;
+  return copy ? `${base} copy ${i}` : `${base} ${i}`;
+}
+// Duplicate a node: same content/colour, offset a bit, becomes UNCONNECTED so it's a
+// free copy you can place anywhere. Gets a unique "… copy" title so its file is valid.
+function duplicateNode(srcId) {
+  if (state.readOnly) return;
+  const s = state.nodes.get(srcId); if (!s) return;
+  const title = uniqueTitle(s.title, { copy: true });
+  const n = createNode({
+    x: s.x, y: s.y + nodeH(s) + 24,   // directly below the original, clear of it
+    parent: null,                  // a free duplicate, not a sibling
+    title,
+    color: s.color, tags: s.tags, body: s.body,
+    layoutType: s.layoutType, layoutDir: s.layoutDir,
+  });
+  setStatus(`Duplicated → “${title}”`);
+  return n;
+}
+// Shift+drag clone: drop a copy at `pos` that keeps the source's parent (a sibling),
+// while the original is the node being dragged away. Doesn't steal selection/focus.
+function leaveClone(s, pos) {
+  const id = 'n' + (state.idSeq++);
+  const title = uniqueTitle(s.title, { copy: true });
+  const copy = {
+    id, file:null,
+    x: pos.x, y: pos.y,
+    parent: s.parent, collapsed:false,
+    title, color: s.color, keepStatus:'',
+    tags: [...s.tags], body: s.body,
+    layoutType: s.layoutType || 'none', layoutDir: s.layoutDir || 'right',
+    dirty:true, dirtyLayout:true,
+  };
+  state.nodes.set(id, copy);
+  setStatus(`Cloned → “${title}”`);
+  return copy;
+}
+
+document.getElementById('addBtn').onclick = () => createNode();
+document.getElementById('fitBtn').onclick = focusOrFit;
+document.getElementById('edgeBtn').onclick = cycleEdgeStyle;
+document.getElementById('collapseAllBtn').onclick = () => setAllCollapsed(true);
+document.getElementById('expandAllBtn').onclick = () => setAllCollapsed(false);
+document.getElementById('homeBtn').onclick = showStart;   // icon + folder name → home screen
+
+// ---------- find / jump to a card ----------
+const searchBox = document.getElementById('searchBox');
+const searchResults = document.getElementById('searchResults');
+let searchHits = [], searchActive = -1;
+function runSearch(){
+  const q = searchBox.value.trim().toLowerCase();
+  if (!q){ clearSearch(); return; }
+  // match on title OR body content; dim every visible card that doesn't match
+  const matches = [...state.nodes.values()].filter(n =>
+    n.title.toLowerCase().includes(q) || (n.body && n.body.toLowerCase().includes(q)));
+  state.searchMatch = new Set(matches.map(n => n.id));
+  // dropdown: title matches first, then body-only matches, alphabetical within each
+  searchHits = matches.sort((a,b) => {
+    const at = a.title.toLowerCase().includes(q), bt = b.title.toLowerCase().includes(q);
+    return at !== bt ? (at ? -1 : 1) : a.title.localeCompare(b.title);
+  }).slice(0, 12);
+  searchActive = searchHits.length ? 0 : -1;
+  searchResults.innerHTML = searchHits.length
+    ? searchHits.map((n,i) => `<button class="sr-item${i===searchActive?' active':''}" data-id="${n.id}">${esc(n.title)}</button>`).join('')
+    : '<div class="sr-none">No card matches</div>';
+  searchResults.classList.add('open');
+  paintAll();   // apply the dimming
+}
+function clearSearch(){
+  searchResults.classList.remove('open'); searchResults.innerHTML = '';
+  searchHits = [];
+  if (state.searchMatch){ state.searchMatch = null; paintAll(); }   // un-dim
+}
+function gotoHit(id){
+  const n = state.nodes.get(id); if (!n) return;
+  searchBox.value = ''; clearSearch(); searchBox.blur();
+  focusNode(n);
+}
+searchBox.addEventListener('input', runSearch);
+searchBox.addEventListener('focus', () => { if (searchBox.value.trim()) runSearch(); });
+searchBox.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    if (!searchHits.length) return;
+    searchActive = (searchActive + (e.key === 'ArrowDown' ? 1 : -1) + searchHits.length) % searchHits.length;
+    [...searchResults.children].forEach((el,i) => el.classList.toggle('active', i === searchActive));
+  } else if (e.key === 'Enter'){
+    e.preventDefault();
+    if (searchHits[searchActive]) gotoHit(searchHits[searchActive].id);
+  } else if (e.key === 'Escape'){
+    e.preventDefault();
+    if (searchBox.value){ searchBox.value = ''; runSearch(); } else searchBox.blur();
+  }
+});
+searchResults.addEventListener('click', (e) => {
+  const item = e.target.closest('.sr-item'); if (item) gotoHit(item.dataset.id);
+});
+document.addEventListener('pointerdown', (e) => {           // click-away closes the dropdown
+  if (!e.target.closest('#searchWrap')) searchResults.classList.remove('open');
+});
+
+// keyboard shortcuts: ⌘S force-save  (duplicate = D, new node = Space — see plain-key handler)
+window.addEventListener('keydown', (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (!mod) return;
+  const k = e.key.toLowerCase();
+  if (k === 's') { e.preventDefault(); flushSave(); }
+});
+
+// ============================================================
+//  Data-source adapter — the ONLY thing that touches the outside world
+//  ---------------------------------------------------------
+//  Picking a source, listing/reading/writing notes, the "recent folders"
+//  list, and change notifications all live behind this one object. Today it
+//  is backed by the browser File System Access API. To turn the tool into an
+//  Obsidian plugin or a Tauri/macOS app, replace ONLY `store`: swap
+//  pick/list/write/remove/watch for the Vault API or native fs. The rest of
+//  the app speaks to `store` by relative path and never sees a directory handle.
+// ============================================================
+const store = {
+  _dir: null,                                  // FileSystemDirectoryHandle (FSA-specific)
+  get isOpen(){ return !!this._dir; },
+  get name(){ return this._dir ? this._dir.name : ''; },
+
+  // Re-confirm READWRITE. The picker's mode:'readwrite' asks, but the grant can
+  // sit in 'prompt' until requested — without it every write silently fails.
+  async _ensurePerm(handle){
+    const opts = { mode: 'readwrite' };
+    if ((await handle.queryPermission(opts)) === 'granted') return true;
+    if ((await handle.requestPermission(opts)) === 'granted') return true;
+    return false;
+  },
+
+  // Pick a NEW source (needs a user gesture — the toolbar / start-screen click).
+  // Returns: 'ok' | 'cancel' | 'denied' | 'unsupported' | 'error'.
+  async pick(){
+    if (!window.showDirectoryPicker) return 'unsupported';
+    let handle;
+    try { handle = await window.showDirectoryPicker({ mode: 'readwrite' }); }
+    catch (e){ return e.name === 'AbortError' ? 'cancel' : 'error'; }
+    if (!(await this._ensurePerm(handle))) return 'denied';
+    this._dir = handle;
+    await this._remember(handle);
+    return 'ok';
+  },
+
+  // Reopen a REMEMBERED source by its recents key (the click is the gesture).
+  // Returns: 'ok' | 'gone' | 'denied'.
+  async openRecent(key){
+    let handle;
+    try { handle = await idbGet(key); } catch {}
+    if (!handle) return 'gone';
+    if (!(await this._ensurePerm(handle))) return 'denied';
+    this._dir = handle;
+    await this._remember(handle);
+    return 'ok';
+  },
+
+  // Every .md in the source as { path, text } (path relative, '/'-separated).
+  async list(){
+    const out = [];
+    const walk = async (handle, prefix) => {
+      for await (const [name, h] of handle.entries()){
+        if (h.kind === 'directory'){ await walk(h, prefix + name + '/'); continue; }
+        if (!name.endsWith('.md')) continue;
+        out.push({ path: prefix + name, text: await (await h.getFile()).text() });
+      }
+    };
+    await walk(this._dir, '');
+    return out;
+  },
+
+  // Create/overwrite a note at a relative path (intermediate dirs created).
+  async write(path, text){
+    let d = this._dir;
+    const parts = path.split('/');
+    for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i], { create:true });
+    const h = await d.getFileHandle(parts[parts.length-1], { create:true });
+    const w = await h.createWritable(); await w.write(text); await w.close();
+  },
+
+  // Delete a note (a missing file is fine).
+  async remove(path){
+    try {
+      const parts = path.split('/'); let d = this._dir;
+      for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i]);
+      await d.removeEntry(parts[parts.length-1]);
+    } catch { /* already gone — fine */ }
+  },
+
+  // Fire cb when the source may have changed underneath us. FSA can't truly
+  // watch, so window-focus / tab-visible stand in for "might have changed"
+  // (an Obsidian/Tauri build would register a real file watcher here instead).
+  watch(cb){
+    window.addEventListener('focus', cb);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') cb(); });
+  },
+
+  // ---- recent sources: handles in IndexedDB, a tiny display list in localStorage ----
+  recents(){ return readRecents(); },
+  async _remember(handle){
+    const key = 'dir:' + handle.name + ':' + Date.now();
+    await idbPut(key, handle);                                       // store the actual handle
+    const list = readRecents().filter(r => r.name !== handle.name);  // de-dupe by name
+    list.unshift({ key, name: handle.name, when: Date.now() });
+    writeRecents(list);                                              // keep newest 3
+    renderRecents();
+  },
+};
+
+async function openFolder() {
+  const r = await store.pick();
+  if (r === 'unsupported') {
+    setStatus('This browser lacks the File System Access API — use Chrome or Edge.');
+    alert('This browser can’t write local files.\nOpen this page in Chrome or Edge.');
+    return;
+  }
+  if (r === 'denied') {
+    setStatus('Write permission denied — changes will NOT be saved.');
+    alert('Write permission was denied.\nReopen the folder and choose “Edit”/“Allow” so changes can be saved.');
+    return;
+  }
+  if (r !== 'ok') { if (r === 'error') setStatus('Could not open folder.'); return; }
+  hideStart();
+  await loadFromDir();
+}
+async function openRecentFolder(key) {
+  const r = await store.openRecent(key);
+  if (r === 'gone') { setStatus('That folder is no longer available.'); return; }
+  if (r === 'denied') { alert('Write permission was denied for this folder.'); return; }
+  hideStart();
+  await loadFromDir();
+}
+async function loadFromDir({ keepView = false } = {}) {
+  state.nodes.clear(); state.toDelete = []; world.querySelectorAll('.node').forEach(e=>e.remove());
+
+  // First pass: read every .md and parse it (layout now lives in each note's frontmatter).
+  const entries = [];   // { rel, parsed }
+  for (const { path, text } of await store.list()) {
+    const base = path.slice(path.lastIndexOf('/') + 1);
+    entries.push({ rel: path, parsed: parseMd(text, base) });
+  }
+
+  // Ids are ephemeral (minted fresh each load) since the filename is the real identity —
+  // parent links are stored/resolved BY PATH, so ids never need to survive a reload.
+  let seq = 0;
+  let placed = 0;          // count of notes lacking a saved position, for fallback layout
+  for (const { rel, parsed } of entries) {
+    const { mm, ...rest } = parsed;
+    const hasPos = (mm.x != null && mm.y != null);
+    const node = {
+      id: 'n' + (++seq), file:rel,
+      x: hasPos ? mm.x : (120 + (placed % 4) * 240),
+      y: hasPos ? mm.y : (120 + Math.floor(placed / 4) * 200),
+      _parentPath: mm.parent || '',                // resolved to an id once all notes are loaded
+      parent: null,
+      collapsed: !!mm.collapsed,
+      layoutType: mm.layout || 'none',
+      layoutDir: mm.dir || 'right',
+      ...rest, dirty:false, dirtyLayout: !hasPos,   // notes lacking a position get one persisted
+    };
+    if (!hasPos) placed++;                         // new note with no saved position
+    state.nodes.set(node.id, node);
+  }
+  // Resolve each note's parent path -> the loaded node's id (drops links to missing files).
+  const byPath = new Map([...state.nodes.values()].map(n => [n.file, n.id]));
+  for (const n of state.nodes.values()) {
+    n.parent = n._parentPath ? (byPath.get(n._parentPath) || null) : null;
+    delete n._parentPath;
+  }
+  // advance the runtime id counter past everything we just loaded so new nodes don't collide
+  state.idSeq = seq + 1;
+  // Auto-collapse a big map ONLY the very first time this folder is opened. After that we
+  // always restore exactly the saved frontmatter state — reopening must look like you left it.
+  const firstEver = !seenFolders().includes(store.name);
+  if (!keepView && firstEver && state.nodes.size > 40) {
+    collapseAtDepth(1);
+    radialLayout();
+  }
+  if (!keepView) markFolderSeen(store.name);
+  // Resolve layouts in three steps: paint once so every card has a real measured height, run
+  // the line/fan layout against those true heights, then paint the resolved positions. (Laying
+  // out before the first paint used a fallback height for every card, leaving tall cards
+  // overlapping — "layouts not resolved on open".)
+  paintAll();
+  applyLayouts();
+  paintAll();
+  if (!keepView) fit();
+  // Persist the resolved layout so the saved mm_x/mm_y match what's on screen. Reopening then
+  // reproduces the exact same arrangement (and the seeded child order) instead of drifting.
+  // Only write when the load actually moved something, so a stable reopen touches no files.
+  if (!state.readOnly && [...state.nodes.values()].some(n => n.dirty || n.dirtyLayout))
+    scheduleSave();
+  // show the loaded folder's name inside the home button (:empty hides it until loaded)
+  document.getElementById('folderName').textContent = store.name;
+  document.title = 'Mindmap - ' + store.name;
+}
+// title -> safe filename component (no path separators or illegal chars)
+function safeName(title){
+  return (title || 'Untitled').trim().replace(/[\/\\:*?"<>|]/g, '-').replace(/\s+/g,' ').slice(0,120);
+}
+// returns the filename a node SHOULD have, given its title, keeping its current directory.
+// New nodes (no file yet) are created directly in the selected folder — no "nodes/" subfolder.
+function desiredFileFor(n){
+  const dir = n.file ? n.file.slice(0, n.file.lastIndexOf('/')+1) : '';
+  let base = safeName(n.title) + '.md';
+  let rel = dir + base;
+  // avoid clobbering a DIFFERENT node that already uses this filename
+  let i = 2;
+  while ([...state.nodes.values()].some(o => o !== n && o.file === rel)) {
+    rel = dir + safeName(n.title) + ' ' + (i++) + '.md';
+  }
+  return rel;
+}
+async function saveAll() {
+  if (state.readOnly) return;        // read-only mode never writes to disk
+  if (!store.isOpen) { setStatus('Open a folder first.'); return; }
+  for (const f of state.toDelete) await store.remove(f);
+  state.toDelete = [];
+
+  // Layout lives in each note's frontmatter, so any content OR layout change rewrites the file.
+  const needWrite = new Set();
+  for (const n of state.nodes.values()) if (n.dirty || n.dirtyLayout || !n.file) needWrite.add(n.id);
+
+  // Phase 1 — settle every note's final filename IN MEMORY first. A child records its parent
+  // by path (mm_parent), so a renamed parent forces its children to be rewritten, and all
+  // parent paths must be final before we serialize anyone.
+  const removals = [];
+  for (const n of state.nodes.values()) {
+    // While the title is being typed, keep the current filename (rename happens on blur).
+    const freezeName = titleEditing && n.id === state.selId && n.file;
+    const target = freezeName ? n.file : desiredFileFor(n);
+    if (n.file && n.file !== target) {
+      removals.push(n.file);                       // old file to delete once the rename is written
+      for (const c of childrenOf(n.id)) needWrite.add(c.id);
+    }
+    if (n.file !== target) needWrite.add(n.id);    // brand-new node, or a rename
+    n.file = target;                               // adopt the final name
+  }
+
+  // Phase 2 — write everything that changed, now that all paths are final.
+  let written = 0;
+  for (const n of state.nodes.values()) {
+    if (!needWrite.has(n.id)) continue;
+    await store.write(n.file, serializeMd(n));
+    n.dirty = false; n.dirtyLayout = false;
+    written++;
+  }
+  // Phase 3 — drop files left behind by renames (unless some node now legitimately holds the path).
+  for (const old of removals)
+    if (![...state.nodes.values()].some(n => n.file === old)) await store.remove(old);
+
+  state.lastSelfWrite = Date.now();   // so focus-reload can ignore our own writes
+  paintAll();
+  setStatus(`Saved ${written} file${written===1?'':'s'} · ` + new Date().toLocaleTimeString());
+}
+
+// ---------- autosave (debounced) ----------
+// Every mutation calls scheduleSave(); we write ~400ms after the last change so a
+// burst of keystrokes becomes one disk write, not one per character.
+let saveTimer = null, saving = false, saveAgain = false;
+function scheduleSave() {
+  if (state.readOnly) return;         // read-only mode never writes to disk
+  if (!store.isOpen) return;          // demo mode: nothing to write
+  setStatus('Saving…');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, 400);
+}
+async function flushSave() {
+  if (!store.isOpen) return;
+  if (saving) { saveAgain = true; return; }   // coalesce overlapping writes
+  saving = true;
+  try {
+    await saveAll();
+  } catch (err) {
+    console.error('Save failed:', err);
+    setStatus('⚠ Save failed: ' + (err.message || err.name));
+  }
+  saving = false;
+  if (saveAgain) { saveAgain = false; flushSave(); }
+}
+
+// ---------- reload on focus ----------
+// When the window regains focus (e.g. you edited a .md in another app), flush any
+// pending write first, then re-read everything from disk and restore selection.
+async function reloadFromDisk() {
+  if (!store.isOpen) return;
+  // if we just wrote, the focus event is almost certainly our own round-trip — skip
+  if (Date.now() - (state.lastSelfWrite || 0) < 600) return;
+  clearTimeout(saveTimer);
+  if (saving) return;                 // a write is mid-flight; don't read torn state
+  const selBefore = state.selId;
+  // Don't yank the rug out while the user is actively typing in the panel or renaming a card.
+  if (titleEditing || ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
+  await loadFromDir({ keepView:true });
+  // restore selection (and re-populate the panel from fresh data) if the node still exists
+  if (selBefore && state.nodes.has(selBefore)) selectNode(selBefore);
+  else selectNode(null);
+}
+store.watch(reloadFromDisk);   // re-read on external change (FSA: window-focus / tab-visible)
+
+// ============================================================
+//  Recent folders backing store: handles live in IndexedDB (not serializable
+//  to JSON), a small display list lives in localStorage. Used by `store` above.
+// ============================================================
+const RECENT_KEY = 'mindmap.recentFolders';   // [{key, name, when}]  (localStorage)
+const IDB_DB = 'mindmap', IDB_STORE = 'handles';
+
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(IDB_DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbPut(key, val) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(val, key);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const g = tx.objectStore(IDB_STORE).get(key);
+    g.onsuccess = () => res(g.result); g.onerror = () => rej(g.error);
+  });
+}
+function readRecents() {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
+}
+function writeRecents(list) { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 3))); }
+
+// Folders we've already auto-arranged once. Used so the one-time auto-collapse never
+// fires again — every later open restores the saved frontmatter state verbatim.
+const SEEN_KEY = 'mindmap.seenFolders';
+function seenFolders(){
+  try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); } catch { return []; }
+}
+function markFolderSeen(name){
+  const s = seenFolders();
+  if (!s.includes(name)) { s.push(name); localStorage.setItem(SEEN_KEY, JSON.stringify(s)); }
+}
+
+function timeAgo(ts){
+  const s = (Date.now()-ts)/1000;
+  if (s<60) return 'just now';
+  if (s<3600) return Math.floor(s/60)+'m ago';
+  if (s<86400) return Math.floor(s/3600)+'h ago';
+  return Math.floor(s/86400)+'d ago';
+}
+function renderRecents(){
+  const list = readRecents();
+  const wrap = document.getElementById('recentWrap');
+  const box = document.getElementById('recentList');
+  if (!list.length){ wrap.style.display='none'; return; }
+  wrap.style.display='block';
+  box.innerHTML = list.map(r =>
+    `<button class="recent-item" data-key="${r.key}">
+       <span class="ri-name">📁 ${r.name}</span>
+       <span class="ri-when">${timeAgo(r.when)}</span></button>`).join('');
+  box.querySelectorAll('.recent-item').forEach(btn => {
+    btn.onclick = () => openRecentFolder(btn.dataset.key);
+  });
+}
+
+// ---------- start screen control ----------
+const startScreen = document.getElementById('startScreen');
+function showStart(){ startScreen.classList.remove('hidden'); renderRecents(); }
+function hideStart(){ startScreen.classList.add('hidden'); }
+document.getElementById('startOpen').onclick = () => openFolder();
+
+applyView();
+showStart();   // ask for a folder on every load, with recents for quick start
+</script>
+</body>
+</html>
