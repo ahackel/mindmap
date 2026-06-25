@@ -2750,16 +2750,21 @@ async function setupPlatformUI(){
   if (note) note.textContent = 'Pick files from iCloud Drive or “On My iPad”. '
     + 'Keep notes in one folder — subfolders aren’t preserved on import.';
 
-  // offer to resume the on-device vault if it already holds notes from a previous visit
+  // open the on-device vault and drop into the canvas (empty vault = a blank map)
+  const openVault = async () => { await store.pick(); hideStart(); await loadFromDir(); };
+  const addStartButton = (label) => {
+    const b = document.createElement('button');
+    b.className = 'primary';
+    b.style.marginTop = '8px';
+    b.textContent = label;
+    b.onclick = openVault;
+    startOpen.insertAdjacentElement('afterend', b);
+    return b;
+  };
+
   const have = await opfsStore.count();
-  if (have > 0){
-    const cont = document.createElement('button');
-    cont.className = 'primary';
-    cont.style.marginTop = '8px';
-    cont.textContent = `↩ Continue on-device vault (${have})`;
-    cont.onclick = async () => { await store.pick(); hideStart(); await loadFromDir(); };
-    startOpen.insertAdjacentElement('afterend', cont);
-  }
+  if (have > 0) addStartButton(`↩ Continue on-device vault (${have})`);  // resume saved notes
+  else          addStartButton('✏️ Start a blank map');                  // …or skip import entirely
 }
 
 applyView();
