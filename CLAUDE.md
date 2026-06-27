@@ -11,10 +11,12 @@ dependencies, no package manager, and no tests.
 
 ## Running / developing
 
-- **Run locally:** open `index.html` directly in Chrome or Edge. No server needed.
-  (A static server like `python3 -m http.server` also works but isn't required.)
-- **Requires Chrome/Edge** — the app depends on the File System Access API
-  (`showDirectoryPicker`), which Firefox and Safari don't implement.
+- **Run locally:** serve over a secure context — `python3 -m http.server` then open
+  `http://localhost:8000`. OPFS (the local-first store) needs https/localhost; from a
+  bare `file://` it may not persist, so prefer the local server for real testing.
+- **Works in any modern browser** (incl. iPad Safari) thanks to the OPFS default. The
+  "Open folder" option additionally needs the File System Access API
+  (`showDirectoryPicker`), which only Chrome/Edge implement.
 - **Hosting:** the repo *is* the site. GitHub Pages serves `index.html` from the
   default branch; pushing to `main` deploys.
 - **No lint/test/build commands exist.** Verify changes by opening the file in the
@@ -37,32 +39,31 @@ app-owned keys (`tags`, `color`, `mm_*`) and preserves every other frontmatter
 field and the note body verbatim — be careful to keep that property when touching
 frontmatter code (`parseFM`/`fmSet`/`fmRemove`).
 
+**The app is local-first.** It boots straight onto the canvas with the last map (no start
+gate) via `boot()`; the start screen (`#startScreen`) is now a **home/storage panel** opened
+by the 🧠 toolbar button and closable (`startClose`).
+
 **The `store` adapter is the single swappable I/O boundary.** All disk access
 (`pick`, `openRecent`, `list`, `write`, `remove`, `watch`) goes through it. `store` is a
-reassignable `let` (each start-screen entry point activates its backend via `useStore`),
-and there are **two implementations with the same interface**. `const HAS_FSA =
-!!window.showDirectoryPicker` picks the default (`fsaStore` on Chrome/Edge, else
-`webdavStore`); a WebDAV connect swaps in `webdavStore` on any browser:
-- `fsaStore` — File System Access API (Chrome/Edge): reads/writes a real local folder.
-  Directory handles persist in IndexedDB (`idbGet`/`idbPut`); the "recent folders" list
-  is in localStorage.
-- `webdavStore` — the cross-device path, and the **only** option on iPad / no-FSA
-  browsers: Mac + iPad point at the **same** WebDAV server, so the `.md` files are
-  genuinely shared (last-write-wins per file). `list` = recursive `PROPFIND` + `GET`,
-  `write` = `MKCOL` parents + `PUT`, `remove` = `DELETE`, Basic auth. Config
-  (`{url,user,pass}`) lives in `localStorage` (`WEBDAV_KEY`); the server **must** send
-  CORS headers for this origin (PROPFIND/PUT/DELETE/MKCOL + Authorization/Depth).
+reassignable `let` (default `opfsStore`); `useStore(s, kind)` switches backend and records
+`kind` in `localStorage` (`LAST_STORE_KEY`). Two implementations, same interface:
+- `opfsStore` — **local-first default.** Origin Private File System (`navigator.storage
+  .getDirectory()` → `vault/`), works on every browser incl. iPad. Same handle methods as
+  FSA, so `list`/`write`/`remove` are identical; no picker/permission/watcher.
+- `fsaStore` — File System Access API (Chrome/Edge only): a real local folder. `resume(key)`
+  silently reopens at boot iff permission is still granted; directory handles persist in
+  IndexedDB (`idbGet`/`idbPut`), the "recent folders" list in localStorage.
+  `const HAS_FSA = !!window.showDirectoryPicker` gates the "Open folder" UI (`?nofsa` hides
+  it to test the iPad-style layout on desktop).
 
-`setupWebDAV` wires the connect/reconnect form (shown on every platform). `setupPlatformUI`
-adapts the start screen when `!HAS_FSA` — it hides the "Open folder" button and makes the
-WebDAV form the primary path; `?nofsa` forces that no-FSA layout for testing on desktop.
-Retargeting to an Obsidian vault or Tauri build still means replacing only the `store`
-object — don't scatter FSA/WebDAV calls elsewhere. The focus/visibility reload is a single
-shared listener (`installWatch`) re-pointed at the active store, so it keeps working across
-a backend switch.
-
-(An earlier OPFS-vault + zip import/export bridge for iPad was **removed** in favor of
-WebDAV — if you see references to `opfsStore`/`importFiles`/`exportZip`, they're stale.)
+**Boot order (`boot()`):** if last store was `folder` and `fsaStore.resume()` succeeds →
+reopen it; else `openDevice()` (the OPFS vault). On-device is per-device — there's no
+built-in cross-device sync. **Moving maps:** `.zip` import (`importFiles` → `unzip`, accepts
+`.zip` or loose `.md`, strips a common top folder) and export (`exportZip` → `zipBlob`); the
+inline ZIP reader/writer (store + `deflate-raw` via `DecompressionStream`) is zero-dependency.
+Retargeting to an Obsidian vault or Tauri build means replacing only the `store` object —
+don't scatter backend calls elsewhere. The focus/visibility reload is a shared listener
+(`installWatch`) re-pointed at the active store (OPFS's `watch` is a no-op).
 
 **Touch input:** pan/zoom on the canvas is a unified Pointer-Events gesture layer on
 `#stage` (one finger pans, two fingers pinch-zoom + pan); node drag/reparent uses the

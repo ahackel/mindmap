@@ -9,46 +9,42 @@ saved straight back to disk as plain Markdown.
 ## How it works
 
 The whole app is one static `index.html` — no server, no backend, no build step.
-It reads and writes your files directly through the browser's
-[File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API),
-so your notes never leave your machine.
+It's **local-first**: your map is saved in a private on-device store (the browser's
+[Origin Private File System](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system))
+and reopens automatically every visit — no sign-in, no setup, works on every browser
+including iPad. Your notes never leave your machine.
 
-> **Best in Chrome or Edge**, which can read and write a local folder directly. Firefox,
-> Safari, and **iPad** lack the File System Access API, so there you connect a
-> **WebDAV server** instead — the same files, synced across devices (see *iPad & other
-> browsers* below).
+To keep notes as real `.md` files in a folder you choose, Chrome and Edge can also
+**open a local folder** directly (via the File System Access API) and autosave to it.
+Either way, move a map between devices with **Import / Export** as a `.zip`.
 
 ## Quick start
 
-1. Open the [app](https://andreashackel.de/mindmap/).
-2. Click **Open folder** and pick a directory of Markdown notes (grant write access).
-3. Pan with two-finger scroll (or **Space** + drag), zoom with pinch / ctrl-scroll,
-   and press **F** with nothing selected to fit everything.
+1. Open the [app](https://andreashackel.de/mindmap/) — it opens straight onto the canvas
+   with your last map (empty on the first visit).
+2. Press **Space** (or the **＋** toolbar button) to add a node; double-click the title to
+   rename. Pan with one finger / two-finger scroll (or **Space** + drag), zoom with pinch /
+   ctrl-scroll, press **F** to fit.
+3. Click the **🧠 Home** button anytime to manage storage — open a local folder, or
+   import / export a `.zip`.
 
 Cards are linked parent → child; layout, colours, and positions are stored in each
 note's frontmatter (`mm_x`, `mm_y`, …), so the map travels with the files.
 
-## iPad & other browsers — WebDAV sync
+## Storage & moving between devices
 
-iPad Safari (and any browser without the File System Access API) can't autosave to a
-local folder, so there you connect a **WebDAV server** (Nextcloud, Synology, etc.) and
-work on the very same `.md` files as on your Mac:
+All storage is managed from the **home screen** (the 🧠 button):
 
-1. On the start screen, open *☁ Sync with a WebDAV server*, enter the collection URL +
-   an **app password**, and **Connect**. The config is remembered for one-tap reconnect.
-2. Edit with full touch support — **one finger pans**, **pinch zooms**, drag a card to
-   reparent, and use the edit panel's **Rename / Child / Sibling / Duplicate / Delete**
-   buttons (the desktop keyboard shortcuts, made tappable).
-3. Edits autosave straight to the server. The same form is on the Mac start screen, so
-   point both devices at the same server and the files are shared (last-write-wins per
-   file; switching back to a tab re-reads the other device's changes).
+- **On-device (default):** auto-saves locally and reopens on its own. Per-device — it does
+  not sync between machines by itself.
+- **Open a local folder** *(Chrome/Edge)*: work directly on a real folder of `.md` files.
+  Point it at a folder your cloud client (iCloud Drive, Synology Drive, Dropbox, …) keeps
+  synced, and your map effectively lives in that cloud — no server config in the app.
+- **Import / Export `.zip`:** export the whole map as a `.zip`, then import it on another
+  device (iPad included — *Save to Files* / pick from Files). Zips made by the app or by
+  zipping a folder of `.md` both work.
 
-Add `?nofsa` to the URL to preview this mode on desktop.
-
-> The server must send **CORS** headers allowing this site to use
-> `PROPFIND / PUT / DELETE / MKCOL` with the `Authorization` and `Depth` headers —
-> otherwise the browser blocks the requests. Credentials stay in this browser's
-> `localStorage`.
+Add `?nofsa` to the URL to preview the no-local-folder (iPad-style) layout on desktop.
 
 ## Features
 
@@ -62,13 +58,14 @@ Add `?nofsa` to the URL to preview this mode on desktop.
 ## Architecture
 
 All file I/O lives behind a single swappable `store` adapter (search `let store`
-in `index.html`). There are three implementations with an identical interface —
-`fsaStore` (File System Access API, for a local folder on Chrome/Edge) and `webdavStore`
-(cross-device sync, and the only option on iPad / no-FSA browsers) — chosen by `HAS_FSA`
-and the start-screen actions. Replacing only that object would retarget the app to an
-Obsidian vault or a Tauri/native build.
+in `index.html`). There are two implementations with an identical interface —
+`opfsStore` (the local-first on-device default, Origin Private File System) and `fsaStore`
+(a real local folder on Chrome/Edge, File System Access API). The home screen picks between
+them; `.zip` import/export moves a map in and out. Replacing only that object would retarget
+the app to an Obsidian vault or a Tauri/native build.
 
 ## Hosting
 
 The repo is the site: GitHub Pages serves `index.html` from the default branch.
-To run locally, just open `index.html` in Chrome/Edge — no server required.
+To run locally, serve it over `http://localhost` (e.g. `python3 -m http.server`) — the
+on-device store needs a secure context, so a bare `file://` open won't persist reliably.

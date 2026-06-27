@@ -282,14 +282,18 @@
   .recent-item .ri-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .recent-item .ri-when { font-size:11px; color:var(--muted); }
   .start-note { margin:14px 0 0 !important; font-size:11px !important; }
-  .dav-details { margin-top:14px; text-align:left; border-top:1px solid var(--grid); padding-top:12px; }
-  .dav-details summary { cursor:pointer; font-size:13px; color:var(--muted); }
-  .dav-details summary:hover { color:var(--text); }
-  .dav-details .dav-help { font-size:11px; color:var(--muted); margin:8px 0; }
-  .dav-details input { display:block; width:100%; margin:6px 0; padding:8px 10px; font-size:13px;
-    background:var(--node); color:var(--text); border:1px solid var(--node-border); border-radius:8px; }
-  .dav-details #davConnect { width:100%; margin-top:4px; }
-  #davReconnect button { margin-top:8px; }
+  .start-card { position:relative; }
+  .start-close { position:absolute; top:10px; right:12px; width:28px; height:28px; padding:0;
+    background:transparent; border:none; color:var(--muted); font-size:18px; cursor:pointer; }
+  .start-close:hover { color:var(--text); }
+  .store-status { font-size:12px; color:var(--muted); margin:6px 0 12px; }
+  .store-actions { display:flex; gap:8px; margin-top:12px; }
+  .store-actions button { flex:1; padding:9px 10px; font-size:13px; cursor:pointer;
+    background:var(--node); color:var(--text); border:1px solid var(--node-border); border-radius:9px; }
+  .store-actions button:hover { border-color:var(--accent); }
+  .linkish { display:block; width:100%; margin-top:12px; padding:8px; background:transparent;
+    border:none; color:var(--muted); font-size:12px; cursor:pointer; }
+  .linkish:hover { color:var(--text); }
 
   /* ---- node action row in the edit panel (rename / duplicate / delete / add) ---- */
   #edActions { display:flex; flex-wrap:wrap; gap:6px; }
@@ -384,28 +388,24 @@
     </div>
   </div>
 
-  <!-- start screen: choose / recall a folder before the canvas loads -->
-  <div id="startScreen">
+  <!-- home screen: storage settings (the map itself opens straight onto the canvas) -->
+  <div id="startScreen" class="hidden">
     <div class="start-card">
+      <button id="startClose" class="start-close" aria-label="Close" title="Close">✕</button>
       <h2>🧠 Markdown Mindmap</h2>
-      <p>Pick a folder of <code>.md</code> notes to map. Changes save back to those files.</p>
-      <button id="startOpen" class="primary">Open folder…</button>
+      <p>Your map is saved <b>on this device</b> and opens automatically. Manage where it lives:</p>
+      <div id="storeStatus" class="store-status"></div>
+      <button id="startOpen" class="primary">📂 Open a local folder…</button>
       <div id="recentWrap" style="display:none">
-        <div class="recent-label">Recent</div>
+        <div class="recent-label">Recent folders</div>
         <div id="recentList"></div>
       </div>
-      <div id="davReconnect" style="display:none"></div>
-      <details id="davDetails" class="dav-details">
-        <summary>☁ Sync with a WebDAV server (Mac + iPad)</summary>
-        <p class="dav-help">Point both devices at the same server to share the files.
-          Use an <b>app password</b> — credentials are stored only on this device.</p>
-        <input id="davUrl"  type="url"      placeholder="https://cloud.example.com/remote.php/dav/files/USER/Mindmap/" autocomplete="off" spellcheck="false" />
-        <input id="davUser" type="text"     placeholder="username" autocomplete="off" spellcheck="false" />
-        <input id="davPass" type="password" placeholder="app password" autocomplete="off" />
-        <button id="davConnect" class="primary">Connect</button>
-        <p class="dav-help">The server must allow CORS from this site (PROPFIND/PUT/DELETE/MKCOL).</p>
-      </details>
-      <p class="start-note">Chrome or Edge required to open a <em>local folder</em>.</p>
+      <div class="store-actions">
+        <button id="importBtn">📥 Import .zip</button>
+        <button id="exportBtn">📤 Export .zip</button>
+      </div>
+      <button id="useDeviceBtn" class="linkish">↩ Use on-device storage</button>
+      <p class="start-note">A local folder needs Chrome or Edge. Import/export works everywhere.</p>
     </div>
   </div>
 
@@ -2237,8 +2237,9 @@ window.addEventListener('keydown', (e) => {
 //  pick/list/write/remove/watch for the Vault API or native fs. The rest of
 //  the app speaks to `store` by relative path and never sees a directory handle.
 // ============================================================
-// iPad / Firefox / desktop Safari lack the File System Access API; on those the only
-// backend is WebDAV (the connect form is the way in). ?nofsa forces this path on desktop.
+// The app is local-first (on-device OPFS vault) everywhere. Chrome/Edge ALSO offer opening a
+// real local folder via the File System Access API; iPad/Firefox/Safari just use on-device +
+// import/export. ?nofsa hides the folder option for testing the no-FSA layout on desktop.
 const HAS_FSA = !location.search.includes('nofsa') && !!window.showDirectoryPicker;
 
 // Shared "the source may have changed" watcher (window-focus / tab-visible). Wired once and
@@ -2292,6 +2293,14 @@ const fsaStore = {
     return 'ok';
   },
 
+  // Silent reopen at boot — only succeeds if permission is ALREADY granted (no prompt/gesture).
+  async resume(key){
+    let handle; try { handle = await idbGet(key); } catch {}
+    if (!handle) return false;
+    try { if ((await handle.queryPermission({ mode:'readwrite' })) !== 'granted') return false; } catch { return false; }
+    this._dir = handle; return true;
+  },
+
   // Every .md in the source as { path, text } (path relative, '/'-separated).
   async list(){
     const out = [];
@@ -2341,114 +2350,71 @@ const fsaStore = {
   },
 };
 
-// WebDAV backend — the cross-device option. Both Mac and iPad point at the SAME server, so
-// the .md files are genuinely shared (last-write-wins per file). Same interface as the other
-// stores: list = recursive PROPFIND + GET, write = MKCOL parents + PUT, remove = DELETE.
-// NOTE: the server must allow CORS from this origin for PROPFIND/PUT/DELETE/MKCOL + the
-// Authorization/Depth headers, or the browser blocks the requests.
-const WEBDAV_KEY = 'mindmap.webdav';   // { url, user, pass } in localStorage
-const PROPFIND_BODY =
-  '<?xml version="1.0" encoding="utf-8"?>\n<d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>';
-const webdavStore = {
-  _cfg: null, _ok: false,
-  get isOpen(){ return this._ok; },
-  get name(){ try { return this._cfg ? new URL(this._cfg.url).host : ''; } catch { return 'WebDAV'; } },
-
-  _auth(){ return this._cfg.user ? { Authorization: 'Basic ' + btoa(this._cfg.user + ':' + this._cfg.pass) } : {}; },
-  // absolute URL for a vault-relative path (each segment percent-encoded)
-  _abs(rel){
-    const base = this._cfg.url.replace(/\/+$/, '') + '/';
-    return base + rel.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+// OPFS backend — the LOCAL-FIRST default. The Origin Private File System is a private,
+// per-origin store every modern browser (incl. iPad Safari) supports; its handle API matches
+// fsaStore, so list/write/remove are identical. No picker, no permission, no external watcher.
+const opfsStore = {
+  _dir: null, _opened: false,
+  get isOpen(){ return this._opened; },
+  get name(){ return 'On-device storage'; },
+  async _root(){
+    if (this._dir) return this._dir;
+    const root = await navigator.storage.getDirectory();
+    this._dir = await root.getDirectoryHandle('vault', { create:true });
+    return this._dir;
   },
-  _baseDepth(){ try { return decodeURIComponent(new URL(this._cfg.url).pathname).replace(/\/+$/, '').split('/').filter(Boolean).length; } catch { return 0; } },
-
-  // Validate a config by listing the base collection; returns 'ok' | 'auth' | 'cors' | 'error'.
-  async connect(cfg){
-    this._cfg = cfg; this._ok = false;
-    try {
-      const res = await fetch(this._abs(''), { method:'PROPFIND', headers:{ ...this._auth(), Depth:'0', 'Content-Type':'application/xml' }, body: PROPFIND_BODY });
-      if (res.status === 401 || res.status === 403) return 'auth';
-      if (!res.ok && res.status !== 207) return 'error';
-      this._ok = true; return 'ok';
-    } catch { return 'cors'; }   // network/CORS failures surface as a TypeError
-  },
-
-  // children of a vault-relative directory: [{ rel, isDir }] (excludes the dir itself)
-  async _children(relDir){
-    const res = await fetch(this._abs(relDir), { method:'PROPFIND', headers:{ ...this._auth(), Depth:'1', 'Content-Type':'application/xml' }, body: PROPFIND_BODY });
-    if (!res.ok && res.status !== 207) throw new Error('PROPFIND ' + res.status);
-    const doc = new DOMParser().parseFromString(await res.text(), 'application/xml');
-    const base = this._baseDepth();
-    const out = [];
-    for (const r of doc.getElementsByTagNameNS('DAV:', 'response')){
-      const href = r.getElementsByTagNameNS('DAV:', 'href')[0]?.textContent || '';
-      let segs;
-      try { segs = decodeURIComponent(new URL(href, this._cfg.url).pathname).split('/').filter(Boolean); }
-      catch { segs = decodeURIComponent(href).split('/').filter(Boolean); }
-      const rel = segs.slice(base).join('/');
-      if (!rel) continue;                                  // the collection itself
-      const isDir = !!r.getElementsByTagNameNS('DAV:', 'collection').length;
-      out.push({ rel, isDir });
-    }
-    return out;
-  },
-
+  async pick(){ try { await this._root(); this._opened = true; return 'ok'; } catch { return 'error'; } },
+  async openRecent(){ return this.pick(); },
   async list(){
     const out = [];
-    const walk = async (rel) => {
-      for (const e of await this._children(rel)){
-        if (e.isDir) await walk(e.rel);
-        else if (e.rel.endsWith('.md')){
-          const res = await fetch(this._abs(e.rel), { headers: this._auth() });
-          if (res.ok) out.push({ path: e.rel, text: await res.text() });
-        }
+    const walk = async (handle, prefix) => {
+      for await (const [name, h] of handle.entries()){
+        if (h.kind === 'directory'){ await walk(h, prefix + name + '/'); continue; }
+        if (!name.endsWith('.md')) continue;
+        out.push({ path: prefix + name, text: await (await h.getFile()).text() });
       }
     };
-    await walk('');
+    await walk(await this._root(), '');
     return out;
   },
   async write(path, text){
+    let d = await this._root();
     const parts = path.split('/');
-    let dir = '';
-    for (let i = 0; i < parts.length - 1; i++){            // create intermediate collections
-      dir += parts[i] + '/';
-      try { await fetch(this._abs(dir), { method:'MKCOL', headers: this._auth() }); } catch {}
-    }
-    const res = await fetch(this._abs(path), { method:'PUT', headers:{ ...this._auth(), 'Content-Type':'text/markdown; charset=utf-8' }, body: text });
-    if (!res.ok && ![200,201,204].includes(res.status)) throw new Error('PUT ' + res.status);
+    for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i], { create:true });
+    const h = await d.getFileHandle(parts[parts.length-1], { create:true });
+    const w = await h.createWritable(); await w.write(text); await w.close();
   },
   async remove(path){
     try {
-      const res = await fetch(this._abs(path), { method:'DELETE', headers: this._auth() });
-      if (!res.ok && ![200,204,404].includes(res.status)) throw new Error('DELETE ' + res.status);
+      const parts = path.split('/'); let d = await this._root();
+      for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i]);
+      await d.removeEntry(parts[parts.length-1]);
     } catch { /* already gone — fine */ }
   },
-  watch(cb){ installWatch(cb); },                          // other device's edits show on refocus
+  watch(){ /* OPFS can't change underneath us */ },
   recents(){ return []; },
 };
 
-// Single backend the rest of the app talks to (reassignable: a WebDAV connect swaps it in).
-// Desktop Chrome/Edge → real local folders; everywhere else (iPad &c.) → WebDAV sync.
-let store = HAS_FSA ? fsaStore : webdavStore;
+// Active backend. Local-first: default to the on-device vault; "Open folder" swaps in fsaStore.
+let store = opfsStore;
+const LAST_STORE_KEY = 'mindmap.lastStore';   // 'opfs' | 'folder'
+function useStore(s, kind){ store = s; store.watch(reloadFromDisk); if (kind) localStorage.setItem(LAST_STORE_KEY, kind); }
 
-// Each start-screen entry point activates its OWN backend (store is reassignable now), so
-// e.g. "Open folder" always uses fsaStore even if a WebDAV session was active before.
-function useStore(s){ store = s; store.watch(reloadFromDisk); }
+// ---- on-device (the local-first default) ----
+async function openDevice({ keepView = false } = {}){
+  useStore(opfsStore, 'opfs');
+  await opfsStore.pick();
+  hideStart();
+  await loadFromDir({ keepView });
+}
 
+// ---- local folder (Chrome/Edge only) ----
 async function openFolder() {
   const r = await fsaStore.pick();
-  if (r === 'unsupported') {
-    setStatus('This browser lacks the File System Access API — use Chrome or Edge.');
-    alert('This browser can’t write local files.\nOpen this page in Chrome or Edge.');
-    return;
-  }
-  if (r === 'denied') {
-    setStatus('Write permission denied — changes will NOT be saved.');
-    alert('Write permission was denied.\nReopen the folder and choose “Edit”/“Allow” so changes can be saved.');
-    return;
-  }
+  if (r === 'unsupported') { setStatus('This browser can’t open a local folder — use Chrome or Edge.'); return; }
+  if (r === 'denied') { setStatus('Folder permission denied.'); alert('Write permission was denied.\nReopen the folder and choose “Edit”/“Allow”.'); return; }
   if (r !== 'ok') { if (r === 'error') setStatus('Could not open folder.'); return; }
-  useStore(fsaStore);
+  useStore(fsaStore, 'folder');
   hideStart();
   await loadFromDir();
 }
@@ -2456,27 +2422,129 @@ async function openRecentFolder(key) {
   const r = await fsaStore.openRecent(key);
   if (r === 'gone') { setStatus('That folder is no longer available.'); return; }
   if (r === 'denied') { alert('Write permission was denied for this folder.'); return; }
-  useStore(fsaStore);
+  useStore(fsaStore, 'folder');
   hideStart();
   await loadFromDir();
 }
-async function connectWebDAV(cfg, { remember = true } = {}){
-  if (!cfg.url){ setStatus('Enter a WebDAV URL.'); return false; }
-  setStatus('Connecting to WebDAV…');
-  const r = await webdavStore.connect(cfg);
-  if (r !== 'ok'){
-    const msg = r === 'auth' ? 'WebDAV: wrong username or app password.'
-      : r === 'cors' ? 'WebDAV: couldn’t reach the server. Check the URL, and that the server '
-          + 'sends CORS headers for this site (allow PROPFIND/PUT/DELETE/MKCOL + Authorization/Depth).'
-      : 'WebDAV: couldn’t open that location.';
-    setStatus(msg); alert(msg); return false;
+
+// ---- import / export as .zip (move a map between devices / back it up) ----
+const importInput = document.createElement('input');
+importInput.type = 'file';
+importInput.accept = '.zip,.md,.markdown';
+importInput.multiple = true;
+importInput.style.display = 'none';
+document.body.appendChild(importInput);
+importInput.addEventListener('change', async () => {
+  const files = [...importInput.files];
+  importInput.value = '';
+  if (files.length) await importFiles(files);
+});
+
+async function importFiles(files){
+  const notes = [];   // { name, text }
+  for (const f of files){
+    if (/\.zip$/i.test(f.name)) { try { notes.push(...await unzip(await f.arrayBuffer())); } catch { setStatus('That .zip could not be read.'); } }
+    else if (/\.(md|markdown)$/i.test(f.name)) notes.push({ name: f.name, text: await f.text() });
   }
-  if (remember) localStorage.setItem(WEBDAV_KEY, JSON.stringify(cfg));
-  useStore(webdavStore);
+  let md = notes.filter(e => /\.(md|markdown)$/i.test(e.name) && !e.name.endsWith('/'));
+  if (!md.length){ setStatus('No Markdown files found to import.'); return; }
+  // strip a single common top-level folder (e.g. a zip of "MyNotes/…") so links still resolve
+  const slash = md[0].name.indexOf('/');
+  const top = slash >= 0 ? md[0].name.slice(0, slash + 1) : '';
+  if (top && md.every(e => e.name.startsWith(top))) md = md.map(e => ({ ...e, name: e.name.slice(top.length) }));
+  for (const e of md) await store.write(e.name, e.text);
   hideStart();
   await loadFromDir();
-  setStatus('Connected to ' + store.name);
-  return true;
+  setStatus(`Imported ${md.length} note${md.length===1?'':'s'}.`);
+}
+
+// download every current note packed into a .zip
+function exportZip(){
+  const nodes = [...state.nodes.values()];
+  if (!nodes.length){ setStatus('Nothing to export yet.'); return; }
+  const used = new Set();
+  const files = nodes.map(n => {
+    let name = n.file || (safeName(n.title) + '.md');
+    while (used.has(name)) name = name.replace(/(\.md)?$/, '') + '-1.md';
+    used.add(name);
+    return { name, data: serializeMd(n) };
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(zipBlob(files));
+  a.download = 'mindmap.zip';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  setStatus(`Exported ${files.length} notes → mindmap.zip`);
+}
+
+// ---- minimal ZIP writer + reader (store + deflate; no library) ----
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n=0;n<256;n++){ let c=n; for (let k=0;k<8;k++) c = (c&1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); t[n]=c>>>0; }
+  return t;
+})();
+function crc32(bytes){
+  let c = 0xFFFFFFFF;
+  for (let i=0;i<bytes.length;i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function zipBlob(files){
+  const enc = new TextEncoder();
+  const u16 = v => [v & 0xFF, (v>>>8) & 0xFF];
+  const u32 = v => [v & 0xFF, (v>>>8) & 0xFF, (v>>>16) & 0xFF, (v>>>24) & 0xFF];
+  const body = [], central = [];
+  let offset = 0;
+  for (const f of files){
+    const name = enc.encode(f.name), data = enc.encode(f.data), crc = crc32(data);
+    const local = [
+      ...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0),
+    ];
+    body.push(new Uint8Array(local), name, data);
+    central.push(new Uint8Array([
+      ...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length),
+      ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset),
+    ]), name);
+    offset += local.length + name.length + data.length;
+  }
+  let centralSize = 0; for (const c of central) centralSize += c.length;
+  const eocd = new Uint8Array([
+    ...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length),
+    ...u32(centralSize), ...u32(offset), ...u16(0),
+  ]);
+  return new Blob([...body, ...central, eocd], { type:'application/zip' });
+}
+async function unzip(buf){
+  const u8 = new Uint8Array(buf), dv = new DataView(buf), dec = new TextDecoder();
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= 0; i--){ if (dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; } }
+  if (eocd < 0) throw new Error('Not a .zip file');
+  const count = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  const out = [];
+  for (let n = 0; n < count && off + 46 <= u8.length && dv.getUint32(off, true) === 0x02014b50; n++){
+    const method = dv.getUint16(off + 10, true);
+    const compSize = dv.getUint32(off + 20, true);
+    const nameLen = dv.getUint16(off + 28, true);
+    const extraLen = dv.getUint16(off + 30, true);
+    const commentLen = dv.getUint16(off + 32, true);
+    const localOff = dv.getUint32(off + 42, true);
+    const name = dec.decode(u8.subarray(off + 46, off + 46 + nameLen));
+    const lName = dv.getUint16(localOff + 26, true), lExtra = dv.getUint16(localOff + 28, true);
+    const start = localOff + 30 + lName + lExtra;
+    const comp = u8.subarray(start, start + compSize);
+    let data = null;
+    if (method === 0) data = comp;
+    else if (method === 8) data = await inflateRaw(comp);
+    if (data) out.push({ name, text: dec.decode(data) });
+    off += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
+async function inflateRaw(bytes){
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 async function loadFromDir({ keepView = false } = {}) {
@@ -2717,53 +2785,41 @@ function renderRecents(){
 }
 
 // ---------- start screen control ----------
+// ---------- home screen (storage settings; the map itself opens onto the canvas) ----------
 const startScreen = document.getElementById('startScreen');
-function showStart(){ startScreen.classList.remove('hidden'); renderRecents(); }
+function showStart(){ renderStoreScreen(); startScreen.classList.remove('hidden'); }
 function hideStart(){ startScreen.classList.add('hidden'); }
-document.getElementById('startOpen').onclick = () => openFolder();
 
-// Without the File System Access API (iPad &c.) there's no local folder to open, so WebDAV
-// is the way in: hide the folder button and make the WebDAV connect form the primary path.
-function setupPlatformUI(){
-  if (HAS_FSA) return;                       // desktop Chrome/Edge keeps the native-folder flow
-  document.body.classList.add('no-fsa');
-  document.getElementById('startOpen').style.display = 'none';
-
-  const desc = document.querySelector('#startScreen .start-card p');
-  if (desc) desc.innerHTML = 'Connect a <b>WebDAV server</b> below to load and sync your '
-    + '<code>.md</code> notes — the same files you edit on your Mac.';
-  const note = document.querySelector('#startScreen .start-note');
-  if (note) note.remove();                   // the "Chrome/Edge for local folders" note doesn't apply
-  document.getElementById('davDetails').open = true;   // expand the connect form by default
+function renderStoreScreen(){
+  document.getElementById('storeStatus').textContent =
+    store.isOpen ? 'Editing: ' + store.name : 'Loading…';
+  document.getElementById('startOpen').style.display = HAS_FSA ? '' : 'none';
+  document.getElementById('useDeviceBtn').style.display = (store === opfsStore) ? 'none' : '';
+  renderRecents();
 }
 
-// ---------- WebDAV sync UI (available on both Mac and iPad) ----------
-function readWebdavCfg(){ try { return JSON.parse(localStorage.getItem(WEBDAV_KEY) || 'null'); } catch { return null; } }
-function setupWebDAV(){
-  document.getElementById('davConnect').onclick = () => connectWebDAV({
-    url:  document.getElementById('davUrl').value.trim(),
-    user: document.getElementById('davUser').value.trim(),
-    pass: document.getElementById('davPass').value,
-  });
-  const saved = readWebdavCfg();
-  if (!saved) return;
-  document.getElementById('davUrl').value  = saved.url  || '';
-  document.getElementById('davUser').value = saved.user || '';
-  document.getElementById('davPass').value = saved.pass || '';
-  let host; try { host = new URL(saved.url).host; } catch { host = saved.url; }
-  const wrap = document.getElementById('davReconnect');
-  wrap.style.display = 'block';
-  const b = document.createElement('button');
-  b.className = 'primary';
-  b.textContent = '☁ Reconnect ' + host;
-  b.onclick = () => connectWebDAV(saved, { remember:false });
-  wrap.appendChild(b);
-}
+document.getElementById('startOpen').onclick   = () => openFolder();
+document.getElementById('useDeviceBtn').onclick = () => openDevice();
+document.getElementById('importBtn').onclick   = () => importInput.click();
+document.getElementById('exportBtn').onclick   = () => exportZip();
+document.getElementById('startClose').onclick  = () => hideStart();
 
-applyView();
-showStart();   // ask for a folder on every load, with recents for quick start
-setupPlatformUI();
-setupWebDAV();
+// ---------- boot: local-first — open straight into the last map, no gate ----------
+async function boot(){
+  applyView();
+  hideStart();
+  // resume a local folder only if we can do it silently (permission still granted); else on-device
+  if (HAS_FSA && localStorage.getItem(LAST_STORE_KEY) === 'folder'){
+    const recent = readRecents()[0];
+    if (recent && await fsaStore.resume(recent.key)){
+      useStore(fsaStore, 'folder');
+      await loadFromDir();
+      return;
+    }
+  }
+  await openDevice();   // the on-device vault (empty on first run)
+}
+boot();
 </script>
 </body>
 </html>
