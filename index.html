@@ -195,7 +195,7 @@
   body.light .swatch.inherit { background:repeating-linear-gradient(45deg,#fff,#fff 5px,#e7ebf1 5px,#e7ebf1 10px); }
 
   #editor {
-    position:fixed; top:48px; right:0; bottom:0; width:380px; z-index:15;
+    position:fixed; top:48px; right:0; bottom:0; width:304px; z-index:15;
     background:var(--panel); border-left:1px solid var(--grid); padding:16px;
     display:flex; flex-direction:column; gap:10px;
     transform:translateX(100%);                 /* parked off-screen when closed */
@@ -218,7 +218,7 @@
   #edMulti { display:none; }
   #editor.multi #edMulti { display:block; }
   #editor.multi #edName, #editor.multi .fg-tags,
-  #editor.multi .fg-body, #editor.multi .ed-help { display:none; }
+  #editor.multi .fg-body { display:none; }
   /* read-only node name shown at the top of the sidebar (renaming happens on the canvas) */
   #editor .ed-name { font-size:16px; font-weight:600; color:var(--text); line-height:1.3;
     overflow-wrap:anywhere; padding-bottom:8px; border-bottom:1px solid var(--grid); }
@@ -388,8 +388,6 @@
         </div>
         <textarea id="edBody" spellcheck="false"></textarea>
       </div>
-      <div class="editnote ed-help">Changes save to the <code>.md</code> file as you type.
-        <kbd>Space</kbd> new node · <kbd>Enter</kbd> sibling · <kbd>Tab</kbd> child · <kbd>F2</kbd> / slow-click rename · <kbd>F</kbd> focus selected / fit map · <kbd>D</kbd> duplicate · <kbd>S</kbd> sidebar · <kbd>⌘/Ctrl-click</kbd> multi-select · <kbd>Esc</kbd> then <kbd>Delete</kbd> removes.</div>
     </div>
   </div>
 
@@ -2063,6 +2061,8 @@ function deleteSelection() {
 // A focused title editor (the sidebar field OR an in-card inline rename) counts as "typing",
 // so these card shortcuts stay out of the way while you're naming something.
 window.addEventListener('keydown', (e) => {
+  // F1 opens the bundled help mindmap (read-only) in a new tab — works even while typing.
+  if (e.key === 'F1'){ e.preventDefault(); openHelpTab(); return; }
   const typing = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)
     || !!document.activeElement?.isContentEditable;
   // Esc blurs the active field (so Delete works next), or deselects when not typing.
@@ -2818,10 +2818,42 @@ document.getElementById('importBtn').onclick   = () => importInput.click();
 document.getElementById('exportBtn').onclick   = () => exportZip();
 document.getElementById('startClose').onclick  = () => hideStart();
 
+// ---------- help mindmap (shipped as help/*.md next to index.html, opened with F1) ----------
+// Read-only store that fetches the help notes; lives in its own tab (?help), so the user's
+// own map and vault are never touched. help/manifest.json lists the note filenames.
+const helpStore = {
+  get isOpen(){ return true; },
+  get name(){ return 'Help'; },
+  async pick(){ return 'ok'; },
+  async openRecent(){ return 'ok'; },
+  async list(){
+    const names = await (await fetch('help/manifest.json', { cache:'no-cache' })).json();
+    const out = [];
+    for (const name of names){
+      const res = await fetch('help/' + encodeURIComponent(name), { cache:'no-cache' });
+      if (res.ok) out.push({ path: name, text: await res.text() });
+    }
+    return out;
+  },
+  async write(){}, async remove(){},
+  watch(){}, recents(){ return []; },
+};
+function openHelpTab(){
+  const url = location.pathname + '?help';
+  if (!window.open(url, '_blank')) location.href = url;   // fall back if a new tab is blocked
+}
+async function openHelp(){
+  state.readOnly = true; applyReadOnly();                 // help is view-only; nothing is saved
+  useStore(helpStore);                                    // no `kind` → doesn't change the saved store
+  try { await loadFromDir(); }
+  catch { setStatus('Help content (help/) not found next to index.html.'); }
+}
+
 // ---------- boot: local-first — open straight into the last map, no gate ----------
 async function boot(){
   applyView();
   hideStart();
+  if (new URLSearchParams(location.search).has('help')){ await openHelp(); return; }
   // resume a local folder only if we can do it silently (permission still granted); else on-device
   if (HAS_FSA && localStorage.getItem(LAST_STORE_KEY) === 'folder'){
     const recent = readRecents()[0];

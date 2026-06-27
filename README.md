@@ -54,6 +54,7 @@ Add `?nofsa` to the URL to preview the no-local-folder (iPad-style) layout on de
 - Collapse / focus / find, read-only mode
 - Inline rename, reparent, duplicate, extract-to-child
 - Autosave back to the source files
+- Built-in help mindmap — press **F1**
 
 ## Architecture
 

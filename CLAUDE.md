@@ -65,6 +65,12 @@ Retargeting to an Obsidian vault or Tauri build means replacing only the `store`
 don't scatter backend calls elsewhere. The focus/visibility reload is a shared listener
 (`installWatch`) re-pointed at the active store (OPFS's `watch` is a no-op).
 
+**Help mindmap:** `F1` opens `?help` in a new tab (`openHelpTab`). On boot with `?help`,
+`openHelp()` switches to a read-only `helpStore` that fetches `help/manifest.json` + the
+listed `help/*.md` — a real mindmap shipped next to `index.html`, isolated in its own tab so
+the user's vault is never touched. Edit help content by editing those `.md` files (and the
+manifest); use backtick code spans, not raw HTML, since `renderBodyHTML` escapes `<…>`.
+
 **Touch input:** pan/zoom on the canvas is a unified Pointer-Events gesture layer on
 `#stage` (one finger pans, two fingers pinch-zoom + pan); node drag/reparent uses the
 per-node pointer handlers in `bindNodeDrag`. `#stage`/`.node` set `touch-action:none`.
