@@ -176,7 +176,7 @@
     border-radius:6px; padding:1px 6px; opacity:.85; }
   /* add-child button, only on selected node */
   .node .addchild { position:absolute; right:-14px; bottom:-14px; width:28px; height:28px;
-    border-radius:50%; background:var(--accent); color:#04101f;
+    border-radius:50%; background:var(--accent); color:#fff;
     font-size:18px; line-height:1; cursor:pointer; display:none;
     align-items:center; justify-content:center; font-weight:700; }
   .node.solo .addchild { display:flex; }   /* add-child only on a lone selection, not multi-select */
@@ -187,7 +187,7 @@
      upper-right corner, clear of the add-child (+) button at the lower-right */
   .node .hidden-count { position:absolute; right:0; top:0; transform:translate(50%,-50%);
     background:var(--accent);
-    color:#04101f; font-size:11px; font-weight:700; border-radius:11px; padding:2px 8px;
+    color:#fff; font-size:11px; font-weight:700; border-radius:11px; padding:2px 8px;
     line-height:1; display:none; align-items:center; justify-content:center; }
   .node.has-collapsed .hidden-count { display:inline-flex; }
   .node.has-collapsed { border-style:dashed; }   /* hint that this node holds folded children */
@@ -295,12 +295,10 @@
     border:none; color:var(--muted); font-size:12px; cursor:pointer; }
   .linkish:hover { color:var(--text); }
 
-  /* ---- node action row in the edit panel (rename / duplicate / delete / add) ---- */
-  #edActions { display:flex; flex-wrap:wrap; gap:6px; }
-  #edActions button { flex:1 1 auto; font-size:12px; padding:6px 8px; border-radius:6px; cursor:pointer;
-    background:var(--node); color:var(--text); border:1px solid var(--node-border); }
-  #edActions button:hover { border-color:var(--accent); }
-  #edActions button.danger { color:#e0564f; }
+  /* ---- toolbar section for editing the selected card(s) ---- */
+  #toolbar .tdiv { width:1px; height:22px; background:var(--grid); margin:0 2px; flex:none; }
+  #toolbar button:disabled, #toolbar button:disabled:hover { background:transparent; opacity:.3; cursor:default; }
+  #toolbar button#edDelete:not(:disabled):hover { color:#e0564f; }
 
   /* ---- coarse pointer (touch) : bigger hit targets ---- */
   @media (pointer: coarse) {
@@ -309,7 +307,6 @@
     .node .addchild { width:40px; height:40px; right:-18px; bottom:-18px; font-size:24px; }
     .swatch { width:26px; height:26px; }
     .layoutchip { padding:6px 10px; }
-    #edActions button { padding:9px 10px; font-size:13px; }
   }
 </style>
 </head>
@@ -327,6 +324,21 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/></svg></button>
     <button id="edgeBtn" title="Edge style: straight / orthogonal / bezier" aria-label="Cycle edge style">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h7a3 3 0 0 1 3 3v7"/></svg></button>
+
+    <!-- selected-card actions (enabled only with a selection) -->
+    <span class="tdiv"></span>
+    <button id="edRename" disabled title="Rename selected card (F2)" aria-label="Rename selected card">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>
+    <button id="edAddChild" disabled title="Add child (Tab)" aria-label="Add child of selected card">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v7a4 4 0 0 0 4 4h6"/><path d="M13 11l4 4-4 4"/></svg></button>
+    <button id="edAddSibling" disabled title="Add sibling (Enter)" aria-label="Add sibling of selected card">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button id="edDuplicate" disabled title="Duplicate (D)" aria-label="Duplicate selected card">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+    <button id="edDelete" disabled title="Delete selected card(s) (Esc, then Delete)" aria-label="Delete selected card(s)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg></button>
+    <span class="tdiv"></span>
+
     <div id="searchWrap">
       <input id="searchBox" type="text" placeholder="Find… (/)" aria-label="Find a card" autocomplete="off" spellcheck="false" />
       <div id="searchResults"></div>
@@ -353,13 +365,6 @@
     <div id="edFields">
       <div id="edMulti" class="editnote"></div>
       <div id="edName" class="ed-name" title="To rename: press F2 or slow-click the card on the canvas"></div>
-      <div id="edActions">
-        <button id="edRename" type="button" title="Rename (F2)">✎ Rename</button>
-        <button id="edAddChild" type="button" title="Add child (Tab)">＋ Child</button>
-        <button id="edAddSibling" type="button" title="Add sibling (Enter)">＋ Sibling</button>
-        <button id="edDuplicate" type="button" title="Duplicate (D)">⧉ Duplicate</button>
-        <button id="edDelete" type="button" class="danger" title="Delete">🗑 Delete</button>
-      </div>
       <div class="fgroup fg-color">
         <label>Color</label>
         <div id="edColors" class="swatches"></div>
@@ -1810,7 +1815,16 @@ function openMultiEditor(){
 // no node selected → keep the sidebar open but show the empty hint
 function showEmptyEditor(){ editor.classList.remove('has-selection', 'multi'); }
 // reflect state.sel in the canvas + the editor panel
-function applySelection(){ paintAll(); updateEditor(); }
+function applySelection(){ paintAll(); updateEditor(); updateNodeActions(); }
+
+// Enable/disable the toolbar's selected-card actions to match the current selection & mode.
+function updateNodeActions(){
+  const one = !!state.selId && !state.readOnly;   // single-target actions
+  const any = state.sel.size > 0 && !state.readOnly;
+  const set = (id, on) => { const b = document.getElementById(id); if (b) b.disabled = !on; };
+  set('edRename', one); set('edAddChild', one); set('edAddSibling', one); set('edDuplicate', one);
+  set('edDelete', any);
+}
 function updateEditor(){
   const n = state.sel.size;
   if (n === 0) showEmptyEditor();

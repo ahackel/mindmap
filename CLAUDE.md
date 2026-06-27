@@ -68,8 +68,10 @@ don't scatter backend calls elsewhere. The focus/visibility reload is a shared l
 **Touch input:** pan/zoom on the canvas is a unified Pointer-Events gesture layer on
 `#stage` (one finger pans, two fingers pinch-zoom + pan); node drag/reparent uses the
 per-node pointer handlers in `bindNodeDrag`. `#stage`/`.node` set `touch-action:none`.
-The edit-panel action row (`#edActions`) exposes rename/duplicate/delete/add as tappable
-buttons — they call the same functions as the keyboard shortcuts.
+The toolbar has a divider-flanked **selected-card section** (`#edRename`/`edAddChild`/
+`edAddSibling`/`edDuplicate`/`edDelete`) calling the same functions as the keyboard
+shortcuts; `updateNodeActions()` (run from `applySelection`) enables/disables them by
+selection + `readOnly`, and the titles show the shortcut.
 
 **Central mutable `state` object (line ~377)** holds `nodes` (Map of id → node),
 `view` (pan/zoom `{x,y,k}`), selection (`selId` + `sel` Set), `edgeStyle`,
