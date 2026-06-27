@@ -171,6 +171,15 @@
   .node .body .lk { color:#fff; text-decoration:underline; text-underline-offset:2px;
     cursor:pointer; font-weight:600; opacity:1; }
   .node .body .lk:hover { text-decoration-thickness:2px; }
+  /* inline images: always full card width, aspect ratio kept; never intercept card drag */
+  .node .body img.md-img { display:block; width:100%; height:auto; margin:.45em 0; border-radius:4px;
+    background:rgba(255,255,255,.06); pointer-events:none; -webkit-user-drag:none; user-select:none; }
+  .node .body img.md-img[data-img-src] { min-height:14px; }   /* slot before it resolves */
+  .node .body img.md-img-missing { min-height:0; padding:6px 8px; box-sizing:border-box;
+    border:1px dashed rgba(255,255,255,.4); border-radius:4px; }
+  /* a card being targeted by an image file drag, and the body editor while dragging onto it */
+  .node.img-drop { outline:2px dashed #5ac978; outline-offset:3px; box-shadow:0 0 0 2px #5ac978; }
+  #edBody.img-drop { outline:2px dashed var(--accent); outline-offset:-2px; }
   .node .badge { display:inline-block; margin-top:6px; font-size:10px; letter-spacing:.4px;
     text-transform:uppercase; color:var(--tint); border:1px solid var(--tint);
     border-radius:6px; padding:1px 6px; opacity:.85; }
@@ -482,20 +491,29 @@ function mdEmphasis(s){
     .replace(/~~([^~]+)~~/g, '<del>$1</del>');
 }
 // Links/wikilinks within a text run; emphasis is applied to the gaps and link labels.
+//   ![alt](src)                  → image (vault-relative path, or a remote/data URL)
 //   [text](url) / bare https?:// → external link (new tab)
 //   [[Note]] or [[Note|alias]]   → wikilink → focuses that node in the map
+// NOTE: the image alternative comes first so ![..](..) isn't mis-read as a link with a stray "!".
 function mdLinks(text){
-  const re = /\[([^\]]+)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|(https?:\/\/[^\s)]+)/g;
+  const re = /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|(https?:\/\/[^\s)]+)/g;
   let out = '', last = 0, m;
   while ((m = re.exec(text))){
     out += mdEmphasis(text.slice(last, m.index));
-    if (m[2])      out += `<a class="lk" href="${esc(m[2])}" target="_blank" rel="noopener">${mdEmphasis(m[1])}</a>`;
-    else if (m[3]) out += `<a class="lk wikilink" data-target="${esc(m[3].trim())}">${esc((m[4]||m[3]).trim())}</a>`;
-    else           out += `<a class="lk" href="${esc(m[5])}" target="_blank" rel="noopener">${esc(m[5])}</a>`;
+    if (m[2])      out += imgTag(m[2], m[1]);                                                         // ![alt](src)
+    else if (m[4]) out += `<a class="lk" href="${esc(m[4])}" target="_blank" rel="noopener">${mdEmphasis(m[3])}</a>`;
+    else if (m[5]) out += `<a class="lk wikilink" data-target="${esc(m[5].trim())}">${esc((m[6]||m[5]).trim())}</a>`;
+    else           out += `<a class="lk" href="${esc(m[7])}" target="_blank" rel="noopener">${esc(m[7])}</a>`;
     last = re.lastIndex;
   }
   out += mdEmphasis(text.slice(last));
   return out;
+}
+// An <img> for inline markdown. The real src is resolved after insertion (hydrateImages): vault
+// paths are read from the store as blob URLs, remote/data URLs pass through — so rendering stays
+// synchronous while disk reads happen lazily.
+function imgTag(src, alt){
+  return `<img class="md-img" data-img-src="${esc(src.trim())}" alt="${esc(alt || '')}">`;
 }
 // Full inline pass: protect `code` spans first (no formatting inside), then links + emphasis.
 function mdInline(text){
@@ -558,6 +576,50 @@ function renderBodyHTML(md){
     else html += '<br>'.repeat(para.length);
   }
   return html;
+}
+
+// ---------- inline image resolution ----------
+// Cards re-render their whole body on every paint, so the <img>s are recreated constantly.
+// We resolve each referenced path to a URL ONCE and cache it: vault paths become blob URLs read
+// from the active store, remote/data URLs map to themselves. A card that grows when an image
+// finally loads triggers a single debounced relayout so siblings/edges re-settle.
+const imgUrlCache = new Map();    // src path -> resolved URL (blob:… or the original remote/data URL)
+const imgInflight = new Map();    // src path -> in-flight Promise<url|null> (de-dupes concurrent reads)
+function resetImageCache(){
+  for (const url of imgUrlCache.values()) if (typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url);
+  imgUrlCache.clear(); imgInflight.clear();
+}
+function loadImgUrl(path){
+  if (imgUrlCache.has(path)) return Promise.resolve(imgUrlCache.get(path));
+  if (/^(https?:|data:)/i.test(path)){ imgUrlCache.set(path, path); return Promise.resolve(path); }
+  if (imgInflight.has(path)) return imgInflight.get(path);
+  const p = (async () => {
+    const blob = store.readBlob ? await store.readBlob(path) : null;
+    const url = blob ? URL.createObjectURL(blob) : null;
+    if (url) imgUrlCache.set(path, url);
+    imgInflight.delete(path);
+    return url;
+  })();
+  imgInflight.set(path, p);
+  return p;
+}
+let imgRelayoutTimer = null;
+function scheduleImgRelayout(){
+  clearTimeout(imgRelayoutTimer);
+  imgRelayoutTimer = setTimeout(() => { applyLayouts(); paintAll(); }, 60);
+}
+function hydrateImages(el){
+  el.querySelectorAll('img.md-img[data-img-src]').forEach(img => {
+    const path = img.getAttribute('data-img-src');
+    img.removeAttribute('data-img-src');                 // claim it so repaints don't re-trigger
+    if (imgUrlCache.has(path)){ img.src = imgUrlCache.get(path); return; }   // known → set, no relayout
+    loadImgUrl(path).then(url => {
+      if (!url){ img.classList.add('md-img-missing'); img.alt = '⚠ ' + (img.alt || path); return; }
+      img.addEventListener('load',  scheduleImgRelayout, { once:true });     // first real load reflows once
+      img.addEventListener('error', () => img.classList.add('md-img-missing'), { once:true });
+      img.src = url;
+    });
+  });
 }
 
 // ---------- hierarchy helpers ----------
@@ -764,7 +826,9 @@ function paintNode(n) {
   el.style.top = n.y + 'px';
   // don't clobber the title while it's being inline-edited (the user is typing into it)
   if (!(inlineEdit && inlineEdit.id === n.id)) el.querySelector('.title').textContent = n.title;
-  el.querySelector('.body').innerHTML = renderBodyHTML(n.body);
+  const bodyEl = el.querySelector('.body');
+  bodyEl.innerHTML = renderBodyHTML(n.body);
+  hydrateImages(bodyEl);   // swap inline-image placeholders for resolved (blob/remote) URLs
   if (collapsedKids) el.querySelector('.hidden-count').textContent = '+' + descendantCount(n.id);
 }
 const NODE_W = 200;
@@ -1969,6 +2033,104 @@ edBody.addEventListener('keydown', (e) => {
     e.preventDefault(); extractToChild();
   }
 });
+
+// ---------- image attachments ----------
+// Images are real files in the vault's attachments/ folder; the note just gets ![alt](attachments/…).
+// Added by pasting, by dropping a file on a card (or the body editor), or by typing the markdown.
+const IMG_EXT = { 'image/png':'.png', 'image/jpeg':'.jpg', 'image/gif':'.gif', 'image/webp':'.webp',
+                  'image/svg+xml':'.svg', 'image/avif':'.avif', 'image/bmp':'.bmp' };
+function imgExt(file){
+  const m = (file.name || '').match(/\.[a-z0-9]+$/i);
+  return m ? m[0].toLowerCase() : (IMG_EXT[file.type] || '.png');
+}
+const isImageFile = f => f && f.type && f.type.startsWith('image/');
+const dragHasFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+// Write one image file into attachments/ under a collision-proof name; return its vault path.
+async function storeImage(file){
+  const name = 'img-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + imgExt(file);
+  const path = 'attachments/' + name;
+  await store.write(path, file);          // a Blob writes straight through createWritable
+  state.lastSelfWrite = Date.now();        // our own write — don't let focus-reload react to it
+  return path;
+}
+// Store each image, returning the markdown that references them (one per line).
+async function markdownForImages(files){
+  const out = [];
+  for (const f of files){
+    const path = await storeImage(f);
+    const alt = (f.name || 'image').replace(/\.[^.]*$/, '') || 'image';
+    out.push(`![${alt}](${path})`);
+  }
+  return out.join('\n');
+}
+function canAttach(){
+  if (state.readOnly){ setStatus('Read-only — can’t add images'); return false; }
+  if (!store.isOpen){ setStatus('Open a folder to add images'); return false; }
+  return true;
+}
+// Append images to the end of a card's body (used by drops onto a card).
+async function appendImagesToNode(id, files){
+  const imgs = [...files].filter(isImageFile);
+  if (!imgs.length || !canAttach()) return;
+  const n = state.nodes.get(id); if (!n) return;
+  setStatus('Adding image…');
+  const md = await markdownForImages(imgs);
+  n.body = (n.body && n.body.trim()) ? n.body.replace(/\s*$/, '') + '\n\n' + md : md;
+  n.dirty = true;
+  if (state.selId === id) edBody.value = n.body;
+  paintAll(); applyLayouts(); paintAll(); scheduleSave();
+  setStatus(`Added ${imgs.length} image${imgs.length === 1 ? '' : 's'}`);
+}
+// Insert images at the caret in the body editor (used by paste / drop onto the textarea).
+async function insertImagesAtCursor(files){
+  const imgs = [...files].filter(isImageFile);
+  if (!imgs.length || !canAttach()) return;
+  const n = state.nodes.get(state.selId); if (!n) return;
+  setStatus('Adding image…');
+  const md = await markdownForImages(imgs);
+  const s = edBody.selectionStart, e = edBody.selectionEnd, v = edBody.value;
+  const ins = (s > 0 && v[s-1] !== '\n' ? '\n' : '') + md + '\n';
+  edBody.value = v.slice(0, s) + ins + v.slice(e);
+  edBody.selectionStart = edBody.selectionEnd = s + ins.length;
+  applyRest();   // commits edBody → n.body, repaints, schedules save
+  setStatus(`Added ${imgs.length} image${imgs.length === 1 ? '' : 's'}`);
+}
+
+// Paste an image straight into the body editor.
+edBody.addEventListener('paste', (e) => {
+  const imgs = [...(e.clipboardData?.files || [])].filter(isImageFile);
+  if (imgs.length){ e.preventDefault(); insertImagesAtCursor(imgs); }
+});
+
+// Drag an image file from the OS onto a card (or the body editor). We handle this at the document
+// level so we can both highlight the target and stop the browser from navigating to the dropped file.
+let imgDropTarget = null;   // the element currently showing the .img-drop hint
+function setImgDropTarget(el){
+  if (imgDropTarget === el) return;
+  imgDropTarget?.classList.remove('img-drop');
+  imgDropTarget = el;
+  imgDropTarget?.classList.add('img-drop');
+}
+document.addEventListener('dragover', (e) => {
+  if (!dragHasFiles(e)) return;
+  e.preventDefault();
+  if (state.readOnly){ setImgDropTarget(null); return; }
+  setImgDropTarget(e.target.closest?.('#edBody') || e.target.closest?.('#world [data-id]') || null);
+});
+document.addEventListener('dragleave', (e) => { if (e.relatedTarget == null) setImgDropTarget(null); });
+document.addEventListener('drop', async (e) => {
+  if (!dragHasFiles(e)) return;
+  e.preventDefault();
+  const onEditor = !!e.target.closest?.('#edBody');
+  const cardEl   = e.target.closest?.('#world [data-id]');
+  setImgDropTarget(null);
+  const imgs = [...e.dataTransfer.files].filter(isImageFile);
+  if (!imgs.length) return;
+  if (cardEl){ selectNode(cardEl.dataset.id); await appendImagesToNode(cardEl.dataset.id, imgs); }
+  else if (onEditor && state.selId){ await insertImagesAtCursor(imgs); }
+  else if (state.selId){ await appendImagesToNode(state.selId, imgs); }
+  else setStatus('Drop an image onto a card to attach it');
+});
 // While a title is being renamed (inline, on the canvas) we DON'T rename the file on every
 // keystroke (that would litter the folder with M.md, Ma.md, Mag.md…) — the save loop defers the
 // file rename until editing ends. These flags are set/cleared by startInlineEdit / endInlineEdit.
@@ -2348,6 +2510,15 @@ const fsaStore = {
     } catch { /* already gone — fine */ }
   },
 
+  // Read a binary file (e.g. an image attachment) as a Blob, or null if it's gone.
+  async readBlob(path){
+    try {
+      const parts = path.split('/'); let d = this._dir;
+      for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i]);
+      return await (await d.getFileHandle(parts[parts.length-1])).getFile();
+    } catch { return null; }
+  },
+
   // Fire cb when the source may have changed underneath us. FSA can't truly
   // watch, so window-focus / tab-visible stand in for "might have changed"
   // (an Obsidian/Tauri build would register a real file watcher here instead).
@@ -2406,6 +2577,13 @@ const opfsStore = {
       await d.removeEntry(parts[parts.length-1]);
     } catch { /* already gone — fine */ }
   },
+  async readBlob(path){
+    try {
+      const parts = path.split('/'); let d = await this._root();
+      for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i]);
+      return await (await d.getFileHandle(parts[parts.length-1])).getFile();
+    } catch { return null; }
+  },
   watch(){ /* OPFS can't change underneath us */ },
   recents(){ return []; },
 };
@@ -2445,7 +2623,7 @@ async function openRecentFolder(key) {
 // ---- import / export as .zip (move a map between devices / back it up) ----
 const importInput = document.createElement('input');
 importInput.type = 'file';
-importInput.accept = '.zip,.md,.markdown';
+importInput.accept = '.zip,.md,.markdown,.png,.jpg,.jpeg,.gif,.webp,.svg,.avif,.bmp';
 importInput.multiple = true;
 importInput.style.display = 'none';
 document.body.appendChild(importInput);
@@ -2455,26 +2633,34 @@ importInput.addEventListener('change', async () => {
   if (files.length) await importFiles(files);
 });
 
+const IMG_RE = /\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i;
 async function importFiles(files){
-  const notes = [];   // { name, text }
+  const entries = [];   // { name, text?, bytes? }
   for (const f of files){
-    if (/\.zip$/i.test(f.name)) { try { notes.push(...await unzip(await f.arrayBuffer())); } catch { setStatus('That .zip could not be read.'); } }
-    else if (/\.(md|markdown)$/i.test(f.name)) notes.push({ name: f.name, text: await f.text() });
+    if (/\.zip$/i.test(f.name)) { try { entries.push(...await unzip(await f.arrayBuffer())); } catch { setStatus('That .zip could not be read.'); } }
+    else if (/\.(md|markdown)$/i.test(f.name)) entries.push({ name: f.name, text: await f.text() });
+    else if (IMG_RE.test(f.name)) entries.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
   }
-  let md = notes.filter(e => /\.(md|markdown)$/i.test(e.name) && !e.name.endsWith('/'));
+  let md  = entries.filter(e => /\.(md|markdown)$/i.test(e.name) && !e.name.endsWith('/'));
+  let img = entries.filter(e => e.bytes && IMG_RE.test(e.name) && !e.name.endsWith('/'));
   if (!md.length){ setStatus('No Markdown files found to import.'); return; }
-  // strip a single common top-level folder (e.g. a zip of "MyNotes/…") so links still resolve
+  // strip a single common top-level folder (e.g. a zip of "MyNotes/…") from notes AND attachments,
+  // so the relative ![](attachments/…) links still resolve after import
   const slash = md[0].name.indexOf('/');
   const top = slash >= 0 ? md[0].name.slice(0, slash + 1) : '';
-  if (top && md.every(e => e.name.startsWith(top))) md = md.map(e => ({ ...e, name: e.name.slice(top.length) }));
-  for (const e of md) await store.write(e.name, e.text);
+  if (top && md.every(e => e.name.startsWith(top))){
+    md  = md.map(e => ({ ...e, name: e.name.slice(top.length) }));
+    img = img.map(e => e.name.startsWith(top) ? { ...e, name: e.name.slice(top.length) } : e);
+  }
+  for (const e of md)  await store.write(e.name, e.text);
+  for (const e of img) await store.write(e.name, new Blob([e.bytes]));
   hideStart();
   await loadFromDir();
-  setStatus(`Imported ${md.length} note${md.length===1?'':'s'}.`);
+  setStatus(`Imported ${md.length} note${md.length===1?'':'s'}${img.length ? ` + ${img.length} image${img.length===1?'':'s'}` : ''}.`);
 }
 
-// download every current note packed into a .zip
-function exportZip(){
+// download every current note (plus the image attachments they reference) packed into a .zip
+async function exportZip(){
   const nodes = [...state.nodes.values()];
   if (!nodes.length){ setStatus('Nothing to export yet.'); return; }
   const used = new Set();
@@ -2484,12 +2670,21 @@ function exportZip(){
     used.add(name);
     return { name, data: serializeMd(n) };
   });
+  // collect every vault-relative image referenced in a body, and pack the files alongside the notes
+  const refs = new Set();
+  const re = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+  for (const n of nodes){ let m; const b = n.body || ''; while ((m = re.exec(b))){ const p = m[1]; if (!/^(https?:|data:)/i.test(p)) refs.add(p); } }
+  let attached = 0;
+  for (const path of refs){
+    const blob = store.readBlob ? await store.readBlob(path) : null;
+    if (blob){ files.push({ name: path, bytes: new Uint8Array(await blob.arrayBuffer()) }); attached++; }
+  }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(zipBlob(files));
   a.download = 'mindmap.zip';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  setStatus(`Exported ${files.length} notes → mindmap.zip`);
+  setStatus(`Exported ${nodes.length} notes${attached ? ` + ${attached} image${attached === 1 ? '' : 's'}` : ''} → mindmap.zip`);
 }
 
 // ---- minimal ZIP writer + reader (store + deflate; no library) ----
@@ -2510,7 +2705,8 @@ function zipBlob(files){
   const body = [], central = [];
   let offset = 0;
   for (const f of files){
-    const name = enc.encode(f.name), data = enc.encode(f.data), crc = crc32(data);
+    // f.bytes (a Uint8Array, e.g. an image) is stored verbatim; otherwise f.data is UTF-8 text.
+    const name = enc.encode(f.name), data = f.bytes || enc.encode(f.data), crc = crc32(data);
     const local = [
       ...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
       ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0),
@@ -2552,7 +2748,7 @@ async function unzip(buf){
     let data = null;
     if (method === 0) data = comp;
     else if (method === 8) data = await inflateRaw(comp);
-    if (data) out.push({ name, text: dec.decode(data) });
+    if (data) out.push({ name, text: dec.decode(data), bytes: data });   // bytes kept for binary entries (images)
     off += 46 + nameLen + extraLen + commentLen;
   }
   return out;
@@ -2564,6 +2760,7 @@ async function inflateRaw(bytes){
 
 async function loadFromDir({ keepView = false } = {}) {
   state.nodes.clear(); state.toDelete = []; world.querySelectorAll('[data-id]').forEach(e=>e.remove());
+  resetImageCache();   // blob URLs from the previous map (or store) are stale now
 
   // First pass: read every .md and parse it (layout now lives in each note's frontmatter).
   const entries = [];   // { rel, parsed }
@@ -2816,7 +3013,7 @@ function renderStoreScreen(){
 document.getElementById('startOpen').onclick   = () => openFolder();
 document.getElementById('useDeviceBtn').onclick = () => openDevice();
 document.getElementById('importBtn').onclick   = () => importInput.click();
-document.getElementById('exportBtn').onclick   = () => exportZip();
+document.getElementById('exportBtn').onclick   = () => exportZip();   // async; fire-and-forget
 document.getElementById('startClose').onclick  = () => hideStart();
 
 // ---------- help mindmap (shipped as help/*.md next to index.html, opened with F1) ----------
@@ -2837,6 +3034,10 @@ const helpStore = {
     return out;
   },
   async write(){}, async remove(){},
+  async readBlob(path){
+    try { const r = await fetch('help/' + path.split('/').map(encodeURIComponent).join('/'), { cache:'no-cache' }); return r.ok ? await r.blob() : null; }
+    catch { return null; }
+  },
   watch(){}, recents(){ return []; },
 };
 function openHelpTab(){
