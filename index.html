@@ -2026,28 +2026,29 @@ function endInlineEdit({ cancel = false } = {}){
   scheduleSave();
 }
 
+// Forget a set of node ids: drop them from state, remove their DOM cards, and queue
+// their files for deletion on the next save. Callers pass the full subtree(s) to remove.
+function deleteNodes(ids){
+  for (const id of ids){
+    const n = state.nodes.get(id); if (!n) continue;
+    state.nodes.delete(id); n.el?.remove();
+    if (n.file) state.toDelete.push(n.file);
+  }
+}
 function deleteNode(id) {
   if (state.readOnly) return;
-  const n = state.nodes.get(id); if (!n) return;
-  // re-parent children up to this node's parent (don't orphan a subtree silently)
-  for (const ch of childrenOf(id)){ ch.parent = n.parent || null; ch.dirtyLayout = true; }
-  state.nodes.delete(id); n.el?.remove();
-  if (n.file) state.toDelete.push(n.file);
+  if (!state.nodes.has(id)) return;
+  deleteNodes(subtreeIds(id));
   applyLayouts(); selectNode(null); paintAll();
   scheduleSave();
 }
-// Delete every selected card (children re-parent up to each deleted node's parent).
+// Delete every selected card and their entire subtrees.
 function deleteSelection() {
   if (state.readOnly) return;
   const ids = [...state.sel];
   if (!ids.length) return;
   state.sel.clear(); state.selId = null;
-  for (const id of ids){
-    const n = state.nodes.get(id); if (!n) continue;
-    for (const ch of childrenOf(id)){ if (!state.sel.has(ch.id)){ ch.parent = n.parent || null; ch.dirtyLayout = true; } }
-    state.nodes.delete(id); n.el?.remove();
-    if (n.file) state.toDelete.push(n.file);
-  }
+  deleteNodes(new Set(ids.flatMap(id => subtreeIds(id))));   // dedup overlapping subtrees
   applyLayouts(); applySelection(); scheduleSave();
   setStatus(`Deleted ${ids.length} card${ids.length===1?'':'s'}`);
 }
@@ -2562,7 +2563,7 @@ async function inflateRaw(bytes){
 }
 
 async function loadFromDir({ keepView = false } = {}) {
-  state.nodes.clear(); state.toDelete = []; world.querySelectorAll('.node').forEach(e=>e.remove());
+  state.nodes.clear(); state.toDelete = []; world.querySelectorAll('[data-id]').forEach(e=>e.remove());
 
   // First pass: read every .md and parse it (layout now lives in each note's frontmatter).
   const entries = [];   // { rel, parsed }
