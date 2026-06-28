@@ -802,11 +802,20 @@ function nodeEl(n) {
   titleEl.addEventListener('input',   ()  => onInlineInput(n));
   titleEl.addEventListener('keydown', (e) => onInlineKeydown(e, n));
   titleEl.addEventListener('blur',    ()  => { if (inlineEdit && inlineEdit.id === n.id) endInlineEdit(); });
-  // double-click a node to collapse/expand its children (cancels a pending slow-click rename)
+  // double-click a node to fold/unfold it (cancels a pending slow-click rename). If the card was
+  // part of a multi-selection an instant ago (the first click collapsed it to one), fold the whole
+  // group and keep it selected, rather than just this card.
   el.addEventListener('dblclick', (e)=>{
     e.stopPropagation(); e.preventDefault();
     clearTimeout(renameTimer);          // a double-click means "fold", not "rename"
-    toggleCollapse(n.id);
+    const g = pendingGroupFold;
+    pendingGroupFold = null;
+    if (g && g.node === n.id && g.ids.has(n.id) && performance.now() - g.t < 600){
+      toggleCollapseSelection(g.ids);
+      setSelectionSet(g.ids);           // restore the group so it stays selected after folding
+    } else {
+      toggleCollapse(n.id);
+    }
   });
   return el;
 }
@@ -1029,6 +1038,18 @@ function toggleCollapse(id){
   scheduleSave();
   setStatus(n.collapsed ? `Collapsed “${n.title}”` : `Expanded “${n.title}”`);
 }
+// Fold/unfold a whole set of cards together (double-clicking one card of a multi-selection).
+// Only foldable cards (children or a body) count; the group lands on one shared state — expand
+// if they're all collapsed already, otherwise collapse them all.
+function toggleCollapseSelection(ids){
+  const cards = [...ids].map(id => state.nodes.get(id)).filter(Boolean)
+    .filter(n => childrenOf(n.id).length > 0 || !!(n.body && n.body.trim()));
+  if (!cards.length) return;
+  const target = !cards.every(n => n.collapsed);   // all collapsed → expand; otherwise collapse all
+  withLayoutAnimation(() => { for (const n of cards){ n.collapsed = target; n.dirtyLayout = true; } });
+  scheduleSave();
+  setStatus(`${target ? 'Collapsed' : 'Expanded'} ${cards.length} card${cards.length > 1 ? 's' : ''}`);
+}
 // Flip the idx-th task checkbox in a node's body and write the change back to disk.
 function toggleTask(n, idx){
   if (state.readOnly) return;
@@ -1082,6 +1103,10 @@ function autoPanStep(){
 }
 let inlineEdit = null;   // { id, orig, el } while a card title is being renamed in place
 let renameTimer = null;  // pending slow-click rename; any node interaction cancels it
+// A plain click on a card inside a multi-selection collapses the selection to that one card. We
+// stash the just-cleared group here so a double-click that follows can fold the WHOLE group
+// instead of only the clicked card. { ids, node, t } — consumed (and time-checked) by dblclick.
+let pendingGroupFold = null;
 function subtreeIds(id){
   // id + every descendant
   const out = [id];
@@ -1152,7 +1177,13 @@ function bindNodeDrag(n) {
       const act = drag.active;
       if (!drag.moved) {
         if (drag.meta) toggleSel(n.id);                 // ⌘/Ctrl-click: add/remove from selection
-        else if (state.selId !== n.id || state.sel.size !== 1) selectNode(n.id);
+        else if (state.selId !== n.id || state.sel.size !== 1) {
+          // clicking one card of a multi-selection reduces to it — but remember the group so a
+          // double-click can fold them all (see the dblclick handler).
+          if (state.sel.has(n.id) && state.sel.size > 1)
+            pendingGroupFold = { ids:new Set(state.sel), node:n.id, t:performance.now() };
+          selectNode(n.id);
+        }
         else if (!state.readOnly) {
           // a second (slow) click on the already-sole-selected card = rename in place, Finder-style.
           // Delay it so a double-click (which fires dblclick first) can cancel it and fold instead.
