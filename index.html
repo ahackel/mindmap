@@ -184,7 +184,7 @@
     text-transform:uppercase; color:var(--tint); border:1px solid var(--tint);
     border-radius:6px; padding:1px 6px; opacity:.85; }
   /* add-child button, only on selected node */
-  .node .addchild { position:absolute; right:-14px; bottom:-14px; width:28px; height:28px;
+  .node .addchild { position:absolute; left:50%; margin-left:-14px; bottom:-14px; width:28px; height:28px;
     border-radius:50%; background:var(--accent); color:#fff;
     font-size:18px; line-height:1; cursor:pointer; display:none;
     align-items:center; justify-content:center; font-weight:700; }
@@ -196,7 +196,7 @@
   .node.search-dim { opacity:.2; }         /* dimmed while a find query excludes this card */
   .node .addchild:hover { transform:scale(1.12); }
   /* collapse marker at the card's upper-right corner, clear of the add-child (+) button at the
-     lower-right. A folded branch shows its hidden-descendant COUNT; a folded leaf (no children)
+     lower-centre. A folded branch shows its hidden-descendant COUNT; a folded leaf (no children)
      shows the same bubble empty — a white dot of the same size/position. */
   .node .hidden-count { position:absolute; right:0; top:0; transform:translate(50%,-50%);
     box-sizing:border-box; min-width:16px; height:16px; padding:0 5px;
@@ -321,7 +321,7 @@
   @media (pointer: coarse) {
     #toolbar button { width:40px; height:40px; }
     #toolbar button svg { width:22px; height:22px; }
-    .node .addchild { width:40px; height:40px; right:-18px; bottom:-18px; font-size:24px; }
+    .node .addchild { width:40px; height:40px; margin-left:-20px; bottom:-18px; font-size:24px; }
     .swatch { width:26px; height:26px; }
     .layoutchip { padding:6px 10px; }
   }
@@ -2927,8 +2927,13 @@ async function flushSave() {
 // ---------- reload on focus ----------
 // When the window regains focus (e.g. you edited a .md in another app), flush any
 // pending write first, then re-read everything from disk and restore selection.
+let reloading = false;
 async function reloadFromDisk() {
   if (!store.isOpen) return;
+  // A single refocus dispatches BOTH window 'focus' and 'visibilitychange', so this fires
+  // twice. loadFromDir is async (it awaits store.list), so a second run would interleave with
+  // the first and paint a duplicate, orphaned set of cards. Guard against re-entry: run once.
+  if (reloading) return;
   // if we just wrote, the focus event is almost certainly our own round-trip — skip
   if (Date.now() - (state.lastSelfWrite || 0) < 600) return;
   clearTimeout(saveTimer);
@@ -2936,10 +2941,15 @@ async function reloadFromDisk() {
   const selBefore = state.selId;
   // Don't yank the rug out while the user is actively typing in the panel or renaming a card.
   if (titleEditing || ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
-  await loadFromDir({ keepView:true });
-  // restore selection (and re-populate the panel from fresh data) if the node still exists
-  if (selBefore && state.nodes.has(selBefore)) selectNode(selBefore);
-  else selectNode(null);
+  reloading = true;
+  try {
+    await loadFromDir({ keepView:true });
+    // restore selection (and re-populate the panel from fresh data) if the node still exists
+    if (selBefore && state.nodes.has(selBefore)) selectNode(selBefore);
+    else selectNode(null);
+  } finally {
+    reloading = false;
+  }
 }
 store.watch(reloadFromDisk);   // re-read on external change (FSA: window-focus / tab-visible)
 
