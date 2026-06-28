@@ -19,8 +19,8 @@
   }
   /* ---- light theme: override the base variables ---- */
   body.light {
-    --bg: #e7eaef;
-    --grid: #d4d9e1;
+    --bg: #d7dbe2;
+    --grid: #c3c9d4;
     --node: #ffffff;
     --node-border: #cfd6e0;
     --node-sel: #2f6fe0;
@@ -190,16 +190,24 @@
     align-items:center; justify-content:center; font-weight:700; }
   .node.solo .addchild { display:flex; }   /* add-child only on a lone selection, not multi-select */
   body.readonly .node .addchild { display:none !important; }   /* no add-child in read-only */
+  /* hide add-child while a card is being dragged, and on collapsed cards (can't see children) */
+  body.grabbing .node .addchild,
+  .node.collapsed .addchild { display:none !important; }
   .node.search-dim { opacity:.2; }         /* dimmed while a find query excludes this card */
   .node .addchild:hover { transform:scale(1.12); }
-  /* count chip shown when a node's children are collapsed — centred on the card's
-     upper-right corner, clear of the add-child (+) button at the lower-right */
+  /* collapse marker at the card's upper-right corner, clear of the add-child (+) button at the
+     lower-right. A folded branch shows its hidden-descendant COUNT; a folded leaf (no children)
+     shows the same bubble empty — a white dot of the same size/position. */
   .node .hidden-count { position:absolute; right:0; top:0; transform:translate(50%,-50%);
-    background:var(--accent);
-    color:#fff; font-size:11px; font-weight:700; border-radius:11px; padding:2px 8px;
+    box-sizing:border-box; min-width:16px; height:16px; padding:0 5px;
+    background:#fff; color:#000; font-size:11px; font-weight:700; border-radius:8px;
     line-height:1; display:none; align-items:center; justify-content:center; }
-  .node.has-collapsed .hidden-count { display:inline-flex; }
-  .node.has-collapsed { border-style:dashed; }   /* hint that this node holds folded children */
+  .node.collapsed .hidden-count { display:inline-flex; }
+  /* a folded card (mm_collapsed) shows only its title: body hidden, count bubble in the corner.
+     covers both branches-with-children and leaf cards whose body is folded away. */
+  .node.collapsed { min-height:0; }   /* shrink to the title, like a bodyless card */
+  .node.collapsed .body { display:none; }
+  .node.collapsed .title { margin-bottom:0; }
   /* matching empty-swatch in light theme */
   body.light .swatch.inherit { background:repeating-linear-gradient(45deg,#fff,#fff 5px,#e7ebf1 5px,#e7ebf1 10px); }
 
@@ -815,12 +823,15 @@ function paintNode(n) {
   const el = nodeEl(n);
   if (isHidden(n)) { el.style.display = 'none'; return; }
   el.style.display = '';
-  const collapsedKids = n.collapsed && childrenOf(n.id).length > 0;
+  const hasKids = childrenOf(n.id).length > 0;
+  const hasBody = !!(n.body && n.body.trim());
+  const collapsedKids = n.collapsed && hasKids;            // hidden children → +N chip
+  const collapsed = n.collapsed && (hasKids || hasBody);   // folded to just its title
   el.className = 'node c-' + effectiveColor(n)
     + (state.sel.has(n.id) ? ' sel' : '')
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
-    + (collapsedKids ? ' has-collapsed' : '')
-    + ((n.body && n.body.trim()) ? '' : ' no-body')
+    + (collapsed ? ' collapsed' : '')
+    + (hasBody ? '' : ' no-body')
     + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '');
   el.style.left = n.x + 'px';
   el.style.top = n.y + 'px';
@@ -829,7 +840,8 @@ function paintNode(n) {
   const bodyEl = el.querySelector('.body');
   bodyEl.innerHTML = renderBodyHTML(n.body);
   hydrateImages(bodyEl);   // swap inline-image placeholders for resolved (blob/remote) URLs
-  if (collapsedKids) el.querySelector('.hidden-count').textContent = '+' + descendantCount(n.id);
+  // folded branch → hidden-descendant count; folded leaf → empty bubble (a white dot)
+  if (collapsed) el.querySelector('.hidden-count').textContent = collapsedKids ? String(descendantCount(n.id)) : '';
 }
 const NODE_W = 200;
 function nodeH(n){ return (n.el && n.el.offsetHeight) || 64; } // live height (falls back pre-render)
@@ -1005,10 +1017,13 @@ function cycleEdgeStyle(){
 }
 initEdgeStyle();
 
-// Toggle one node's collapse (folds/unfolds its direct children & everything below them).
+// Toggle one node's collapse: folds it down to just its title — hides its body and, if it has
+// children, folds them (and everything below) too. A leaf with a body can fold its body alone.
 function toggleCollapse(id){
   const n = state.nodes.get(id); if (!n) return;
-  if (childrenOf(n.id).length === 0) return;   // nothing to fold on a leaf
+  const hasKids = childrenOf(n.id).length > 0;
+  const hasBody = !!(n.body && n.body.trim());
+  if (!hasKids && !hasBody) return;   // nothing to fold: no children and no body
   // animate the reflow; withLayoutAnimation paints, measures heights, and lays out the children
   withLayoutAnimation(() => { n.collapsed = !n.collapsed; n.dirtyLayout = true; });
   scheduleSave();
@@ -1743,10 +1758,11 @@ function collapseAtDepth(depth = 1){
     n.collapsed = depthOf(n) === depth && childrenOf(n.id).length > 0;
   }
 }
-// collapse / expand EVERY node (only nodes with children are meaningfully collapsible)
+// collapse / expand EVERY node (a node is collapsible if it has children or a body)
 function setAllCollapsed(collapsed){
   withLayoutAnimation(() => {
-    for (const n of state.nodes.values()) n.collapsed = collapsed && childrenOf(n.id).length > 0;
+    for (const n of state.nodes.values())
+      n.collapsed = collapsed && (childrenOf(n.id).length > 0 || !!(n.body && n.body.trim()));
   });
   fit();
   if (store.isOpen) scheduleSave();
