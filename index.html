@@ -15,7 +15,7 @@
     --text: #e6ecf3;
     --muted: #8a99ad;
     --accent: #5aa9ff;
-    --panel: #0d1117;
+    --panel: #1f2734;   /* bar/chrome surface — brighter than the canvas */
   }
   /* ---- light theme: override the base variables ---- */
   body.light {
@@ -50,10 +50,12 @@
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg); color: var(--text); }
 
+  /* floating "island" toolbar — no border, rounded, soft shadow (Excalidraw-style) */
   #toolbar {
-    position: fixed; top:0; left:0; right:0; height:48px; z-index:20;
-    display:flex; align-items:center; gap:10px; padding:0 14px;
-    background: var(--panel); border-bottom:1px solid var(--grid);
+    position: fixed; top:10px; left:10px; right:10px; z-index:20;
+    display:flex; align-items:center; gap:10px; padding:5px 10px;
+    background: var(--panel); border-radius:14px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.28);
   }
   #toolbar h1 { font-size:14px; font-weight:600; margin:0 8px 0 0; letter-spacing:.2px; }
   #toolbar .sep { flex:1; }
@@ -87,8 +89,8 @@
   /* find / jump-to-card */
   #searchWrap { position:relative; }
   #searchBox { width:160px; height:30px; padding:0 10px; border-radius:8px; font-size:13px;
-    background:var(--node); border:1px solid var(--node-border); color:var(--text); }
-  #searchBox:focus { outline:none; border-color:var(--accent); width:220px; }
+    background:var(--bg); border:none; color:var(--text); }
+  #searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); width:220px; }
   #searchResults { position:absolute; top:36px; left:0; min-width:240px; max-height:50vh; overflow:auto;
     background:var(--panel); border:1px solid var(--grid); border-radius:8px; padding:4px;
     display:none; z-index:30; }
@@ -100,7 +102,7 @@
   #searchResults .sr-none { padding:6px 9px; font-size:12px; color:var(--muted); }
 
   /* touch-action:none → the browser never steals pan/zoom gestures; we drive them ourselves */
-  #stage { position:fixed; inset:48px 0 0 0; overflow:hidden; cursor:default; touch-action:none; }
+  #stage { position:fixed; inset:0; overflow:hidden; cursor:default; touch-action:none; }
   #stage.panning { cursor:grabbing; }
   /* the hand only appears while actually dragging a card; default everywhere else */
   body.grabbing, body.grabbing * { cursor:grabbing !important; }
@@ -130,6 +132,10 @@
   /* an uncoloured card sits on the page background, so its text follows the theme, not white */
   .node.c-none { color: var(--text); }
   .node.sel { border-color: var(--node-sel); box-shadow:0 0 0 2px var(--node-sel); }
+  /* while editing a title/body in place, drop the card's selection ring so only the editor's
+     own outline shows */
+  .node.sel:has(.title.editing), .node.sel:has(.body.editing) {
+    border-color: var(--cardline, var(--node-border)); box-shadow:none; }
   .node.drop-target { outline:2px dashed #5ac978; outline-offset:3px;
     box-shadow:0 0 0 2px #5ac978; }
   /* while poised over a valid parent the dragged card becomes just a dotted outline,
@@ -141,11 +147,20 @@
   .node .title { font-weight:600; font-size:14px; margin-bottom:9px; padding-right:16px;
     overflow-wrap:anywhere; overflow:hidden; }
   /* inline title rename (slow-click / F2 / on-create): edit the card's title in place */
-  .node .title.editing { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;
-    cursor:text; white-space:pre-wrap; overflow:visible; background:#000; color:#fff; }
+  .node .title.editing { outline:2px solid var(--accent); outline-offset:2px; border-radius:0;
+    cursor:text; white-space:pre-wrap; overflow:visible; background:rgba(0,0,0,.5);
+    box-shadow:0 0 0 2px rgba(0,0,0,.5); }   /* fill the outline-offset gap so the dark reaches the border */
   .node .title.editing.invalid { outline-color:#e0564a; }
   .node .body  { font-size:12px; color:inherit; opacity:.9; line-height:1.4;
     overflow-wrap:anywhere; overflow:hidden; }
+  /* in-place body editor (slow-click the body / ↓ from the title): raw markdown in a textarea */
+  .node .body.editing { overflow:visible; opacity:1; }
+  .node .body-edit { display:block; width:100%; box-sizing:border-box; margin:0;
+    font:inherit; font-size:12px; line-height:1.4; color:inherit;
+    background:rgba(0,0,0,.5); border:none; border-radius:0; padding:2px 4px;
+    box-shadow:0 0 0 2px rgba(0,0,0,.5);   /* fill the outline-offset gap so the dark reaches the border */
+    outline:2px solid var(--accent); outline-offset:2px; resize:none; overflow:hidden;
+    white-space:pre-wrap; overflow-wrap:anywhere; }
   /* markdown elements inside a card body — tight spacing, clipped preview */
   .node .body > :first-child { margin-top:0; }
   .node .body > :last-child  { margin-bottom:0; }
@@ -179,14 +194,16 @@
     border:1px dashed rgba(255,255,255,.4); border-radius:4px; }
   /* a card being targeted by an image file drag, and the body editor while dragging onto it */
   .node.img-drop { outline:2px dashed #5ac978; outline-offset:3px; box-shadow:0 0 0 2px #5ac978; }
-  #edBody.img-drop { outline:2px dashed var(--accent); outline-offset:-2px; }
+  .node .body-edit.img-drop { outline:2px dashed var(--accent); outline-offset:-2px; }
   .node .badge { display:inline-block; margin-top:6px; font-size:10px; letter-spacing:.4px;
     text-transform:uppercase; color:var(--tint); border:1px solid var(--tint);
     border-radius:6px; padding:1px 6px; opacity:.85; }
-  /* add-child button, only on selected node */
-  .node .addchild { position:absolute; left:50%; margin-left:-14px; bottom:-14px; width:28px; height:28px;
+  /* add-child button, only on selected node — its centre sits on the card's lower-left corner so
+     the centre-bottom is free for the "add note" bubble on a title-only card */
+  .node .addchild { position:absolute; left:0; margin-left:-11px; bottom:-11px; width:22px; height:22px;
+    box-sizing:border-box; padding:0 1px 2px 0;   /* nudge the +'s glyph up-left to optical centre */
     border-radius:50%; background:var(--accent); color:#fff;
-    font-size:18px; line-height:1; cursor:pointer; display:none;
+    font-size:16px; line-height:1; cursor:pointer; display:none;
     align-items:center; justify-content:center; font-weight:700; }
   .node.solo .addchild { display:flex; }   /* add-child only on a lone selection, not multi-select */
   body.readonly .node .addchild { display:none !important; }   /* no add-child in read-only */
@@ -195,6 +212,21 @@
   .node.collapsed .addchild { display:none !important; }
   .node.search-dim { opacity:.2; }         /* dimmed while a find query excludes this card */
   .node .addchild:hover { transform:scale(1.12); }
+  /* "add note" bubble: on a lone-selected, body-less card, the centre-bottom shows a blue pill
+     (a sibling of the + bubble) that opens the in-place note editor — replaces the old faint
+     "Add note…" placeholder text that used to live inside the body. */
+  .node .addnote { position:absolute; left:50%; transform:translateX(-50%); bottom:-11px;
+    height:22px; line-height:22px; padding:0 9px; border-radius:11px;
+    background:var(--accent); color:#fff; font-size:11px; font-weight:600;
+    white-space:nowrap; cursor:pointer; display:none; }
+  .node.solo.no-body .addnote { display:block; }   /* only when there's no note yet */
+  body.readonly .node .addnote { display:none !important; }
+  body.grabbing .node .addnote,
+  .node.collapsed .addnote { display:none !important; }
+  .node .addnote:hover { transform:translateX(-50%) scale(1.06); }
+  /* while a card's title or body is being edited in place, hide its selection bubbles */
+  .node:has(.title.editing) .addchild, .node:has(.title.editing) .addnote,
+  .node:has(.body.editing)  .addchild, .node:has(.body.editing)  .addnote { display:none !important; }
   /* collapse marker at the card's upper-right corner, clear of the add-child (+) button at the
      lower-centre. A folded branch shows its hidden-descendant COUNT; a folded leaf (no children)
      shows the same bubble empty — a white dot of the same size/position. */
@@ -211,22 +243,20 @@
   /* matching empty-swatch in light theme */
   body.light .swatch.inherit { background:repeating-linear-gradient(45deg,#fff,#fff 5px,#e7ebf1 5px,#e7ebf1 10px); }
 
+  /* floating edit panel — sits below the toolbar, off the right edge, hugs its content */
   #editor {
-    position:fixed; top:48px; right:0; bottom:0; width:304px; z-index:15;
-    background:var(--panel); border-left:1px solid var(--grid); padding:16px;
+    position:fixed; top:64px; right:10px; width:288px; z-index:15;
+    max-height:calc(100vh - 74px); overflow:auto;
+    background:var(--panel); border-radius:14px; padding:16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.32);
     display:flex; flex-direction:column; gap:10px;
-    transform:translateX(100%);                 /* parked off-screen when closed */
-    transition:transform .25s cubic-bezier(.4,0,.2,1);
+    transform:translateX(calc(100% + 10px)); opacity:0;  /* parked off-screen when closed */
+    transition:transform .25s cubic-bezier(.4,0,.2,1), opacity .2s ease;
+    pointer-events:none;
   }
-  #editor.open { transform:translateX(0); }      /* slide in from the right */
+  #editor.open { transform:translateX(0); opacity:1; pointer-events:auto; }  /* slide in from the right */
   #edFields { flex:1; display:flex; flex-direction:column; gap:10px; min-height:0; }
   #edFields .fgroup { display:flex; flex-direction:column; gap:6px; }
-  #edFields .fg-body { flex:1; min-height:0; }
-  .fg-body-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-  #extractBtn { font-size:11px; padding:3px 8px; border-radius:6px; cursor:pointer;
-    background:var(--node); color:var(--text); border:1px solid var(--node-border); }
-  #extractBtn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
-  #extractBtn:disabled { opacity:.4; cursor:default; }
   /* empty state vs. fields: only one shows at a time, driven by .has-selection */
   #editor #edFields { display:none; }
   #editor.has-selection #edFields { display:flex; }
@@ -234,8 +264,7 @@
   /* multi-select: only the colour picker applies; hide single-node fields, show the count */
   #edMulti { display:none; }
   #editor.multi #edMulti { display:block; }
-  #editor.multi #edName, #editor.multi .fg-tags,
-  #editor.multi .fg-body { display:none; }
+  #editor.multi #edName, #editor.multi .fg-tags { display:none; }
   /* read-only node name shown at the top of the sidebar (renaming happens on the canvas) */
   #editor .ed-name { font-size:16px; font-weight:600; color:var(--text); line-height:1.3;
     overflow-wrap:anywhere; padding-bottom:8px; border-bottom:1px solid var(--grid); }
@@ -244,28 +273,31 @@
     border:1px dotted var(--accent); background:color-mix(in srgb, var(--accent) 15%, transparent); }
   #editor label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
   #editor input, #editor textarea, #editor select {
-    background:var(--node); color:var(--text); border:1px solid var(--node-border);
+    background:var(--bg); color:var(--text); border:none;
     border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; width:100%;
+  }
+  #editor input:focus, #editor textarea:focus, #editor select:focus {
+    outline:none; box-shadow:0 0 0 2px var(--accent);
   }
   #editor textarea { flex:1; resize:none; font-family: ui-monospace, "SF Mono", Menlo, monospace; line-height:1.5; }
   #editor .row { display:flex; gap:8px; }
   #editor .editnote { font-size:11px; color:var(--muted); line-height:1.5; }
-  /* all swatches share one row and shrink to fit (inherit + 9 colours + none) */
+  /* colour picker = a row of individual round bubbles; the selection outline sits AROUND one */
   .swatches { display:flex; gap:6px; flex-wrap:nowrap; }
-  .swatch { flex:1 1 0; min-width:0; aspect-ratio:1; border-radius:7px; cursor:pointer;
-    border:2px solid transparent; background:var(--sw); }
-  .swatch:hover { transform:scale(1.12); }
-  .swatch.active { border-color:var(--text); }
+  .swatch { flex:1 1 0; min-width:0; aspect-ratio:1; border-radius:50%; cursor:pointer;
+    border:0; background:var(--sw); }
+  .swatch:hover  { box-shadow:0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent); }
+  .swatch.active { box-shadow:0 0 0 2px var(--text); }
   /* inherit (the default): striped chip = "take the parent's colour" */
   .swatch.inherit { background:repeating-linear-gradient(45deg,#1e2733,#1e2733 5px,#2a3543 5px,#2a3543 10px); }
   /* explicit no-colour: a blank chip with a diagonal slash — does NOT inherit */
-  .swatch.nofill { border:2px solid var(--node-border); background:
+  .swatch.nofill { background:
     linear-gradient(to top right, transparent calc(50% - 1.2px), #e0564a calc(50% - 1.2px),
       #e0564a calc(50% + 1.2px), transparent calc(50% + 1.2px)), var(--bg); }
   /* layout pickers: each row is one segmented toolbar (joined icon buttons) */
   .layoutrow { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  .layoutchips { display:inline-flex; border:1px solid var(--node-border);
-    border-radius:8px; overflow:hidden; background:var(--node); }
+  .layoutchips { display:inline-flex; border:none;
+    border-radius:8px; overflow:hidden; background:var(--bg); }
   .layoutchip { width:40px; height:30px; cursor:pointer;
     display:flex; align-items:center; justify-content:center;
     background:transparent; color:var(--muted); border:0; }
@@ -321,7 +353,8 @@
   @media (pointer: coarse) {
     #toolbar button { width:40px; height:40px; }
     #toolbar button svg { width:22px; height:22px; }
-    .node .addchild { width:40px; height:40px; margin-left:-20px; bottom:-18px; font-size:24px; }
+    .node .addchild { width:30px; height:30px; left:0; margin-left:-15px; bottom:-15px; font-size:22px; }
+    .node .addnote { height:30px; line-height:30px; bottom:-15px; padding:0 13px; border-radius:15px; font-size:13px; }
     .swatch { width:26px; height:26px; }
     .layoutchip { padding:6px 10px; }
   }
@@ -396,14 +429,6 @@
       <div class="fgroup fg-tags">
         <label>Tags (comma)</label>
         <input id="edTags" type="text" placeholder="mechanic, system" />
-      </div>
-      <div class="fgroup fg-body">
-        <div class="fg-body-head">
-          <label>Body (markdown)</label>
-          <button id="extractBtn" type="button" disabled
-            title="Move the selected text into a new child card (⌘⇧E)">⤷ Extract to child</button>
-        </div>
-        <textarea id="edBody" spellcheck="false"></textarea>
       </div>
     </div>
   </div>
@@ -775,12 +800,15 @@ function nodeEl(n) {
   const el = document.createElement('div');
   el.dataset.id = n.id;
   el.innerHTML = `<div class="title"></div><div class="body"></div>
-    <span class="hidden-count"></span><div class="addchild" title="add child (Tab)">+</div>`;
+    <span class="hidden-count"></span><div class="addchild" title="add child (Tab)">+</div>
+    <div class="addnote" title="Add note">Add note…</div>`;
   world.appendChild(el);
   n.el = el;
   bindNodeDrag(n);
   el.querySelector('.addchild').addEventListener('pointerdown', (e)=>{ e.stopPropagation(); });
   el.querySelector('.addchild').addEventListener('click', (e)=>{ e.stopPropagation(); addChild(n.id); });
+  el.querySelector('.addnote').addEventListener('pointerdown', (e)=>{ e.stopPropagation(); });
+  el.querySelector('.addnote').addEventListener('click', (e)=>{ e.stopPropagation(); startBodyEdit(n); });
   // body links: open externally, or jump to a wikilink's node. Don't let the click bubble to
   // the card (which would select / toggle the panel); pointerdown is stopped in bindNodeDrag.
   el.querySelector('.body').addEventListener('click', (e)=>{
@@ -806,6 +834,8 @@ function nodeEl(n) {
   // part of a multi-selection an instant ago (the first click collapsed it to one), fold the whole
   // group and keep it selected, rather than just this card.
   el.addEventListener('dblclick', (e)=>{
+    // while editing this card's title or body, a double-click selects a word — don't fold
+    if ((inlineEdit && inlineEdit.id === n.id) || (bodyEdit && bodyEdit.id === n.id)) return;
     e.stopPropagation(); e.preventDefault();
     clearTimeout(renameTimer);          // a double-click means "fold", not "rename"
     const g = pendingGroupFold;
@@ -833,7 +863,8 @@ function paintNode(n) {
   if (isHidden(n)) { el.style.display = 'none'; return; }
   el.style.display = '';
   const hasKids = childrenOf(n.id).length > 0;
-  const hasBody = !!(n.body && n.body.trim());
+  const editingBody = bodyEdit && bodyEdit.id === n.id;    // body editor open on this card
+  const hasBody = editingBody || !!(n.body && n.body.trim());  // keep the body slot while editing
   const collapsedKids = n.collapsed && hasKids;            // hidden children → +N chip
   const collapsed = n.collapsed && (hasKids || hasBody);   // folded to just its title
   el.className = 'node c-' + effectiveColor(n)
@@ -847,13 +878,23 @@ function paintNode(n) {
   // don't clobber the title while it's being inline-edited (the user is typing into it)
   if (!(inlineEdit && inlineEdit.id === n.id)) el.querySelector('.title').textContent = n.title;
   const bodyEl = el.querySelector('.body');
-  bodyEl.innerHTML = renderBodyHTML(n.body);
-  hydrateImages(bodyEl);   // swap inline-image placeholders for resolved (blob/remote) URLs
+  // don't clobber the body while it's being edited in place (the textarea lives inside .body)
+  if (!editingBody) {
+    bodyEl.innerHTML = renderBodyHTML(n.body);
+    hydrateImages(bodyEl);   // swap inline-image placeholders for resolved (blob/remote) URLs
+  }
   // folded branch → hidden-descendant count; folded leaf → empty bubble (a white dot)
   if (collapsed) el.querySelector('.hidden-count').textContent = collapsedKids ? String(descendantCount(n.id)) : '';
 }
 const NODE_W = 200;
 function nodeH(n){ return (n.el && n.el.offsetHeight) || 64; } // live height (falls back pre-render)
+// Height used for LAYOUT geometry. The selection affordances (+ and the "add note" bubble) are
+// absolutely positioned and overhang the card, so they don't inflate its measured height — a
+// title-only card lays out the same whether or not it's selected.
+function layoutH(n){
+  const el = n.el; if (!el) return 64;
+  return el.offsetHeight;
+}
 function nodeCenter(n){ return { x: n.x + NODE_W/2, y: n.y + nodeH(n)/2 }; }
 
 // Bright per-branch line colours (match the .c-*-cardline borders); 'none' falls back to --edge.
@@ -1057,7 +1098,7 @@ function toggleTask(n, idx){
   n.body = n.body.replace(/^(\s*[-*+]\s+)\[([ xX])\]/gm, (m, pre, mark) =>
     i++ === idx ? pre + (mark === ' ' ? '[x]' : '[ ]') : m);
   n.dirty = true;
-  if (state.selId === n.id) edBody.value = n.body;   // keep the sidebar editor in sync
+  if (bodyEdit && bodyEdit.id === n.id) bodyEdit.ta.value = n.body;   // keep an open in-card editor in sync
   paintNode(n); scheduleSave();
 }
 
@@ -1116,10 +1157,10 @@ function subtreeIds(id){
 function bindNodeDrag(n) {
   const el = n.el;
   el.addEventListener('pointerdown', (e) => {
-    if (e.target.classList.contains('addchild')) return;
+    if (e.target.classList.contains('addchild') || e.target.classList.contains('addnote')) return;
     if (e.target.closest('a.lk, input.taskbox')) { e.stopPropagation(); return; }  // let links/checkboxes click, not drag
-    // while this card's title is being renamed, let clicks place the caret — don't start a drag
-    if (inlineEdit && inlineEdit.id === n.id) { e.stopPropagation(); return; }
+    // while this card's title/body is being edited, let clicks place the caret — don't start a drag
+    if ((inlineEdit && inlineEdit.id === n.id) || (bodyEdit && bodyEdit.id === n.id)) { e.stopPropagation(); return; }
     clearTimeout(renameTimer);   // any fresh interaction cancels a pending slow-click rename
     e.stopPropagation();
     el.setPointerCapture(e.pointerId);
@@ -1137,6 +1178,7 @@ function bindNodeDrag(n) {
     const targets = new Map([...start].map(([id, s]) => [id, { x:s.x, y:s.y }]));
     drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets,
              moved:false, dropTarget:null, alt:e.altKey, shift:e.shiftKey, cloned:false,
+             downTarget:e.target,              // where the press landed → slow-click edits title or body
              meta: e.metaKey || e.ctrlKey };   // ⌘/Ctrl-click toggles this card in the selection
   });
   el.addEventListener('pointermove', (e) => {
@@ -1185,10 +1227,12 @@ function bindNodeDrag(n) {
           selectNode(n.id);
         }
         else if (!state.readOnly) {
-          // a second (slow) click on the already-sole-selected card = rename in place, Finder-style.
+          // a second (slow) click on the already-sole-selected card = edit in place, Finder-style.
+          // Click the title → rename; click anywhere else on the card → edit the note.
           // Delay it so a double-click (which fires dblclick first) can cancel it and fold instead.
           clearTimeout(renameTimer);
-          renameTimer = setTimeout(() => startInlineEdit(n), 260);
+          const onTitle = !!(drag.downTarget && drag.downTarget.closest && drag.downTarget.closest('.title'));
+          renameTimer = setTimeout(() => onTitle ? startInlineEdit(n) : startBodyEdit(n), 260);
         }
       } else {
         // dropped onto a node? re-parent. Alt+drop on empty canvas? detach to root.
@@ -1616,7 +1660,7 @@ function subtreeBox(node){
   for (const id of subtreeIds(node.id)){
     const n = state.nodes.get(id); if (!n || isHidden(n)) continue;
     x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
-    x1 = Math.max(x1, n.x + NODE_W); y1 = Math.max(y1, n.y + nodeH(n));
+    x1 = Math.max(x1, n.x + NODE_W); y1 = Math.max(y1, n.y + layoutH(n));
   }
   return { x0, y0, x1, y1 };
 }
@@ -1708,11 +1752,11 @@ function layoutSubtree(node){
     const hz = sd === 'left' || sd === 'right';
     const cross = ids.map(k => { const b=boxOf.get(k.id); return hz ? (b.y1-b.y0) : (b.x1-b.x0); });
     const total = cross.reduce((s,v)=>s+v,0) + LAYOUT_CROSS*Math.max(0, ids.length-1);
-    let cur = (hz ? ay + nodeH(node)/2 : ax + NODE_W/2) - total/2;
+    let cur = (hz ? ay + layoutH(node)/2 : ax + NODE_W/2) - total/2;
     ids.forEach((k,i)=>{
       const b = boxOf.get(k.id); let dx=0, dy=0;
       if (hz){ dx = sd==='right' ? (ax+NODE_W+LAYOUT_MAIN - b.x0) : (ax-LAYOUT_MAIN - b.x1); dy = cur - b.y0; }
-      else   { dy = sd==='down'  ? (ay+nodeH(node)+LAYOUT_MAIN - b.y0) : (ay-LAYOUT_MAIN - b.y1); dx = cur - b.x0; }
+      else   { dy = sd==='down'  ? (ay+layoutH(node)+LAYOUT_MAIN - b.y0) : (ay-LAYOUT_MAIN - b.y1); dx = cur - b.x0; }
       shiftSubtree(k, dx, dy); cur += cross[i] + LAYOUT_CROSS;
     });
   };
@@ -1738,14 +1782,14 @@ function layoutSubtree(node){
     // way the first child in stored (top-to-bottom / left-to-right) order ends up at the visual
     // top/left, not nearest the parent. (Otherwise dragging a child to the top snaps it to the bottom.)
     let cur = horiz ? (side==='right' ? ax+NODE_W+LAYOUT_MAIN : ax-LAYOUT_MAIN)
-                    : (side==='down'  ? ay+nodeH(node)+LAYOUT_MAIN : ay-LAYOUT_MAIN);
+                    : (side==='down'  ? ay+layoutH(node)+LAYOUT_MAIN : ay-LAYOUT_MAIN);
     const seq = (side==='left' || side==='up') ? sorted.slice().reverse() : sorted;
     seq.forEach((k)=>{
       const b = boxOf.get(k.id); let dx=0, dy=0;
       if (horiz){
         const w = b.x1 - b.x0;
         dx = side==='right' ? (cur - b.x0) : (cur - b.x1);
-        dy = (ay + nodeH(node)/2) - (k.y + nodeH(k)/2);   // centre child on the parent's y
+        dy = (ay + layoutH(node)/2) - (k.y + layoutH(k)/2);   // centre child on the parent's y
         cur += side==='right' ? (w+LAYOUT_CHAIN) : -(w+LAYOUT_CHAIN);
       } else {
         const h = b.y1 - b.y0;
@@ -1806,7 +1850,6 @@ function setAllCollapsed(collapsed){
 const editor = document.getElementById('editor');
 const edName  = document.getElementById('edName');   // read-only node name at the top of the sidebar
 const edTags  = document.getElementById('edTags');
-const edBody  = document.getElementById('edBody');
 const edLayoutTypes = document.getElementById('edLayoutTypes');
 const edLayoutDirs  = document.getElementById('edLayoutDirs');
 const edColors = document.getElementById('edColors');
@@ -1906,7 +1949,6 @@ function openEditor(n){
   editor.classList.remove('multi');
   edName.textContent = n.title;             // name is read-only here — rename on the canvas
   edTags.value = n.tags.join(', ');
-  edBody.value = n.body;
   markActiveSwatch(n.color);
   markLayoutChips();
   editor.classList.add('has-selection');   // show fields instead of the empty hint
@@ -1924,7 +1966,7 @@ function openMultiEditor(){
 // no node selected → keep the sidebar open but show the empty hint
 function showEmptyEditor(){ editor.classList.remove('has-selection', 'multi'); }
 // reflect state.sel in the canvas + the editor panel
-function applySelection(){ paintAll(); updateEditor(); updateNodeActions(); }
+function applySelection(){ paintAll(); updateEditor(); updateNodeActions(); applySidebar(); }
 
 // Enable/disable the toolbar's selected-card actions to match the current selection & mode.
 function updateNodeActions(){
@@ -1939,7 +1981,6 @@ function updateEditor(){
   if (n === 0) showEmptyEditor();
   else if (n === 1) openEditor(state.nodes.get(state.selId));
   else openMultiEditor();
-  refreshExtractBtn();   // a fresh card has no selection → disable extract
 }
 // Replace the whole selection with `ids` (a Set or array), recomputing the primary.
 function setSelectionSet(ids){
@@ -1960,13 +2001,14 @@ function toggleSel(id){
   applySelection();
 }
 
-// The sidebar stays open by default; the toolbar button is the only thing that
-// toggles its visibility. Selection only swaps fields vs. empty hint.
+// The floating edit panel only appears when it's actually needed — i.e. something is
+// selected (and not in read-only). The toolbar button toggles the user's preference.
 const sidebarBtn = document.getElementById('sidebarBtn');
 function applySidebar(){
-  const open = state.sidebarOpen && !state.readOnly;   // sidebar is always hidden in read-only
+  const wanted = state.sidebarOpen && !state.readOnly;   // user pref, ignoring selection
+  const open = wanted && state.sel.size > 0;             // only show when there's a selection
   editor.classList.toggle('open', open);
-  sidebarBtn.classList.toggle('active', open);
+  sidebarBtn.classList.toggle('active', wanted);
 }
 function toggleSidebar(){ if (state.readOnly) return; state.sidebarOpen = !state.sidebarOpen; applySidebar(); }
 sidebarBtn.onclick = toggleSidebar;
@@ -2024,42 +2066,38 @@ function titleProblem(title, selfId){
   }
   return '';
 }
-// Tags / body / colour apply live from the sidebar. The TITLE is not editable here — renaming
-// happens on the canvas (F2 / slow-click → inline edit), so the sidebar only displays the name.
+// Tags / colour apply live from the sidebar. The TITLE and BODY are edited on the canvas
+// (F2 / slow-click → inline edit), so the sidebar only handles tags, colour, and layout.
 function applyRest(){
   const n = state.nodes.get(state.selId); if (!n) return;
   n.tags = edTags.value.split(',').map(s=>s.trim()).filter(Boolean);
-  n.body = edBody.value;
   n.dirty = true;
   // paint first so the card's height is up to date, then reflow: a taller/shorter card pushes
   // its siblings (and its own children) under any non-free parent. Order is untouched.
   paintAll(); applyLayouts(); paintAll(); scheduleSave();
 }
 edTags.addEventListener('input', applyRest);
-edBody.addEventListener('input', applyRest);
 // (layout is set via the icon chips above — see setLayout / buildLayoutChips)
 
 // ---------- extract selected body text into a new child card ----------
-const extractBtn = document.getElementById('extractBtn');
-function refreshExtractBtn(){
-  extractBtn.disabled = !state.selId || edBody.selectionStart === edBody.selectionEnd;
-}
-// track selection so the button enables only when there's something to extract
-['select','keyup','mouseup','input'].forEach(ev => edBody.addEventListener(ev, refreshExtractBtn));
+// Triggered with ⌘⇧E while editing a card's body in place: cut the selected text out of the
+// note and drop it into a fresh child card.
 function extractToChild(){
-  if (state.readOnly) return;
-  const n = state.nodes.get(state.selId); if (!n) return;
-  const s = edBody.selectionStart, e = edBody.selectionEnd;
+  if (state.readOnly || !bodyEdit) return;
+  const n = state.nodes.get(bodyEdit.id); if (!n) return;
+  const ta = bodyEdit.ta;
+  const s = ta.selectionStart, e = ta.selectionEnd;
   if (s === e){ setStatus('Select some body text to extract'); return; }
-  const sel = edBody.value.slice(s, e);
+  const sel = ta.value.slice(s, e);
   const lines = sel.split('\n');
   let ti = lines.findIndex(l => l.trim()); if (ti < 0) ti = 0;
   const title = uniqueTitle(
     lines[ti].replace(/^\s*(#{1,6}|[-*+]|>|\d+\.)\s*/, '').trim() || 'New Node');
   const childBody = lines.slice(ti+1).join('\n').trim();
-  // cut the selection out of the parent (tidy up the blank lines it leaves)
-  n.body = (edBody.value.slice(0, s) + edBody.value.slice(e)).replace(/\n{3,}/g, '\n\n').trim();
-  edBody.value = n.body; n.dirty = true;
+  // cut the selection out of the parent (tidy up the blank lines it leaves) and close its editor
+  n.body = (ta.value.slice(0, s) + ta.value.slice(e)).replace(/\n{3,}/g, '\n\n').trim();
+  n.dirty = true;
+  bodyEdit = null; bodyEditing = false; bodyEditId = null;   // commit & drop the in-card editor
   // make the child below the parent and jump to it
   const sibs = childrenOf(n.id);
   if (n.collapsed) n.collapsed = false;
@@ -2074,12 +2112,6 @@ function extractToChild(){
   applyLayouts(); paintAll(); selectNode(id); scheduleSave();
   setStatus(`Extracted “${title}” as a child`);
 }
-extractBtn.addEventListener('click', extractToChild);
-edBody.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'e' || e.key === 'E')){
-    e.preventDefault(); extractToChild();
-  }
-});
 
 // ---------- image attachments ----------
 // Images are real files in the vault's attachments/ folder; the note just gets ![alt](attachments/…).
@@ -2124,30 +2156,34 @@ async function appendImagesToNode(id, files){
   const md = await markdownForImages(imgs);
   n.body = (n.body && n.body.trim()) ? n.body.replace(/\s*$/, '') + '\n\n' + md : md;
   n.dirty = true;
-  if (state.selId === id) edBody.value = n.body;
+  if (bodyEdit && bodyEdit.id === id) bodyEdit.ta.value = n.body;   // sync an open in-card editor
   paintAll(); applyLayouts(); paintAll(); scheduleSave();
   setStatus(`Added ${imgs.length} image${imgs.length === 1 ? '' : 's'}`);
 }
-// Insert images at the caret in the body editor (used by paste / drop onto the textarea).
+// Insert images at the caret in the in-card body editor (used by paste / drop onto it).
 async function insertImagesAtCursor(files){
   const imgs = [...files].filter(isImageFile);
   if (!imgs.length || !canAttach()) return;
-  const n = state.nodes.get(state.selId); if (!n) return;
+  if (!bodyEdit){ return; }                          // only meaningful while editing a body in place
+  const n = state.nodes.get(bodyEdit.id); if (!n) return;
+  const ta = bodyEdit.ta;
   setStatus('Adding image…');
   const md = await markdownForImages(imgs);
-  const s = edBody.selectionStart, e = edBody.selectionEnd, v = edBody.value;
+  const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
   const ins = (s > 0 && v[s-1] !== '\n' ? '\n' : '') + md + '\n';
-  edBody.value = v.slice(0, s) + ins + v.slice(e);
-  edBody.selectionStart = edBody.selectionEnd = s + ins.length;
-  applyRest();   // commits edBody → n.body, repaints, schedules save
+  ta.value = v.slice(0, s) + ins + v.slice(e);
+  ta.selectionStart = ta.selectionEnd = s + ins.length;
+  autosizeBody(ta);
+  n.body = ta.value; n.dirty = true;
+  applyLayouts(); paintAll(); scheduleSave();        // reflow; the editing textarea is preserved
   setStatus(`Added ${imgs.length} image${imgs.length === 1 ? '' : 's'}`);
 }
 
-// Paste an image straight into the body editor.
-edBody.addEventListener('paste', (e) => {
+// Paste an image straight into the in-card body editor (bound per-textarea in startBodyEdit).
+function onBodyPaste(e){
   const imgs = [...(e.clipboardData?.files || [])].filter(isImageFile);
   if (imgs.length){ e.preventDefault(); insertImagesAtCursor(imgs); }
-});
+}
 
 // Drag an image file from the OS onto a card (or the body editor). We handle this at the document
 // level so we can both highlight the target and stop the browser from navigating to the dropped file.
@@ -2162,19 +2198,19 @@ document.addEventListener('dragover', (e) => {
   if (!dragHasFiles(e)) return;
   e.preventDefault();
   if (state.readOnly){ setImgDropTarget(null); return; }
-  setImgDropTarget(e.target.closest?.('#edBody') || e.target.closest?.('#world [data-id]') || null);
+  setImgDropTarget(e.target.closest?.('.body-edit') || e.target.closest?.('#world [data-id]') || null);
 });
 document.addEventListener('dragleave', (e) => { if (e.relatedTarget == null) setImgDropTarget(null); });
 document.addEventListener('drop', async (e) => {
   if (!dragHasFiles(e)) return;
   e.preventDefault();
-  const onEditor = !!e.target.closest?.('#edBody');
+  const onEditor = !!e.target.closest?.('.body-edit');
   const cardEl   = e.target.closest?.('#world [data-id]');
   setImgDropTarget(null);
   const imgs = [...e.dataTransfer.files].filter(isImageFile);
   if (!imgs.length) return;
-  if (cardEl){ selectNode(cardEl.dataset.id); await appendImagesToNode(cardEl.dataset.id, imgs); }
-  else if (onEditor && state.selId){ await insertImagesAtCursor(imgs); }
+  if (onEditor && bodyEdit){ await insertImagesAtCursor(imgs); }   // drop on the open editor → at the caret
+  else if (cardEl){ selectNode(cardEl.dataset.id); await appendImagesToNode(cardEl.dataset.id, imgs); }
   else if (state.selId){ await appendImagesToNode(state.selId, imgs); }
   else setStatus('Drop an image onto a card to attach it');
 });
@@ -2215,6 +2251,8 @@ function onInlineKeydown(e, n){
   if (!inlineEdit || inlineEdit.id !== n.id) return;
   if (e.key === 'Enter' || e.key === 'Tab'){ e.preventDefault(); e.stopPropagation(); endInlineEdit(); }
   else if (e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); endInlineEdit({ cancel:true }); }
+  // ↓ from the title drops straight into editing the body (handy right after creating a card)
+  else if (e.key === 'ArrowDown'){ e.preventDefault(); e.stopPropagation(); endInlineEdit(); startBodyEdit(n, { atStart:true }); }
 }
 // Commit (or cancel) the rename: keep the typed title if valid, else fall back to the node's
 // current (last-valid) title. Restores canonical text, then reflows + saves.
@@ -2233,6 +2271,67 @@ function endInlineEdit({ cancel = false } = {}){
   edName.textContent = n.title;                       // keep the sidebar header in sync
   paintAll(); applyLayouts(); paintAll();             // title may have changed height → reflow
   scheduleSave();
+}
+
+// ---------- inline body edit (edit a card's note on the card itself) ----------
+// Entered via slow-click on the body, or ↓ from the title editor. Shows the RAW markdown in a
+// textarea inside .body; Enter inserts a newline, Esc cancels (restores the original), blur commits.
+// `bodyEditing`/`bodyEditId` mirror the title guards so the save loop / disk-reload behave the same.
+let bodyEdit = null;       // { id, orig, el, ta } while a card body is being edited in place
+let bodyEditing = false;
+let bodyEditId = null;
+function autosizeBody(ta){ ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+function startBodyEdit(n, { atStart = false } = {}){
+  if (state.readOnly || !n || !n.el) return;
+  if (bodyEdit && bodyEdit.id === n.id) return;                 // already editing this body
+  if (inlineEdit) endInlineEdit();                             // close a title editor first
+  if (bodyEdit) endBodyEdit();                                 // close any other open body editor
+  if (state.selId !== n.id || state.sel.size !== 1) selectNode(n.id);
+  const bodyEl = n.el.querySelector('.body');
+  const ta = document.createElement('textarea');
+  ta.className = 'body-edit'; ta.spellcheck = false; ta.value = n.body;
+  bodyEdit = { id:n.id, orig:n.body, el:bodyEl, ta };
+  bodyEditing = true; bodyEditId = n.id;
+  n.el.classList.remove('no-body');                            // give the body slot room while editing
+  bodyEl.innerHTML = ''; bodyEl.appendChild(ta);
+  bodyEl.classList.add('editing');
+  // typing: keep the textarea sized to its content and reflow siblings as the card grows/shrinks
+  ta.addEventListener('input', () => { autosizeBody(ta); onBodyInput(n); });
+  ta.addEventListener('keydown', (e) => onBodyKeydown(e, n));
+  ta.addEventListener('blur',    () => { if (bodyEdit && bodyEdit.id === n.id) endBodyEdit(); });
+  ta.addEventListener('paste',   onBodyPaste);                 // paste images straight into the note
+  ta.addEventListener('pointerdown', (e) => e.stopPropagation());   // place the caret, don't drag the card
+  ta.focus();
+  autosizeBody(ta);              // size to content first so the card's real height is known…
+  applyLayouts(); paintAll();    // …then reflow siblings around it (not just after a newline)
+  const pos = atStart ? 0 : ta.value.length;
+  ta.setSelectionRange(pos, pos);
+}
+// Live: reflow as the user types. n.body isn't touched here (layout uses the live DOM height),
+// so an in-progress edit can't corrupt anything — the textarea content is preserved by paintNode.
+function onBodyInput(n){
+  if (!bodyEdit || bodyEdit.id !== n.id) return;
+  applyLayouts(); paintAll();
+}
+function onBodyKeydown(e, n){
+  if (!bodyEdit || bodyEdit.id !== n.id) return;
+  e.stopPropagation();                                  // keep canvas/card shortcuts out while typing
+  if (e.key === 'Escape'){ e.preventDefault(); endBodyEdit({ cancel:true }); }
+  else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter'){ e.preventDefault(); endBodyEdit(); }
+  else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'e' || e.key === 'E')){ e.preventDefault(); extractToChild(); }
+  // plain Enter falls through → the textarea inserts a newline (notes are multi-line)
+}
+// Commit (or cancel) the body edit. Commit stores the textarea text; cancel leaves n.body untouched
+// (its original). Either way we drop the textarea and re-render + reflow from n.body.
+function endBodyEdit({ cancel = false } = {}){
+  const be = bodyEdit; if (!be) return;
+  bodyEdit = null;                                      // null first → the blur handler becomes a no-op
+  bodyEditing = false; bodyEditId = null;
+  const n = state.nodes.get(be.id);
+  be.el.classList.remove('editing');
+  if (n && !cancel && be.ta.value !== be.orig){ n.body = be.ta.value; n.dirty = true; }
+  paintAll(); applyLayouts(); paintAll();               // re-render the body and reflow the height change
+  if (n && !cancel && be.ta.value !== be.orig) scheduleSave();
 }
 
 // Forget a set of node ids: drop them from state, remove their DOM cards, and queue
@@ -2971,7 +3070,7 @@ async function reloadFromDisk() {
   if (saving) return;                 // a write is mid-flight; don't read torn state
   const selBefore = state.selId;
   // Don't yank the rug out while the user is actively typing in the panel or renaming a card.
-  if (titleEditing || ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
+  if (titleEditing || bodyEditing || ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
   reloading = true;
   try {
     await loadFromDir({ keepView:true });

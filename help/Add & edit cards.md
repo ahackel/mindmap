@@ -9,7 +9,8 @@ mm_y: 158
 
 - **New card:** press `Space` or the **＋** toolbar button.
 - **Child / sibling:** select a card, then the toolbar arrows (or `Tab` / `Enter`).
-- **Rename:** double-click the title, press `F2`, or the rename button.
-- **Edit text:** open the side panel (`S`) and type — it autosaves.
+- **Rename:** slow-click the title (a second click on the selected card), press `F2`, or the rename button.
+- **Edit text:** slow-click a card's body to edit its note right on the card — or press `↓` while renaming. `Enter` adds a line, `Esc` cancels, click away to keep. It autosaves.
+- **Colour, tags & layout** live in the side panel (`S`).
 
 The toolbar's selected-card section lights up only when a card is selected.
