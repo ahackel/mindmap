@@ -127,13 +127,13 @@
   /* bodyless cards shrink to just fit the title (no reserved body height) */
   .node.no-body { min-height:0; }
   .node.no-body .title { margin-bottom:0; }
-  /* a lone-selected empty card reserves a faint, clickable note slot — slow-click it to write one */
-  .node.solo.no-body .title { margin-bottom:6px; }
-  .node.solo.no-body .body { cursor:text; }
-  .node.solo.no-body .body::before { content:"Add note…"; opacity:.4; font-size:12px; }
   /* an uncoloured card sits on the page background, so its text follows the theme, not white */
   .node.c-none { color: var(--text); }
   .node.sel { border-color: var(--node-sel); box-shadow:0 0 0 2px var(--node-sel); }
+  /* while editing a title/body in place, drop the card's selection ring so only the editor's
+     own outline shows */
+  .node.sel:has(.title.editing), .node.sel:has(.body.editing) {
+    border-color: var(--cardline, var(--node-border)); box-shadow:none; }
   .node.drop-target { outline:2px dashed #5ac978; outline-offset:3px;
     box-shadow:0 0 0 2px #5ac978; }
   /* while poised over a valid parent the dragged card becomes just a dotted outline,
@@ -145,8 +145,9 @@
   .node .title { font-weight:600; font-size:14px; margin-bottom:9px; padding-right:16px;
     overflow-wrap:anywhere; overflow:hidden; }
   /* inline title rename (slow-click / F2 / on-create): edit the card's title in place */
-  .node .title.editing { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;
-    cursor:text; white-space:pre-wrap; overflow:visible; background:rgba(255,255,255,.06); }
+  .node .title.editing { outline:2px solid var(--accent); outline-offset:2px; border-radius:0;
+    cursor:text; white-space:pre-wrap; overflow:visible; background:rgba(0,0,0,.5);
+    box-shadow:0 0 0 2px rgba(0,0,0,.5); }   /* fill the outline-offset gap so the dark reaches the border */
   .node .title.editing.invalid { outline-color:#e0564a; }
   .node .body  { font-size:12px; color:inherit; opacity:.9; line-height:1.4;
     overflow-wrap:anywhere; overflow:hidden; }
@@ -154,7 +155,8 @@
   .node .body.editing { overflow:visible; opacity:1; }
   .node .body-edit { display:block; width:100%; box-sizing:border-box; margin:0;
     font:inherit; font-size:12px; line-height:1.4; color:inherit;
-    background:rgba(255,255,255,.06); border:none; border-radius:4px; padding:2px 4px;
+    background:rgba(0,0,0,.5); border:none; border-radius:0; padding:2px 4px;
+    box-shadow:0 0 0 2px rgba(0,0,0,.5);   /* fill the outline-offset gap so the dark reaches the border */
     outline:2px solid var(--accent); outline-offset:2px; resize:none; overflow:hidden;
     white-space:pre-wrap; overflow-wrap:anywhere; }
   /* markdown elements inside a card body — tight spacing, clipped preview */
@@ -194,10 +196,12 @@
   .node .badge { display:inline-block; margin-top:6px; font-size:10px; letter-spacing:.4px;
     text-transform:uppercase; color:var(--tint); border:1px solid var(--tint);
     border-radius:6px; padding:1px 6px; opacity:.85; }
-  /* add-child button, only on selected node */
-  .node .addchild { position:absolute; left:50%; margin-left:-14px; bottom:-14px; width:28px; height:28px;
+  /* add-child button, only on selected node — its centre sits on the card's lower-left corner so
+     the centre-bottom is free for the "add note" bubble on a title-only card */
+  .node .addchild { position:absolute; left:0; margin-left:-11px; bottom:-11px; width:22px; height:22px;
+    box-sizing:border-box; padding:0 1px 2px 0;   /* nudge the +'s glyph up-left to optical centre */
     border-radius:50%; background:var(--accent); color:#fff;
-    font-size:18px; line-height:1; cursor:pointer; display:none;
+    font-size:16px; line-height:1; cursor:pointer; display:none;
     align-items:center; justify-content:center; font-weight:700; }
   .node.solo .addchild { display:flex; }   /* add-child only on a lone selection, not multi-select */
   body.readonly .node .addchild { display:none !important; }   /* no add-child in read-only */
@@ -206,6 +210,21 @@
   .node.collapsed .addchild { display:none !important; }
   .node.search-dim { opacity:.2; }         /* dimmed while a find query excludes this card */
   .node .addchild:hover { transform:scale(1.12); }
+  /* "add note" bubble: on a lone-selected, body-less card, the centre-bottom shows a blue pill
+     (a sibling of the + bubble) that opens the in-place note editor — replaces the old faint
+     "Add note…" placeholder text that used to live inside the body. */
+  .node .addnote { position:absolute; left:50%; transform:translateX(-50%); bottom:-11px;
+    height:22px; line-height:22px; padding:0 9px; border-radius:11px;
+    background:var(--accent); color:#fff; font-size:11px; font-weight:600;
+    white-space:nowrap; cursor:pointer; display:none; }
+  .node.solo.no-body .addnote { display:block; }   /* only when there's no note yet */
+  body.readonly .node .addnote { display:none !important; }
+  body.grabbing .node .addnote,
+  .node.collapsed .addnote { display:none !important; }
+  .node .addnote:hover { transform:translateX(-50%) scale(1.06); }
+  /* while a card's title or body is being edited in place, hide its selection bubbles */
+  .node:has(.title.editing) .addchild, .node:has(.title.editing) .addnote,
+  .node:has(.body.editing)  .addchild, .node:has(.body.editing)  .addnote { display:none !important; }
   /* collapse marker at the card's upper-right corner, clear of the add-child (+) button at the
      lower-centre. A folded branch shows its hidden-descendant COUNT; a folded leaf (no children)
      shows the same bubble empty — a white dot of the same size/position. */
@@ -327,7 +346,8 @@
   @media (pointer: coarse) {
     #toolbar button { width:40px; height:40px; }
     #toolbar button svg { width:22px; height:22px; }
-    .node .addchild { width:40px; height:40px; margin-left:-20px; bottom:-18px; font-size:24px; }
+    .node .addchild { width:30px; height:30px; left:0; margin-left:-15px; bottom:-15px; font-size:22px; }
+    .node .addnote { height:30px; line-height:30px; bottom:-15px; padding:0 13px; border-radius:15px; font-size:13px; }
     .swatch { width:26px; height:26px; }
     .layoutchip { padding:6px 10px; }
   }
@@ -775,12 +795,15 @@ function nodeEl(n) {
   const el = document.createElement('div');
   el.dataset.id = n.id;
   el.innerHTML = `<div class="title"></div><div class="body"></div>
-    <span class="hidden-count"></span><div class="addchild" title="add child (Tab)">+</div>`;
+    <span class="hidden-count"></span><div class="addchild" title="add child (Tab)">+</div>
+    <div class="addnote" title="Add note">Add note…</div>`;
   world.appendChild(el);
   n.el = el;
   bindNodeDrag(n);
   el.querySelector('.addchild').addEventListener('pointerdown', (e)=>{ e.stopPropagation(); });
   el.querySelector('.addchild').addEventListener('click', (e)=>{ e.stopPropagation(); addChild(n.id); });
+  el.querySelector('.addnote').addEventListener('pointerdown', (e)=>{ e.stopPropagation(); });
+  el.querySelector('.addnote').addEventListener('click', (e)=>{ e.stopPropagation(); startBodyEdit(n); });
   // body links: open externally, or jump to a wikilink's node. Don't let the click bubble to
   // the card (which would select / toggle the panel); pointerdown is stopped in bindNodeDrag.
   el.querySelector('.body').addEventListener('click', (e)=>{
@@ -860,6 +883,13 @@ function paintNode(n) {
 }
 const NODE_W = 200;
 function nodeH(n){ return (n.el && n.el.offsetHeight) || 64; } // live height (falls back pre-render)
+// Height used for LAYOUT geometry. The selection affordances (+ and the "add note" bubble) are
+// absolutely positioned and overhang the card, so they don't inflate its measured height — a
+// title-only card lays out the same whether or not it's selected.
+function layoutH(n){
+  const el = n.el; if (!el) return 64;
+  return el.offsetHeight;
+}
 function nodeCenter(n){ return { x: n.x + NODE_W/2, y: n.y + nodeH(n)/2 }; }
 
 // Bright per-branch line colours (match the .c-*-cardline borders); 'none' falls back to --edge.
@@ -1122,7 +1152,7 @@ function subtreeIds(id){
 function bindNodeDrag(n) {
   const el = n.el;
   el.addEventListener('pointerdown', (e) => {
-    if (e.target.classList.contains('addchild')) return;
+    if (e.target.classList.contains('addchild') || e.target.classList.contains('addnote')) return;
     if (e.target.closest('a.lk, input.taskbox')) { e.stopPropagation(); return; }  // let links/checkboxes click, not drag
     // while this card's title/body is being edited, let clicks place the caret — don't start a drag
     if ((inlineEdit && inlineEdit.id === n.id) || (bodyEdit && bodyEdit.id === n.id)) { e.stopPropagation(); return; }
@@ -1193,11 +1223,11 @@ function bindNodeDrag(n) {
         }
         else if (!state.readOnly) {
           // a second (slow) click on the already-sole-selected card = edit in place, Finder-style.
-          // Click the body → edit the note; click the title (or elsewhere) → rename.
+          // Click the title → rename; click anywhere else on the card → edit the note.
           // Delay it so a double-click (which fires dblclick first) can cancel it and fold instead.
           clearTimeout(renameTimer);
-          const onBody = !!(drag.downTarget && drag.downTarget.closest && drag.downTarget.closest('.body'));
-          renameTimer = setTimeout(() => onBody ? startBodyEdit(n) : startInlineEdit(n), 260);
+          const onTitle = !!(drag.downTarget && drag.downTarget.closest && drag.downTarget.closest('.title'));
+          renameTimer = setTimeout(() => onTitle ? startInlineEdit(n) : startBodyEdit(n), 260);
         }
       } else {
         // dropped onto a node? re-parent. Alt+drop on empty canvas? detach to root.
@@ -1625,7 +1655,7 @@ function subtreeBox(node){
   for (const id of subtreeIds(node.id)){
     const n = state.nodes.get(id); if (!n || isHidden(n)) continue;
     x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
-    x1 = Math.max(x1, n.x + NODE_W); y1 = Math.max(y1, n.y + nodeH(n));
+    x1 = Math.max(x1, n.x + NODE_W); y1 = Math.max(y1, n.y + layoutH(n));
   }
   return { x0, y0, x1, y1 };
 }
@@ -1717,11 +1747,11 @@ function layoutSubtree(node){
     const hz = sd === 'left' || sd === 'right';
     const cross = ids.map(k => { const b=boxOf.get(k.id); return hz ? (b.y1-b.y0) : (b.x1-b.x0); });
     const total = cross.reduce((s,v)=>s+v,0) + LAYOUT_CROSS*Math.max(0, ids.length-1);
-    let cur = (hz ? ay + nodeH(node)/2 : ax + NODE_W/2) - total/2;
+    let cur = (hz ? ay + layoutH(node)/2 : ax + NODE_W/2) - total/2;
     ids.forEach((k,i)=>{
       const b = boxOf.get(k.id); let dx=0, dy=0;
       if (hz){ dx = sd==='right' ? (ax+NODE_W+LAYOUT_MAIN - b.x0) : (ax-LAYOUT_MAIN - b.x1); dy = cur - b.y0; }
-      else   { dy = sd==='down'  ? (ay+nodeH(node)+LAYOUT_MAIN - b.y0) : (ay-LAYOUT_MAIN - b.y1); dx = cur - b.x0; }
+      else   { dy = sd==='down'  ? (ay+layoutH(node)+LAYOUT_MAIN - b.y0) : (ay-LAYOUT_MAIN - b.y1); dx = cur - b.x0; }
       shiftSubtree(k, dx, dy); cur += cross[i] + LAYOUT_CROSS;
     });
   };
@@ -1747,14 +1777,14 @@ function layoutSubtree(node){
     // way the first child in stored (top-to-bottom / left-to-right) order ends up at the visual
     // top/left, not nearest the parent. (Otherwise dragging a child to the top snaps it to the bottom.)
     let cur = horiz ? (side==='right' ? ax+NODE_W+LAYOUT_MAIN : ax-LAYOUT_MAIN)
-                    : (side==='down'  ? ay+nodeH(node)+LAYOUT_MAIN : ay-LAYOUT_MAIN);
+                    : (side==='down'  ? ay+layoutH(node)+LAYOUT_MAIN : ay-LAYOUT_MAIN);
     const seq = (side==='left' || side==='up') ? sorted.slice().reverse() : sorted;
     seq.forEach((k)=>{
       const b = boxOf.get(k.id); let dx=0, dy=0;
       if (horiz){
         const w = b.x1 - b.x0;
         dx = side==='right' ? (cur - b.x0) : (cur - b.x1);
-        dy = (ay + nodeH(node)/2) - (k.y + nodeH(k)/2);   // centre child on the parent's y
+        dy = (ay + layoutH(node)/2) - (k.y + layoutH(k)/2);   // centre child on the parent's y
         cur += side==='right' ? (w+LAYOUT_CHAIN) : -(w+LAYOUT_CHAIN);
       } else {
         const h = b.y1 - b.y0;
@@ -2265,9 +2295,9 @@ function startBodyEdit(n, { atStart = false } = {}){
   ta.addEventListener('blur',    () => { if (bodyEdit && bodyEdit.id === n.id) endBodyEdit(); });
   ta.addEventListener('paste',   onBodyPaste);                 // paste images straight into the note
   ta.addEventListener('pointerdown', (e) => e.stopPropagation());   // place the caret, don't drag the card
-  applyLayouts(); paintAll();
   ta.focus();
-  autosizeBody(ta);
+  autosizeBody(ta);              // size to content first so the card's real height is known…
+  applyLayouts(); paintAll();    // …then reflow siblings around it (not just after a newline)
   const pos = atStart ? 0 : ta.value.length;
   ta.setSelectionRange(pos, pos);
 }
