@@ -1215,6 +1215,26 @@ function subtreeIds(id){
 }
 function bindNodeDrag(n) {
   const el = n.el;
+  // Double-tap on touch → enter edit mode (prevents iOS double-tap zoom which ignores user-scalable=no)
+  let lastTouchTap = 0, lastTouchTapTarget = null;
+  el.addEventListener('touchstart', (e) => {
+    // While editing this card, let the browser handle double-tap normally (word selection)
+    if ((inlineEdit && inlineEdit.id === n.id) || (bodyEdit && bodyEdit.id === n.id)) { lastTouchTap = 0; return; }
+    const now = performance.now();
+    if (e.touches.length === 1 && now - lastTouchTap < 300) {
+      e.preventDefault(); // stop double-tap zoom and synthetic dblclick
+      if (!state.readOnly) {
+        clearTimeout(renameTimer);
+        selectNode(n.id);
+        const onTitle = !!(lastTouchTapTarget?.closest?.('.title'));
+        onTitle ? startInlineEdit(n) : startBodyEdit(n);
+      }
+      lastTouchTap = 0;
+      return;
+    }
+    lastTouchTap = now;
+    lastTouchTapTarget = e.target;
+  }, { passive: false });
   el.addEventListener('pointerdown', (e) => {
     if (e.target.classList.contains('addchild') || e.target.classList.contains('addnote')) return;
     if (e.target.closest('a.lk, input.taskbox')) { e.stopPropagation(); return; }  // let links/checkboxes click, not drag
