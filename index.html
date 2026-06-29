@@ -48,21 +48,23 @@
   * { box-sizing: border-box; }
   html, body { margin:0; height:100%; overflow:hidden;
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg); color: var(--text); }
+    background: var(--bg); color: var(--text);
+    user-select:none; -webkit-user-select:none; }
+  /* re-enable selection inside form controls and editable elements */
+  input, textarea, [contenteditable] { user-select:text; -webkit-user-select:text; }
 
   /* floating "island" toolbar — no border, rounded, soft shadow (Excalidraw-style) */
   #toolbar {
     position: fixed; top:10px; left:50%; transform:translateX(-50%); z-index:20;
     width:max-content; max-width:calc(100% - 20px);
-    display:flex; align-items:center; gap:10px; padding:5px 10px;
-    background: var(--panel); border-radius:14px;
-    box-shadow: 0 6px 24px rgba(0,0,0,.28);
+    display:flex; align-items:center; gap:7px; padding:4px 8px;
+    background: var(--panel); border-radius:12px;
   }
-  #toolbar h1 { font-size:14px; font-weight:600; margin:0 8px 0 0; letter-spacing:.2px; }
+  #toolbar h1 { font-size:12px; font-weight:600; margin:0 6px 0 0; letter-spacing:.2px; }
   #toolbar .sep { flex:1; }
   button {
     background: var(--node); color: var(--text); border:1px solid var(--node-border);
-    border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer;
+    border-radius:7px; padding:5px 10px; font-size:12px; cursor:pointer;
   }
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); color:#fff; border-color: var(--accent); font-weight:600; }
@@ -71,7 +73,7 @@
   /* toolbar buttons are borderless, monochrome clickable icons (icon = currentColor) */
   #toolbar button {
     display:inline-flex; align-items:center; justify-content:center;
-    width:34px; height:34px; padding:0; border-radius:8px;
+    width:28px; height:28px; padding:0; border-radius:7px;
     background:transparent; border:none; color:var(--muted);
   }
   #toolbar button:hover { background:var(--node); color:var(--text); }
@@ -79,22 +81,24 @@
   #toolbar button.active { color:var(--accent); }
   #toolbar button#roBtn.locked { color:#e0564f; }   /* red while read-only is locked */
   #toolbar button#roBtn.locked:hover { color:#e0564f; background:var(--node); }
-  #toolbar button svg { width:18px; height:18px; display:block; }
+  #toolbar button svg { width:15px; height:15px; display:block; }
   #status { display:none; }   /* transient log messages are not shown in the toolbar */
   /* home button = folder icon + loaded-folder name as one clickable element */
-  #toolbar button#homeBtn { width:auto; gap:6px; padding:0 9px; }
-  #homeBtn #folderName { font-size:13px; font-weight:600; color:var(--text);
+  #toolbar button#homeBtn { width:auto; gap:5px; padding:0 7px; }
+  #homeBtn #folderName { font-size:12px; font-weight:600; color:var(--text);
     max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #homeBtn #folderName:empty { display:none; }   /* icon-only until a folder is loaded */
   #toolbar button#homeBtn:hover #folderName { color:var(--text); }
   /* find / jump-to-card */
-  #searchWrap { position:relative; }
-  #searchBox { width:160px; height:30px; padding:0 10px; border-radius:8px; font-size:13px;
+  #searchWrap { position:relative; display:flex; align-items:center; }
+  #searchIcon { position:absolute; left:7px; width:13px; height:13px; display:block;
+    color:var(--muted); pointer-events:none; flex:none; }
+  #searchBox { width:130px; height:26px; padding:0 8px 0 24px; border-radius:7px; font-size:12px;
     background:var(--bg); border:none; color:var(--text); }
-  #searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); width:220px; }
+  #searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); width:180px; }
   /* placeholder hint tinted with the bar surface so it reads as a faint label, not real input */
   input::placeholder { color:var(--panel); opacity:1; }
-  #searchResults { position:absolute; top:36px; left:0; min-width:240px; max-height:50vh; overflow:auto;
+  #searchResults { position:absolute; top:30px; left:0; min-width:200px; max-height:50vh; overflow:auto;
     background:var(--panel); border:1px solid var(--grid); border-radius:8px; padding:4px;
     display:none; z-index:30; }
   #searchResults.open { display:block; }
@@ -248,11 +252,10 @@
 
   /* floating edit panel — sits below the toolbar, off the right edge, hugs its content */
   #editor {
-    position:fixed; top:64px; right:10px; width:288px; z-index:15;
-    max-height:calc(100vh - 74px); overflow:auto;
-    background:var(--panel); border-radius:14px; padding:16px;
-    box-shadow: 0 10px 30px rgba(0,0,0,.32);
-    display:flex; flex-direction:column; gap:10px;
+    position:fixed; top:50px; right:10px; width:240px; z-index:15;
+    max-height:calc(100vh - 60px); overflow:auto;
+    background:var(--panel); border-radius:12px; padding:12px;
+    display:flex; flex-direction:column; gap:8px;
     transform:translateX(calc(100% + 10px)); opacity:0;  /* parked off-screen when closed */
     transition:transform .25s cubic-bezier(.4,0,.2,1), opacity .2s ease;
     pointer-events:none;
@@ -299,7 +302,7 @@
   #editor .row { display:flex; gap:8px; }
   #editor .editnote { font-size:11px; color:var(--muted); line-height:1.5; }
   /* colour picker = a row of individual round bubbles; the selection outline sits AROUND one */
-  .swatches { display:flex; gap:6px; flex-wrap:nowrap; }
+  .swatches { display:flex; gap:6px; flex-wrap:nowrap; align-items:center; }
   .swatch { flex:1 1 0; min-width:0; aspect-ratio:1; border-radius:50%; cursor:pointer;
     border:0; background:var(--sw); }
   .swatch:hover  { box-shadow:0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent); }
@@ -367,14 +370,18 @@
   #toolbar button:disabled, #toolbar button:disabled:hover { background:transparent; opacity:.3; cursor:default; }
   #toolbar button#edDelete:not(:disabled):hover { color:#e0564f; }
 
-  /* ---- coarse pointer (touch) : bigger hit targets ---- */
+  /* ---- coarse pointer (touch) : slightly larger hit targets than desktop ---- */
   @media (pointer: coarse) {
-    #toolbar button { width:40px; height:40px; }
-    #toolbar button svg { width:22px; height:22px; }
-    .node .addchild { width:30px; height:30px; left:0; margin-left:-15px; bottom:-15px; font-size:22px; }
-    .node .addnote { height:30px; line-height:30px; bottom:-15px; padding:0 13px; border-radius:15px; font-size:13px; }
-    .swatch { width:26px; height:26px; }
-    .layoutchip { padding:6px 10px; }
+    #toolbar button { width:34px; height:34px; }
+    #toolbar button svg { width:18px; height:18px; }
+    #toolbar { gap:8px; padding:5px 10px; }
+    #toolbar button#homeBtn { padding:0 8px; }
+    #editor { top:58px; width:240px; padding:12px; }
+    .node .addchild { width:28px; height:28px; left:0; margin-left:-14px; bottom:-14px; font-size:20px; }
+    .node .addnote { height:28px; line-height:28px; bottom:-14px; padding:0 11px; border-radius:14px; font-size:12px; }
+    /* explicit flex:none so flex-basis doesn't override width and stretch them tall */
+    .swatch { flex:none; width:22px; height:22px; }
+    .layoutchip { padding:4px 8px; }
   }
 </style>
 </head>
@@ -390,7 +397,8 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h7a3 3 0 0 1 3 3v7"/></svg></button>
 
     <div id="searchWrap">
-      <input id="searchBox" type="text" placeholder="Find… (/)" aria-label="Find a card" autocomplete="off" spellcheck="false" />
+      <svg id="searchIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="searchBox" type="text" placeholder="" title="Find card (/)" aria-label="Find a card" autocomplete="off" spellcheck="false" />
       <div id="searchResults"></div>
     </div>
     <span class="sep"></span>
@@ -1126,10 +1134,19 @@ function toggleTask(n, idx){
 
 // ---------- node dragging (moves the whole subtree) ----------
 let drag = null;
+let dragRAF = null;   // pending rAF for drag paint; coalesces multiple pointermove events per frame
 let autoPanRAF = null;
 // While a node is dragged to the screen edge, pan the view so you can drop onto cards that are
 // currently off-screen. The view pans toward the edge the cursor sits in, and the dragged subtree
 // is shifted in world-space by the inverse so it stays glued under the (stationary) cursor.
+// Drain the deferred drag paint: update drop-target highlight and rebuild edges once per frame.
+function flushDragPaint(){
+  dragRAF = null;
+  if (!drag) return;
+  if (drag.moved && !drag.multi) updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
+  paintEdges();
+  if (drag.moved && !autoPanRAF) autoPanRAF = requestAnimationFrame(autoPanStep);
+}
 function stopAutoPan(){ if (autoPanRAF){ cancelAnimationFrame(autoPanRAF); autoPanRAF = null; } }
 function autoPanStep(){
   autoPanRAF = null;
@@ -1181,6 +1198,9 @@ function bindNodeDrag(n) {
   el.addEventListener('pointerdown', (e) => {
     if (e.target.classList.contains('addchild') || e.target.classList.contains('addnote')) return;
     if (e.target.closest('a.lk, input.taskbox')) { e.stopPropagation(); return; }  // let links/checkboxes click, not drag
+    // Close an editor open on a DIFFERENT card (tap-outside on touch where blur may not fire)
+    if (inlineEdit && inlineEdit.id !== n.id) endInlineEdit();
+    if (bodyEdit   && bodyEdit.id   !== n.id) endBodyEdit();
     // while this card's title/body is being edited, let clicks place the caret — don't start a drag
     if ((inlineEdit && inlineEdit.id === n.id) || (bodyEdit && bodyEdit.id === n.id)) { e.stopPropagation(); return; }
     clearTimeout(renameTimer);   // any fresh interaction cancels a pending slow-click rename
@@ -1207,26 +1227,23 @@ function bindNodeDrag(n) {
     if (!drag || drag.n !== n) return;
     if (state.readOnly) return;        // no moving/reparenting in read-only (click & dbl-click still work)
     drag.alt = e.altKey; drag.shift = e.shiftKey;   // Shift = clone (live — release to cancel), Alt = detach
-    drag.cx = e.clientX; drag.cy = e.clientY;   // remembered for edge auto-pan
+    drag.cx = e.clientX; drag.cy = e.clientY;   // remembered for edge auto-pan and RAF flush
     const dx = (e.clientX - drag.sx)/state.view.k, dy = (e.clientY - drag.sy)/state.view.k;
     if (Math.abs(dx)+Math.abs(dy) > 2){ drag.moved = true; document.body.classList.add('grabbing'); }
     applyDragClone();   // Shift held → leave a clone & drag the copy; Shift released → undo it
-    // follow the cursor smoothly while dragging; the snap-to-grid happens on drop so
-    // the motion feels soft but items always come to rest on the 20px grid.
+    // Update world-space positions immediately (cheap) — visual render is deferred to rAF so that
+    // multiple pointermove events arriving within one display frame collapse into a single paint.
     for (const [id, s] of drag.targets){
       const m = state.nodes.get(id); if (!m) continue;
       m.x = s.x + dx; m.y = s.y + dy; m.dirtyLayout = true;
-      paintNode(m);
+      // Fast path: only reposition the element; skip className/innerHTML during active drag.
+      if (m.el){ m.el.style.left = m.x + 'px'; m.el.style.top = m.y + 'px'; }
     }
-    // reconnect: highlight a valid drop target (single-card drag only; multi-drag just moves).
-    // Done before paintEdges so the dragged card's old edge can be dropped the same frame the
-    // dotted ghost appears (paintEdges keys off drag.dropTarget, set here).
-    if (drag.moved && !drag.multi) updateDropTarget(drag.active, e);
-    paintEdges();
-    if (drag.moved && !autoPanRAF) autoPanRAF = requestAnimationFrame(autoPanStep);  // edge auto-pan
+    if (!dragRAF) dragRAF = requestAnimationFrame(flushDragPaint);
   });
   el.addEventListener('pointerup', () => {
     stopAutoPan();
+    if (dragRAF){ cancelAnimationFrame(dragRAF); dragRAF = null; }
     if (drag && drag.n === n) {
       const act = drag.active;
       if (!drag.moved) {
@@ -1442,11 +1459,15 @@ function startPinch(){
 stage.addEventListener('pointerdown', (e) => {
   if (e.target.closest('.node')) return;            // node drags capture their own pointer
   cancelViewAnim();
+  // Tapping the canvas background closes any open in-place text editor (important on touch)
+  if (inlineEdit) { endInlineEdit(); return; }
+  if (bodyEdit)   { endBodyEdit();   return; }
 
   if (e.pointerType !== 'mouse'){                   // touch / pen
     gPointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
     if (gPointers.size === 1){                      // one finger → pan (no Space key needed)
       pan = { sx:e.clientX, sy:e.clientY, ox:state.view.x, oy:state.view.y };
+      stage.setPointerCapture(e.pointerId);         // keep events on stage even when finger slides onto a node
       stage.classList.add('panning');
     } else if (gPointers.size === 2){               // second finger → pinch-zoom + two-finger pan
       pan = null; marquee = null; marqueeEl.style.display = 'none';
@@ -1472,8 +1493,8 @@ window.addEventListener('pointermove', (e) => {
     if (pinch && gPointers.size >= 2){
       const [a,b] = [...gPointers.values()];
       const nd = gDist(a,b), ncx = (a.x+b.x)/2, ncy = (a.y+b.y)/2;
-      const r = stage.getBoundingClientRect();
-      if (pinch.dist > 0) zoomAt(ncx - r.left, ncy - r.top, nd / pinch.dist);
+      // stage is position:fixed; inset:0 so its origin is always (0,0) — no getBoundingClientRect needed
+      if (pinch.dist > 0) zoomAt(ncx, ncy, nd / pinch.dist);
       state.view.x += ncx - pinch.cx;               // pan by the midpoint's movement
       state.view.y += ncy - pinch.cy;
       applyView();
@@ -2426,6 +2447,15 @@ function deleteSelection() {
 window.addEventListener('keydown', (e) => {
   // F1 opens the bundled help mindmap (read-only) in a new tab — works even while typing.
   if (e.key === 'F1'){ e.preventDefault(); openHelpTab(); return; }
+
+  // Intercept browser zoom shortcuts (Cmd/Ctrl +/-/0) so they drive the canvas, not the viewport.
+  // Must be checked before the `typing` guard so they work even while a text field is focused.
+  if (e.metaKey || e.ctrlKey) {
+    if (e.key === '=' || e.key === '+') { e.preventDefault(); zoomAt(window.innerWidth/2, window.innerHeight/2, 1.2); return; }
+    if (e.key === '-')                  { e.preventDefault(); zoomAt(window.innerWidth/2, window.innerHeight/2, 1/1.2); return; }
+    if (e.key === '0')                  { e.preventDefault(); focusOrFit(); return; }
+  }
+
   const typing = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)
     || !!document.activeElement?.isContentEditable;
   // Esc blurs the active field (so Delete works next), or deselects when not typing.
@@ -3234,7 +3264,8 @@ function hideStart(){ startScreen.classList.add('hidden'); }
 function renderStoreScreen(){
   document.getElementById('storeStatus').textContent =
     store.isOpen ? 'Editing: ' + store.name : 'Loading…';
-  document.getElementById('startOpen').style.display = HAS_FSA ? '' : 'none';
+  const isTouch = window.matchMedia('(pointer: coarse)').matches;
+  document.getElementById('startOpen').style.display = (HAS_FSA && !isTouch) ? '' : 'none';
   document.getElementById('useDeviceBtn').style.display = (store === opfsStore) ? 'none' : '';
   renderRecents();
 }
