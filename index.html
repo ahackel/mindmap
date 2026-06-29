@@ -52,7 +52,8 @@
 
   /* floating "island" toolbar — no border, rounded, soft shadow (Excalidraw-style) */
   #toolbar {
-    position: fixed; top:10px; left:10px; right:10px; z-index:20;
+    position: fixed; top:10px; left:50%; transform:translateX(-50%); z-index:20;
+    width:max-content; max-width:calc(100% - 20px);
     display:flex; align-items:center; gap:10px; padding:5px 10px;
     background: var(--panel); border-radius:14px;
     box-shadow: 0 6px 24px rgba(0,0,0,.28);
@@ -270,12 +271,12 @@
   #edActions button {
     flex:1; display:inline-flex; align-items:center; justify-content:center;
     height:34px; padding:0; border-radius:8px;
-    background:var(--node); border:1px solid var(--node-border); color:var(--muted); cursor:pointer;
+    background:var(--node-border); border:1px solid var(--node-border); color:var(--muted); cursor:pointer;
   }
-  #edActions button:hover:not(:disabled) { color:var(--text); border-color:var(--accent); }
+  #edActions button:hover:not(:disabled) { color:var(--text); background:var(--accent); border-color:var(--accent); }
   #edActions button:disabled { opacity:.4; cursor:default; }
   #edActions button svg { width:18px; height:18px; display:block; }
-  #edActions button#edDelete:not(:disabled):hover { color:#e0564f; border-color:#e0564f; }
+  #edActions button#edDelete:not(:disabled):hover { color:#fff; background:#e0564f; border-color:#e0564f; }
   /* multi-select: only the colour picker applies; hide single-node fields, show the count */
   #edMulti { display:none; }
   #editor.multi #edMulti { display:block; }
@@ -340,9 +341,10 @@
   .recent-label { font-size:11px; text-transform:uppercase; letter-spacing:.5px;
     color:var(--muted); margin:6px 0 8px; }
   .recent-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left;
-    padding:9px 11px; margin-bottom:6px; background:var(--node); border:1px solid var(--node-border);
-    border-radius:9px; cursor:pointer; font-size:13px; }
-  .recent-item:hover { border-color:var(--accent); }
+    padding:9px 11px; margin-bottom:6px; background:var(--node-border); border:1px solid var(--node-border);
+    border-radius:9px; cursor:pointer; font-size:13px; color:var(--text); }
+  .recent-item:hover { background:var(--accent); border-color:var(--accent); }
+  .recent-item .ri-icon { width:16px; height:16px; flex:none; display:block; }
   .recent-item .ri-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .recent-item .ri-when { font-size:11px; color:var(--muted); }
   .start-note { margin:14px 0 0 !important; font-size:11px !important; }
@@ -353,8 +355,10 @@
   .store-status { font-size:12px; color:var(--muted); margin:6px 0 12px; }
   .store-actions { display:flex; gap:8px; margin-top:12px; }
   .store-actions button { flex:1; padding:9px 10px; font-size:13px; cursor:pointer;
-    background:var(--node); color:var(--text); border:1px solid var(--node-border); border-radius:9px; }
-  .store-actions button:hover { border-color:var(--accent); }
+    background:var(--node-border); color:var(--text); border:1px solid var(--node-border); border-radius:9px; }
+  .store-actions button:hover { background:var(--accent); border-color:var(--accent); }
+  /* inline icon inside text buttons (open / import / export) */
+  .btn-icon { width:16px; height:16px; vertical-align:-3px; margin-right:5px; display:inline-block; }
   .linkish { display:block; width:100%; margin-top:12px; padding:8px; background:transparent;
     border:none; color:var(--muted); font-size:12px; cursor:pointer; }
   .linkish:hover { color:var(--text); }
@@ -449,17 +453,17 @@
   <div id="startScreen" class="hidden">
     <div class="start-card">
       <button id="startClose" class="start-close" aria-label="Close" title="Close">✕</button>
-      <h2>🧠 Markdown Mindmap</h2>
+      <h2>Markdown Mindmap</h2>
       <p>Your map is saved <b>on this device</b> and opens automatically. Manage where it lives:</p>
       <div id="storeStatus" class="store-status"></div>
-      <button id="startOpen" class="primary">📂 Open a local folder…</button>
+      <button id="startOpen" class="primary"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> Open a local folder…</button>
       <div id="recentWrap" style="display:none">
         <div class="recent-label">Recent folders</div>
         <div id="recentList"></div>
       </div>
       <div class="store-actions">
-        <button id="importBtn">📥 Import .zip</button>
-        <button id="exportBtn">📤 Export .zip</button>
+        <button id="importBtn"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg> Import .zip</button>
+        <button id="exportBtn"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9m0 0l-4 4m4-4l4 4M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/></svg> Export .zip</button>
       </div>
       <button id="useDeviceBtn" class="linkish">↩ Use on-device storage</button>
       <p class="start-note">A local folder needs Chrome or Edge. Import/export works everywhere.</p>
@@ -1247,6 +1251,7 @@ function bindNodeDrag(n) {
         // Otherwise it's just a move.
         const tgt = drag.dropTarget;
         clearDropTarget();
+        drag.dropTarget = null;   // else paintEdges keeps suppressing the dragged card's edge
         act.el?.classList.remove('reparent-ghost');
         if (tgt && tgt !== act.parent) {
           // reparent in place: the card keeps its ORIGINAL position, only its parent changes
@@ -2725,7 +2730,7 @@ const fsaStore = {
     await idbPut(key, handle);                                       // store the actual handle
     const list = readRecents().filter(r => r.name !== handle.name);  // de-dupe by name
     list.unshift({ key, name: handle.name, when: Date.now() });
-    writeRecents(list);                                              // keep newest 3
+    writeRecents(list);                                              // keep newest 5
     renderRecents();
   },
 };
@@ -2807,7 +2812,13 @@ async function openFolder() {
 }
 async function openRecentFolder(key) {
   const r = await fsaStore.openRecent(key);
-  if (r === 'gone') { setStatus('That folder is no longer available.'); return; }
+  if (r === 'gone') {
+    await forgetRecent(key);
+    renderRecents();
+    const msg = document.getElementById('storeStatus');
+    if (msg) msg.textContent = 'That folder is no longer available — removed from recents.';
+    return;
+  }
   if (r === 'denied') { alert('Write permission was denied for this folder.'); return; }
   useStore(fsaStore, 'folder');
   hideStart();
@@ -3162,10 +3173,23 @@ async function idbGet(key) {
     g.onsuccess = () => res(g.result); g.onerror = () => rej(g.error);
   });
 }
+async function idbDel(key) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
 function readRecents() {
   try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
 }
-function writeRecents(list) { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 3))); }
+function writeRecents(list) { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 5))); }
+// Drop a recent folder by its key (display list + its stored handle) when it can no longer be opened.
+async function forgetRecent(key){
+  writeRecents(readRecents().filter(r => r.key !== key));
+  try { await idbDel(key); } catch {}
+}
 
 // Folders we've already auto-arranged once. Used so the one-time auto-collapse never
 // fires again — every later open restores the saved frontmatter state verbatim.
@@ -3193,7 +3217,8 @@ function renderRecents(){
   wrap.style.display='block';
   box.innerHTML = list.map(r =>
     `<button class="recent-item" data-key="${r.key}">
-       <span class="ri-name">📁 ${r.name}</span>
+       <svg class="ri-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+       <span class="ri-name">${r.name}</span>
        <span class="ri-when">${timeAgo(r.when)}</span></button>`).join('');
   box.querySelectorAll('.recent-item').forEach(btn => {
     btn.onclick = () => openRecentFolder(btn.dataset.key);
