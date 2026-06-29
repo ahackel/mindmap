@@ -1515,8 +1515,8 @@ let pan = null, marquee = null, spaceHeld = false, spaceUsedForPan = false;
 const marqueeEl = document.createElement('div');
 marqueeEl.id = 'marquee'; stage.appendChild(marqueeEl);
 
-// ---- touch gestures: track each finger that lands on the empty canvas. One finger pans,
-// two fingers pinch-zoom + pan. (Mouse keeps Space-to-pan / marquee-select behaviour.)
+// ---- touch gestures: track each finger that lands on the empty canvas. One finger marquee-selects
+// (same as mouse), two fingers pinch-zoom + pan. (Mouse keeps Space-to-pan / marquee-select behaviour.)
 const gPointers = new Map();   // pointerId -> {x,y}
 let pinch = null;              // { dist, cx, cy } of the active two-finger gesture
 const gDist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
@@ -1525,7 +1525,7 @@ function startPinch(){
   pinch = { dist: gDist(a,b), cx:(a.x+b.x)/2, cy:(a.y+b.y)/2 };
 }
 
-// Empty-canvas drag = rubber-band SELECT (mouse) or PAN (touch). Hold Space / middle-button to PAN.
+// Empty-canvas drag = rubber-band SELECT (mouse and single-finger touch). Hold Space / middle-button to PAN.
 stage.addEventListener('pointerdown', (e) => {
   if (e.target.closest('.node')) return;            // node drags capture their own pointer
   cancelViewAnim();
@@ -1535,12 +1535,13 @@ stage.addEventListener('pointerdown', (e) => {
 
   if (e.pointerType !== 'mouse'){                   // touch / pen
     gPointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
-    if (gPointers.size === 1){                      // one finger → pan (no Space key needed)
-      pan = { sx:e.clientX, sy:e.clientY, ox:state.view.x, oy:state.view.y };
+    if (gPointers.size === 1){                      // one finger → marquee select (pan with two fingers)
+      marquee = { sx:e.clientX, sy:e.clientY, add:false, base:new Set(state.sel), moved:false };
+      drawMarquee(e.clientX, e.clientY);
+      marqueeEl.style.display = 'block';
       stage.setPointerCapture(e.pointerId);         // keep events on stage even when finger slides onto a node
-      stage.classList.add('panning');
     } else if (gPointers.size === 2){               // second finger → pinch-zoom + two-finger pan
-      pan = null; marquee = null; marqueeEl.style.display = 'none';
+      marquee = null; marqueeEl.style.display = 'none';
       startPinch();
     }
     return;
@@ -1586,18 +1587,18 @@ window.addEventListener('pointermove', (e) => {
 });
 function endGesturePointer(e){
   if (!gPointers.has(e.pointerId)) return false;
-  const wasOne = gPointers.size === 1, start = pan;
   gPointers.delete(e.pointerId);
   if (gPointers.size < 2) pinch = null;
-  if (gPointers.size === 1){                         // back to one finger → resume panning
-    const p = [...gPointers.values()][0];
-    pan = { sx:p.x, sy:p.y, ox:state.view.x, oy:state.view.y };
-  } else if (gPointers.size === 0){
+  if (gPointers.size === 0){
     pan = null; stage.classList.remove('panning');
-    // a tap that didn't pan and wasn't a pinch → deselect (mirrors mouse click-on-empty)
-    if (wasOne && start && Math.abs(e.clientX-start.sx) + Math.abs(e.clientY-start.sy) <= 6 && state.sel.size)
-      selectNode(null);
+    // End marquee exactly like the mouse path does
+    if (marquee){
+      marqueeEl.style.display = 'none';
+      if (!marquee.moved && !marquee.add) selectNode(null);   // tap on empty = deselect
+      marquee = null;
+    }
   }
+  // gPointers.size === 1: one finger remains after pinch — don't start a new marquee mid-gesture
   return true;
 }
 window.addEventListener('pointerup', (e) => {
