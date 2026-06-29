@@ -1211,7 +1211,7 @@ function subtreeIds(id){
 }
 function bindNodeDrag(n) {
   const el = n.el;
-  // Double-tap on touch → enter edit mode (prevents iOS double-tap zoom which ignores user-scalable=no)
+  // Double-tap on touch → collapse/expand (mirrors dblclick on desktop; also prevents iOS double-tap zoom)
   let lastTouchTap = 0, lastTouchTapTarget = null;
   el.addEventListener('touchstart', (e) => {
     // While editing this card, let the browser handle double-tap normally (word selection)
@@ -1219,11 +1219,15 @@ function bindNodeDrag(n) {
     const now = performance.now();
     if (e.touches.length === 1 && now - lastTouchTap < 300) {
       e.preventDefault(); // stop double-tap zoom and synthetic dblclick
-      if (!state.readOnly) {
-        clearTimeout(renameTimer);
-        selectNode(n.id);
-        const onTitle = !!(lastTouchTapTarget?.closest?.('.title'));
-        onTitle ? startInlineEdit(n) : startBodyEdit(n);
+      clearTimeout(renameTimer);
+      // Mirror the dblclick handler: fold/unfold (collapse/expand) the card or group
+      const g = pendingGroupFold;
+      pendingGroupFold = null;
+      if (g && g.node === n.id && g.ids.has(n.id) && now - g.t < 600) {
+        toggleCollapseSelection(g.ids);
+        setSelectionSet(g.ids);
+      } else {
+        toggleCollapse(n.id);
       }
       lastTouchTap = 0;
       return;
@@ -1259,7 +1263,8 @@ function bindNodeDrag(n) {
     drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets, origins,
              moved:false, dropTarget:null, alt:e.altKey, shift:e.shiftKey, cloned:false,
              downTarget:e.target,              // where the press landed → slow-click edits title or body
-             meta: e.metaKey || e.ctrlKey };   // ⌘/Ctrl-click toggles this card in the selection
+             meta: e.metaKey || e.ctrlKey,     // ⌘/Ctrl-click toggles this card in the selection
+             touch: e.pointerType === 'touch' }; // higher move threshold for finger taps
     for (const id of ids) { const m2 = state.nodes.get(id); if (m2?.el) m2.el.style.willChange = 'transform'; }
   });
   el.addEventListener('pointermove', (e) => {
@@ -1268,7 +1273,7 @@ function bindNodeDrag(n) {
     drag.alt = e.altKey; drag.shift = e.shiftKey;   // Shift = clone (live — release to cancel), Alt = detach
     drag.cx = e.clientX; drag.cy = e.clientY;   // remembered for edge auto-pan and RAF flush
     const dx = (e.clientX - drag.sx)/state.view.k, dy = (e.clientY - drag.sy)/state.view.k;
-    if (Math.abs(dx)+Math.abs(dy) > 2){ drag.moved = true; document.body.classList.add('grabbing'); }
+    if (Math.abs(dx)+Math.abs(dy) > (drag.touch ? 8 : 2)){ drag.moved = true; document.body.classList.add('grabbing'); }
     applyDragClone();   // Shift held → leave a clone & drag the copy; Shift released → undo it
     // Update world-space positions immediately (cheap) — visual render is deferred to rAF so that
     // multiple pointermove events arriving within one display frame collapse into a single paint.
