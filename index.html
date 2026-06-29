@@ -900,8 +900,16 @@ function paintNode(n) {
     + (collapsed ? ' collapsed' : '')
     + (hasBody ? '' : ' no-body')
     + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '');
-  el.style.left = n.x + 'px';
-  el.style.top = n.y + 'px';
+  // During drag: keep left/top frozen at the pre-drag origin and move via transform (compositor-only).
+  // Outside drag: commit position normally and clear any leftover transform.
+  const dragOrig = drag?.origins?.get(n.id);
+  if (dragOrig) {
+    el.style.left = dragOrig.x + 'px'; el.style.top = dragOrig.y + 'px';
+    el.style.transform = `translate(${n.x - dragOrig.x}px,${n.y - dragOrig.y}px)`;
+  } else {
+    el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
+    if (el.style.transform) el.style.transform = '';
+  }
   // don't clobber the title while it's being inline-edited (the user is typing into it)
   if (!(inlineEdit && inlineEdit.id === n.id)) el.querySelector('.title').textContent = n.title;
   const bodyEl = el.querySelector('.body');
@@ -1010,6 +1018,9 @@ function paintEdges() {
     // Poised over a valid new parent (the card is shown as a dotted ghost): hide its old
     // parent edge too, so the line doesn't dangle from a card that's about to move.
     if (drag && drag.dropTarget && drag.active.id === n.id) continue;
+    // Dragged-subtree edges move with the card via CSS transform; skip them here so we never
+    // rebuild SVG paths for them mid-drag (they reappear from paintEdges on drop).
+    if (drag?.targets && (drag.targets.has(n.id) || drag.targets.has(n.parent))) continue;
     // tint by the child's branch colour
     const tint = EDGE_TINT[effectiveColor(n)];
     const style = tint ? ` style="stroke:${tint}"` : '';
@@ -1139,12 +1150,17 @@ let autoPanRAF = null;
 // While a node is dragged to the screen edge, pan the view so you can drop onto cards that are
 // currently off-screen. The view pans toward the edge the cursor sits in, and the dragged subtree
 // is shifted in world-space by the inverse so it stays glued under the (stationary) cursor.
-// Drain the deferred drag paint: update drop-target highlight and rebuild edges once per frame.
+// Drain the deferred drag paint: update drop-target highlight; rebuild edges only when needed.
 function flushDragPaint(){
   dragRAF = null;
   if (!drag) return;
-  if (drag.moved && !drag.multi) updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
-  paintEdges();
+  let needEdges = !drag.edgesPainted;   // always paint on first frame to hide dragged edges
+  if (drag.moved && !drag.multi) {
+    const prev = drag.dropTarget;
+    updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
+    if (drag.dropTarget !== prev) needEdges = true;   // ghost/unghost changed → repaint
+  }
+  if (needEdges) { paintEdges(); drag.edgesPainted = true; }
   if (drag.moved && !autoPanRAF) autoPanRAF = requestAnimationFrame(autoPanStep);
 }
 function stopAutoPan(){ if (autoPanRAF){ cancelAnimationFrame(autoPanRAF); autoPanRAF = null; } }
@@ -1174,10 +1190,14 @@ function autoPanStep(){
     const ddx = (drag.cx - drag.sx) / state.view.k, ddy = (drag.cy - drag.sy) / state.view.k;
     for (const [id, s] of drag.targets){
       const m = state.nodes.get(id); if (!m) continue;
-      m.x = s.x + ddx; m.y = s.y + ddy; m.dirtyLayout = true; paintNode(m);
+      m.x = s.x + ddx; m.y = s.y + ddy; m.dirtyLayout = true;
+      if (m.el) { const orig = drag.origins.get(id); if (orig) m.el.style.transform = `translate(${m.x-orig.x}px,${m.y-orig.y}px)`; }
     }
-    if (!drag.multi) updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
-    paintEdges();
+    if (!drag.multi) {
+      const prev = drag.dropTarget;
+      updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
+      if (drag.dropTarget !== prev) paintEdges();
+    }
   }
   autoPanRAF = requestAnimationFrame(autoPanStep);
 }
@@ -1218,10 +1238,14 @@ function bindNodeDrag(n) {
     // targets gets its OWN {x,y} objects (not new Map(start), which shares the value refs) so the
     // edge auto-pan can shift the dragged anchors without also moving the pinned `start` positions.
     const targets = new Map([...start].map(([id, s]) => [id, { x:s.x, y:s.y }]));
-    drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets,
+    // origins = the left/top CSS values frozen at drag start; transforms are relative to these
+    const origins = new Map(ids.map(id => { const m2 = state.nodes.get(id); return [id, { x:m2.x, y:m2.y }]; }));
+    drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets, origins,
+             edgesPainted:false,               // true once paintEdges has run for this drag session
              moved:false, dropTarget:null, alt:e.altKey, shift:e.shiftKey, cloned:false,
              downTarget:e.target,              // where the press landed → slow-click edits title or body
              meta: e.metaKey || e.ctrlKey };   // ⌘/Ctrl-click toggles this card in the selection
+    for (const id of ids) { const m2 = state.nodes.get(id); if (m2?.el) m2.el.style.willChange = 'transform'; }
   });
   el.addEventListener('pointermove', (e) => {
     if (!drag || drag.n !== n) return;
@@ -1236,8 +1260,8 @@ function bindNodeDrag(n) {
     for (const [id, s] of drag.targets){
       const m = state.nodes.get(id); if (!m) continue;
       m.x = s.x + dx; m.y = s.y + dy; m.dirtyLayout = true;
-      // Fast path: only reposition the element; skip className/innerHTML during active drag.
-      if (m.el){ m.el.style.left = m.x + 'px'; m.el.style.top = m.y + 'px'; }
+      // Compositor fast path: move via transform (no layout) keeping left/top frozen at origin.
+      if (m.el) { const orig = drag.origins.get(id); if (orig) m.el.style.transform = `translate(${m.x-orig.x}px,${m.y-orig.y}px)`; }
     }
     if (!dragRAF) dragRAF = requestAnimationFrame(flushDragPaint);
   });
@@ -1245,6 +1269,11 @@ function bindNodeDrag(n) {
     stopAutoPan();
     if (dragRAF){ cancelAnimationFrame(dragRAF); dragRAF = null; }
     if (drag && drag.n === n) {
+      // Clear compositor transforms so paintAll()/paintNode() can commit final left/top cleanly.
+      for (const id of new Set([...drag.targets.keys(), ...drag.start.keys()])){
+        const m2 = state.nodes.get(id);
+        if (m2?.el){ m2.el.style.transform = ''; m2.el.style.willChange = ''; }
+      }
       const act = drag.active;
       if (!drag.moved) {
         if (drag.meta) toggleSel(n.id);                 // ⌘/Ctrl-click: add/remove from selection
@@ -1316,16 +1345,23 @@ function applyDragClone(){
       const m = state.nodes.get(id); if (m){ m.x = s.x; m.y = s.y; m.dirtyLayout = false; }
     }
     const sp = drag.start.get(drag.n.id);
+    // Revert original nodes' transforms (they're pinned back to start)
+    for (const id of drag.start.keys()){ const m2 = state.nodes.get(id); if (m2?.el) m2.el.style.transform = ''; }
     const clone = leaveClone(drag.n, sp);          // clone sits at the original's start spot
     drag.active = clone;                           // …and becomes the thing we drag/drop
     drag.targets = new Map([[clone.id, { x:sp.x, y:sp.y }]]);
+    drag.origins = new Map([[clone.id, { x:sp.x, y:sp.y }]]);  // clone's left/top origin
+    drag.edgesPainted = false;
     paintAll();                                    // render + bind the new clone node
   } else if (!drag.shift && drag.cloned){
     const clone = drag.active;
+    if (clone.el){ clone.el.style.transform = ''; clone.el.style.willChange = ''; }
     state.nodes.delete(clone.id); clone.el?.remove();   // drop the clone we made
     drag.cloned = false;
     drag.active = drag.n;                           // back to dragging the original
     drag.targets = new Map([...drag.start].map(([id, s]) => [id, { x:s.x, y:s.y }]));
+    drag.origins = new Map([...drag.start]);         // restore origins for the original subtree
+    drag.edgesPainted = false;
     setStatus(`Duplication cancelled — moving “${drag.n.title}”`);
     paintAll();
   }
@@ -1337,10 +1373,11 @@ function dragFollow(){
   const dx = (drag.cx - drag.sx)/state.view.k, dy = (drag.cy - drag.sy)/state.view.k;
   for (const [id, s] of drag.targets){
     const m = state.nodes.get(id); if (!m) continue;
-    m.x = s.x + dx; m.y = s.y + dy; m.dirtyLayout = true; paintNode(m);
+    m.x = s.x + dx; m.y = s.y + dy; m.dirtyLayout = true;
+    if (m.el) { const orig = drag.origins.get(id); if (orig) m.el.style.transform = `translate(${m.x-orig.x}px,${m.y-orig.y}px)`; }
   }
   if (drag.moved && !drag.multi) updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
-  paintEdges();
+  paintEdges();   // modifier changed mid-drag — always repaint (infrequent)
 }
 // Update the detach preview the instant Alt is pressed/released mid-drag, even if the pointer
 // isn't moving: repaint the dragged subtree (its colour previews the detached result) and the edges.
@@ -1362,11 +1399,15 @@ window.addEventListener('keyup',   (e) => {
 // ---------- reconnect (re-parent by drag-and-drop) ----------
 function updateDropTarget(dragged, e){
   const sub = new Set(subtreeIds(dragged.id)); // dragged card + all its descendants
-  // topmost .node under the cursor that isn't the dragged card itself
+  // Geometric hit test in world space — no layout read, no elementsFromPoint.
+  // stage is position:fixed; inset:0 so its origin is always (0,0).
+  const wx = (e.clientX - state.view.x) / state.view.k;
+  const wy = (e.clientY - state.view.y) / state.view.k;
   let hovered = null;
-  for (const el of document.elementsFromPoint(e.clientX, e.clientY)){
-    const nd = el.closest && el.closest('.node');
-    if (nd && nd.dataset.id !== dragged.id){ hovered = nd.dataset.id; break; }
+  for (const [id, m] of state.nodes) {
+    if (isHidden(m) || sub.has(id)) continue;
+    const h = nodeH(m);
+    if (wx >= m.x && wx <= m.x + NODE_W && wy >= m.y && wy <= m.y + h){ hovered = id; break; }
   }
   clearDropTarget();
   let target = null;
