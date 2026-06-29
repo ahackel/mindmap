@@ -15,7 +15,7 @@
     --text: #e6ecf3;
     --muted: #8a99ad;
     --accent: #5aa9ff;
-    --panel: #0d1117;
+    --panel: #1f2734;   /* bar/chrome surface — brighter than the canvas */
   }
   /* ---- light theme: override the base variables ---- */
   body.light {
@@ -50,10 +50,12 @@
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg); color: var(--text); }
 
+  /* floating "island" toolbar — no border, rounded, soft shadow (Excalidraw-style) */
   #toolbar {
-    position: fixed; top:0; left:0; right:0; height:48px; z-index:20;
-    display:flex; align-items:center; gap:10px; padding:0 14px;
-    background: var(--panel); border-bottom:1px solid var(--grid);
+    position: fixed; top:10px; left:10px; right:10px; z-index:20;
+    display:flex; align-items:center; gap:10px; padding:5px 10px;
+    background: var(--panel); border-radius:14px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.28);
   }
   #toolbar h1 { font-size:14px; font-weight:600; margin:0 8px 0 0; letter-spacing:.2px; }
   #toolbar .sep { flex:1; }
@@ -87,8 +89,8 @@
   /* find / jump-to-card */
   #searchWrap { position:relative; }
   #searchBox { width:160px; height:30px; padding:0 10px; border-radius:8px; font-size:13px;
-    background:var(--node); border:1px solid var(--node-border); color:var(--text); }
-  #searchBox:focus { outline:none; border-color:var(--accent); width:220px; }
+    background:var(--bg); border:none; color:var(--text); }
+  #searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); width:220px; }
   #searchResults { position:absolute; top:36px; left:0; min-width:240px; max-height:50vh; overflow:auto;
     background:var(--panel); border:1px solid var(--grid); border-radius:8px; padding:4px;
     display:none; z-index:30; }
@@ -100,7 +102,7 @@
   #searchResults .sr-none { padding:6px 9px; font-size:12px; color:var(--muted); }
 
   /* touch-action:none → the browser never steals pan/zoom gestures; we drive them ourselves */
-  #stage { position:fixed; inset:48px 0 0 0; overflow:hidden; cursor:default; touch-action:none; }
+  #stage { position:fixed; inset:0; overflow:hidden; cursor:default; touch-action:none; }
   #stage.panning { cursor:grabbing; }
   /* the hand only appears while actually dragging a card; default everywhere else */
   body.grabbing, body.grabbing * { cursor:grabbing !important; }
@@ -241,17 +243,20 @@
   /* matching empty-swatch in light theme */
   body.light .swatch.inherit { background:repeating-linear-gradient(45deg,#fff,#fff 5px,#e7ebf1 5px,#e7ebf1 10px); }
 
+  /* floating edit panel — sits below the toolbar, off the right edge, hugs its content */
   #editor {
-    position:fixed; top:48px; right:0; bottom:0; width:304px; z-index:15;
-    background:var(--panel); border-left:1px solid var(--grid); padding:16px;
+    position:fixed; top:64px; right:10px; width:288px; z-index:15;
+    max-height:calc(100vh - 74px); overflow:auto;
+    background:var(--panel); border-radius:14px; padding:16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.32);
     display:flex; flex-direction:column; gap:10px;
-    transform:translateX(100%);                 /* parked off-screen when closed */
-    transition:transform .25s cubic-bezier(.4,0,.2,1);
+    transform:translateX(calc(100% + 10px)); opacity:0;  /* parked off-screen when closed */
+    transition:transform .25s cubic-bezier(.4,0,.2,1), opacity .2s ease;
+    pointer-events:none;
   }
-  #editor.open { transform:translateX(0); }      /* slide in from the right */
+  #editor.open { transform:translateX(0); opacity:1; pointer-events:auto; }  /* slide in from the right */
   #edFields { flex:1; display:flex; flex-direction:column; gap:10px; min-height:0; }
   #edFields .fgroup { display:flex; flex-direction:column; gap:6px; }
-  .ed-bodyhint { margin-top:2px; }
   /* empty state vs. fields: only one shows at a time, driven by .has-selection */
   #editor #edFields { display:none; }
   #editor.has-selection #edFields { display:flex; }
@@ -259,8 +264,7 @@
   /* multi-select: only the colour picker applies; hide single-node fields, show the count */
   #edMulti { display:none; }
   #editor.multi #edMulti { display:block; }
-  #editor.multi #edName, #editor.multi .fg-tags,
-  #editor.multi .ed-bodyhint { display:none; }
+  #editor.multi #edName, #editor.multi .fg-tags { display:none; }
   /* read-only node name shown at the top of the sidebar (renaming happens on the canvas) */
   #editor .ed-name { font-size:16px; font-weight:600; color:var(--text); line-height:1.3;
     overflow-wrap:anywhere; padding-bottom:8px; border-bottom:1px solid var(--grid); }
@@ -269,28 +273,31 @@
     border:1px dotted var(--accent); background:color-mix(in srgb, var(--accent) 15%, transparent); }
   #editor label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
   #editor input, #editor textarea, #editor select {
-    background:var(--node); color:var(--text); border:1px solid var(--node-border);
+    background:var(--bg); color:var(--text); border:none;
     border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; width:100%;
+  }
+  #editor input:focus, #editor textarea:focus, #editor select:focus {
+    outline:none; box-shadow:0 0 0 2px var(--accent);
   }
   #editor textarea { flex:1; resize:none; font-family: ui-monospace, "SF Mono", Menlo, monospace; line-height:1.5; }
   #editor .row { display:flex; gap:8px; }
   #editor .editnote { font-size:11px; color:var(--muted); line-height:1.5; }
-  /* all swatches share one row and shrink to fit (inherit + 9 colours + none) */
+  /* colour picker = a row of individual round bubbles; the selection outline sits AROUND one */
   .swatches { display:flex; gap:6px; flex-wrap:nowrap; }
-  .swatch { flex:1 1 0; min-width:0; aspect-ratio:1; border-radius:7px; cursor:pointer;
-    border:2px solid transparent; background:var(--sw); }
-  .swatch:hover { transform:scale(1.12); }
-  .swatch.active { border-color:var(--text); }
+  .swatch { flex:1 1 0; min-width:0; aspect-ratio:1; border-radius:50%; cursor:pointer;
+    border:0; background:var(--sw); }
+  .swatch:hover  { box-shadow:0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent); }
+  .swatch.active { box-shadow:0 0 0 2px var(--text); }
   /* inherit (the default): striped chip = "take the parent's colour" */
   .swatch.inherit { background:repeating-linear-gradient(45deg,#1e2733,#1e2733 5px,#2a3543 5px,#2a3543 10px); }
   /* explicit no-colour: a blank chip with a diagonal slash — does NOT inherit */
-  .swatch.nofill { border:2px solid var(--node-border); background:
+  .swatch.nofill { background:
     linear-gradient(to top right, transparent calc(50% - 1.2px), #e0564a calc(50% - 1.2px),
       #e0564a calc(50% + 1.2px), transparent calc(50% + 1.2px)), var(--bg); }
   /* layout pickers: each row is one segmented toolbar (joined icon buttons) */
   .layoutrow { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  .layoutchips { display:inline-flex; border:1px solid var(--node-border);
-    border-radius:8px; overflow:hidden; background:var(--node); }
+  .layoutchips { display:inline-flex; border:none;
+    border-radius:8px; overflow:hidden; background:var(--bg); }
   .layoutchip { width:40px; height:30px; cursor:pointer;
     display:flex; align-items:center; justify-content:center;
     background:transparent; color:var(--muted); border:0; }
@@ -423,8 +430,6 @@
         <label>Tags (comma)</label>
         <input id="edTags" type="text" placeholder="mechanic, system" />
       </div>
-      <div class="editnote ed-bodyhint">Edit a card’s note on the canvas: slow-click its body
-        (or press <kbd>↓</kbd> while renaming). <kbd>Esc</kbd> cancels, click away to keep.</div>
     </div>
   </div>
 
@@ -1961,7 +1966,7 @@ function openMultiEditor(){
 // no node selected → keep the sidebar open but show the empty hint
 function showEmptyEditor(){ editor.classList.remove('has-selection', 'multi'); }
 // reflect state.sel in the canvas + the editor panel
-function applySelection(){ paintAll(); updateEditor(); updateNodeActions(); }
+function applySelection(){ paintAll(); updateEditor(); updateNodeActions(); applySidebar(); }
 
 // Enable/disable the toolbar's selected-card actions to match the current selection & mode.
 function updateNodeActions(){
@@ -1996,13 +2001,14 @@ function toggleSel(id){
   applySelection();
 }
 
-// The sidebar stays open by default; the toolbar button is the only thing that
-// toggles its visibility. Selection only swaps fields vs. empty hint.
+// The floating edit panel only appears when it's actually needed — i.e. something is
+// selected (and not in read-only). The toolbar button toggles the user's preference.
 const sidebarBtn = document.getElementById('sidebarBtn');
 function applySidebar(){
-  const open = state.sidebarOpen && !state.readOnly;   // sidebar is always hidden in read-only
+  const wanted = state.sidebarOpen && !state.readOnly;   // user pref, ignoring selection
+  const open = wanted && state.sel.size > 0;             // only show when there's a selection
   editor.classList.toggle('open', open);
-  sidebarBtn.classList.toggle('active', open);
+  sidebarBtn.classList.toggle('active', wanted);
 }
 function toggleSidebar(){ if (state.readOnly) return; state.sidebarOpen = !state.sidebarOpen; applySidebar(); }
 sidebarBtn.onclick = toggleSidebar;
