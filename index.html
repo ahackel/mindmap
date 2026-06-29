@@ -49,7 +49,8 @@
   html, body { margin:0; height:100%; overflow:hidden;
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg); color: var(--text);
-    user-select:none; -webkit-user-select:none; }
+    user-select:none; -webkit-user-select:none;
+    touch-action:manipulation; } /* disables double-tap zoom page-wide on iOS (user-scalable=no is ignored since iOS 10) */
   /* re-enable selection inside form controls and editable elements */
   input, textarea, [contenteditable] { user-select:text; -webkit-user-select:text; outline:none; }
 
