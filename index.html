@@ -1319,14 +1319,19 @@ function bindNodeDrag(n) {
         // dropped onto a node? re-parent. Alt+drop on empty canvas? detach to root.
         // Otherwise it's just a move.
         const tgt = drag.dropTarget;
+        const { cloned, targets, alt, shift } = drag;
         clearDropTarget();
-        drag.dropTarget = null;   // else paintEdges keeps suppressing the dragged card's edge
         act.el?.classList.remove('reparent-ghost');
+        // Null drag NOW so every paintAll/paintEdges in the commit phase sees no active drag
+        // and draws all edges. (Previously edges remained hidden because drag was still set
+        // when paintAll was called, and nothing repainted after drag = null.)
+        drag = null;
+        document.body.classList.remove('grabbing');
         if (tgt && tgt !== act.parent) {
           // reparent in place: the card keeps its ORIGINAL position, only its parent changes
           // (a clone keeps where you dropped it, since that's a fresh card you're placing).
-          if (!drag.cloned){
-            for (const [id, s] of drag.targets){
+          if (!cloned){
+            for (const [id, s] of targets){
               const m = state.nodes.get(id); if (m){ m.x = s.x; m.y = s.y; m.dirtyLayout = true; }
             }
           }
@@ -1337,20 +1342,21 @@ function bindNodeDrag(n) {
           const GRID = 20;
           const ddx = Math.round(act.x / GRID) * GRID - act.x;
           const ddy = Math.round(act.y / GRID) * GRID - act.y;
-          for (const id of drag.targets.keys()){
+          for (const id of targets.keys()){
             const m = state.nodes.get(id); if (!m) continue;
             m.x += ddx; m.y += ddy; m.dirtyLayout = true;
           }
-          if (drag.alt && !drag.shift && act.parent) {
+          if (alt && !shift && act.parent) {
             act.parent = null;
-            setStatus(`“${act.title}” is now a root`);
+            setStatus(`”${act.title}” is now a root`);
           }
           paintAll();
         }
-        reorderDraggedParents(drag.targets.keys());   // a drag is the ONLY thing that reorders siblings
+        reorderDraggedParents(targets.keys());   // a drag is the ONLY thing that reorders siblings
         applyLayouts(); paintAll();   // re-snap any dragged child back into its parent's layout
-        if (drag.cloned) selectNode(act.id);   // select the new clone you just dragged out
+        if (cloned) selectNode(act.id);   // select the new clone you just dragged out
         scheduleSave();
+        return;   // drag/grabbing already cleared above
       }
     }
     drag = null;
