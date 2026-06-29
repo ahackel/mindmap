@@ -91,6 +91,8 @@
   #searchBox { width:160px; height:30px; padding:0 10px; border-radius:8px; font-size:13px;
     background:var(--bg); border:none; color:var(--text); }
   #searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); width:220px; }
+  /* placeholder hint tinted with the bar surface so it reads as a faint label, not real input */
+  input::placeholder { color:var(--panel); opacity:1; }
   #searchResults { position:absolute; top:36px; left:0; min-width:240px; max-height:50vh; overflow:auto;
     background:var(--panel); border:1px solid var(--grid); border-radius:8px; padding:4px;
     display:none; z-index:30; }
@@ -261,6 +263,19 @@
   #editor #edFields { display:none; }
   #editor.has-selection #edFields { display:flex; }
   #editor.has-selection #edEmpty { display:none; }
+  /* selected-card actions row, pinned at the bottom of the panel; shown only with a selection */
+  #editor #edActions { display:none; flex-direction:column; gap:6px; }
+  #editor.has-selection #edActions { display:flex; }
+  #edActions .actionrow { display:flex; gap:6px; }
+  #edActions button {
+    flex:1; display:inline-flex; align-items:center; justify-content:center;
+    height:34px; padding:0; border-radius:8px;
+    background:var(--node); border:1px solid var(--node-border); color:var(--muted); cursor:pointer;
+  }
+  #edActions button:hover:not(:disabled) { color:var(--text); border-color:var(--accent); }
+  #edActions button:disabled { opacity:.4; cursor:default; }
+  #edActions button svg { width:18px; height:18px; display:block; }
+  #edActions button#edDelete:not(:disabled):hover { color:#e0564f; border-color:#e0564f; }
   /* multi-select: only the colour picker applies; hide single-node fields, show the count */
   #edMulti { display:none; }
   #editor.multi #edMulti { display:block; }
@@ -345,7 +360,6 @@
   .linkish:hover { color:var(--text); }
 
   /* ---- toolbar section for editing the selected card(s) ---- */
-  #toolbar .tdiv { width:1px; height:22px; background:var(--grid); margin:0 2px; flex:none; }
   #toolbar button:disabled, #toolbar button:disabled:hover { background:transparent; opacity:.3; cursor:default; }
   #toolbar button#edDelete:not(:disabled):hover { color:#e0564f; }
 
@@ -366,28 +380,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span id="folderName"></span></button>
     <button id="addBtn" title="New node (Space)" aria-label="New node">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 9v6M9 12h6"/></svg></button>
-    <button id="collapseAllBtn" title="Collapse every node" aria-label="Collapse all">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5l4 4 4-4M8 19l4-4 4 4"/></svg></button>
-    <button id="expandAllBtn" title="Expand every node" aria-label="Expand all">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4M8 15l4 4 4-4"/></svg></button>
     <button id="fitBtn" title="Focus selected card · fit whole map if none (F)" aria-label="Focus selected or fit map">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/></svg></button>
     <button id="edgeBtn" title="Edge style: straight / orthogonal / bezier" aria-label="Cycle edge style">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h7a3 3 0 0 1 3 3v7"/></svg></button>
-
-    <!-- selected-card actions (enabled only with a selection) -->
-    <span class="tdiv"></span>
-    <button id="edRename" disabled title="Rename selected card (F2)" aria-label="Rename selected card">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>
-    <button id="edAddChild" disabled title="Add child (Tab)" aria-label="Add child of selected card">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v7a4 4 0 0 0 4 4h6"/><path d="M13 11l4 4-4 4"/></svg></button>
-    <button id="edAddSibling" disabled title="Add sibling (Enter)" aria-label="Add sibling of selected card">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
-    <button id="edDuplicate" disabled title="Duplicate (D)" aria-label="Duplicate selected card">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-    <button id="edDelete" disabled title="Delete selected card(s) (Esc, then Delete)" aria-label="Delete selected card(s)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg></button>
-    <span class="tdiv"></span>
 
     <div id="searchWrap">
       <input id="searchBox" type="text" placeholder="Find… (/)" aria-label="Find a card" autocomplete="off" spellcheck="false" />
@@ -429,6 +425,22 @@
       <div class="fgroup fg-tags">
         <label>Tags (comma)</label>
         <input id="edTags" type="text" placeholder="mechanic, system" />
+      </div>
+    </div>
+    <!-- selected-card actions: moved here from the toolbar; enabled only with a selection -->
+    <div id="edActions">
+      <label>Actions</label>
+      <div class="actionrow">
+        <button id="edRename" disabled title="Rename selected card (F2)" aria-label="Rename selected card">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>
+        <button id="edAddChild" disabled title="Add child (Tab)" aria-label="Add child of selected card">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v7a4 4 0 0 0 4 4h6"/><path d="M13 11l4 4-4 4"/></svg></button>
+        <button id="edAddSibling" disabled title="Add sibling (Enter)" aria-label="Add sibling of selected card">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button id="edDuplicate" disabled title="Duplicate (D)" aria-label="Duplicate selected card">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        <button id="edDelete" disabled title="Delete selected card(s) (Delete)" aria-label="Delete selected card(s)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg></button>
       </div>
     </div>
   </div>
@@ -852,11 +864,14 @@ function nodeEl(n) {
 // A card's colour is its own, or — if unset — inherited from the nearest coloured ancestor.
 // While Alt-dragging to detach, preview the result: treat the dragged node as a root (stop the
 // ancestor walk there), so it — and its descendants — show the colour they'd have once cut loose.
+// An inheriting card with no coloured ancestor (a root left on the default "inherit") falls back
+// to grey, so it gets the same neutral card bg as an explicit grey rather than going transparent.
+// Explicit 'none' still short-circuits below (it's truthy), so "no colour" stays transparent.
 function effectiveColor(n){
   const detachId = (drag && drag.alt && !drag.shift) ? drag.active.id : null;
   for (let c = n; c; c = (c.id === detachId) ? null : (c.parent && state.nodes.get(c.parent)))
     if (c.color) return c.color;
-  return 'none';
+  return 'grey';
 }
 function paintNode(n) {
   const el = nodeEl(n);
@@ -980,6 +995,9 @@ function paintEdges() {
     // While Alt-dragging this node we're previewing detach-to-root, so drop its parent
     // edge entirely (no line, not even a dotted one).
     if (drag && drag.alt && !drag.shift && drag.n.id === n.id) continue;
+    // Poised over a valid new parent (the card is shown as a dotted ghost): hide its old
+    // parent edge too, so the line doesn't dangle from a card that's about to move.
+    if (drag && drag.dropTarget && drag.active.id === n.id) continue;
     // tint by the child's branch colour
     const tint = EDGE_TINT[effectiveColor(n)];
     const style = tint ? ` style="stroke:${tint}"` : '';
@@ -1137,8 +1155,8 @@ function autoPanStep(){
       const m = state.nodes.get(id); if (!m) continue;
       m.x = s.x + ddx; m.y = s.y + ddy; m.dirtyLayout = true; paintNode(m);
     }
-    paintEdges();
     if (!drag.multi) updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
+    paintEdges();
   }
   autoPanRAF = requestAnimationFrame(autoPanStep);
 }
@@ -1184,23 +1202,11 @@ function bindNodeDrag(n) {
   el.addEventListener('pointermove', (e) => {
     if (!drag || drag.n !== n) return;
     if (state.readOnly) return;        // no moving/reparenting in read-only (click & dbl-click still work)
-    drag.alt = e.altKey; drag.shift = drag.shift || e.shiftKey; // Shift = clone, Alt = detach
+    drag.alt = e.altKey; drag.shift = e.shiftKey;   // Shift = clone (live — release to cancel), Alt = detach
     drag.cx = e.clientX; drag.cy = e.clientY;   // remembered for edge auto-pan
     const dx = (e.clientX - drag.sx)/state.view.k, dy = (e.clientY - drag.sy)/state.view.k;
     if (Math.abs(dx)+Math.abs(dy) > 2){ drag.moved = true; document.body.classList.add('grabbing'); }
-    // Shift+drag: leave the ORIGINAL where it is and drag a fresh clone away instead.
-    // (Clone applies to a single card only; a multi-selection drag is always a plain move.)
-    if (!drag.multi && drag.shift && drag.moved && !drag.cloned){
-      drag.cloned = true;
-      for (const [id, s] of drag.start){            // pin the original subtree back to start
-        const m = state.nodes.get(id); if (m){ m.x = s.x; m.y = s.y; m.dirtyLayout = false; }
-      }
-      const sp = drag.start.get(n.id);
-      const clone = leaveClone(drag.active, sp);     // clone sits at the original's start spot
-      drag.active = clone;                           // …and becomes the thing we drag/drop
-      drag.targets = new Map([[clone.id, { x:sp.x, y:sp.y }]]);
-      paintAll();                                    // render + bind the new clone node
-    }
+    applyDragClone();   // Shift held → leave a clone & drag the copy; Shift released → undo it
     // follow the cursor smoothly while dragging; the snap-to-grid happens on drop so
     // the motion feels soft but items always come to rest on the 20px grid.
     for (const [id, s] of drag.targets){
@@ -1208,9 +1214,11 @@ function bindNodeDrag(n) {
       m.x = s.x + dx; m.y = s.y + dy; m.dirtyLayout = true;
       paintNode(m);
     }
-    paintEdges();
-    // reconnect: highlight a valid drop target (single-card drag only; multi-drag just moves)
+    // reconnect: highlight a valid drop target (single-card drag only; multi-drag just moves).
+    // Done before paintEdges so the dragged card's old edge can be dropped the same frame the
+    // dotted ghost appears (paintEdges keys off drag.dropTarget, set here).
     if (drag.moved && !drag.multi) updateDropTarget(drag.active, e);
+    paintEdges();
     if (drag.moved && !autoPanRAF) autoPanRAF = requestAnimationFrame(autoPanStep);  // edge auto-pan
   });
   el.addEventListener('pointerup', () => {
@@ -1275,14 +1283,59 @@ function bindNodeDrag(n) {
     document.body.classList.remove('grabbing');
   });
 }
+// Bring the Shift-clone state in line with the live `drag.shift` flag. Shift down (and moved past
+// the threshold, single-card only) leaves a clone at the original's spot and drags the COPY away;
+// Shift released before drop deletes that clone and reverts to plain-moving the original subtree.
+function applyDragClone(){
+  if (!drag || drag.multi || !drag.moved) return;
+  if (drag.shift && !drag.cloned){
+    drag.cloned = true;
+    for (const [id, s] of drag.start){             // pin the original subtree back to start
+      const m = state.nodes.get(id); if (m){ m.x = s.x; m.y = s.y; m.dirtyLayout = false; }
+    }
+    const sp = drag.start.get(drag.n.id);
+    const clone = leaveClone(drag.n, sp);          // clone sits at the original's start spot
+    drag.active = clone;                           // …and becomes the thing we drag/drop
+    drag.targets = new Map([[clone.id, { x:sp.x, y:sp.y }]]);
+    paintAll();                                    // render + bind the new clone node
+  } else if (!drag.shift && drag.cloned){
+    const clone = drag.active;
+    state.nodes.delete(clone.id); clone.el?.remove();   // drop the clone we made
+    drag.cloned = false;
+    drag.active = drag.n;                           // back to dragging the original
+    drag.targets = new Map([...drag.start].map(([id, s]) => [id, { x:s.x, y:s.y }]));
+    setStatus(`Duplication cancelled — moving “${drag.n.title}”`);
+    paintAll();
+  }
+}
+// Snap the dragged subtree (and drop-target / edges) to the current cursor without a pointer move —
+// used when a modifier toggles mid-drag, so the result is reflected instantly while the mouse is still.
+function dragFollow(){
+  if (!drag) return;
+  const dx = (drag.cx - drag.sx)/state.view.k, dy = (drag.cy - drag.sy)/state.view.k;
+  for (const [id, s] of drag.targets){
+    const m = state.nodes.get(id); if (!m) continue;
+    m.x = s.x + dx; m.y = s.y + dy; m.dirtyLayout = true; paintNode(m);
+  }
+  if (drag.moved && !drag.multi) updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
+  paintEdges();
+}
 // Update the detach preview the instant Alt is pressed/released mid-drag, even if the pointer
 // isn't moving: repaint the dragged subtree (its colour previews the detached result) and the edges.
 function paintDetachPreview(){
   if (drag) for (const id of subtreeIds(drag.active.id)){ const m = state.nodes.get(id); if (m) paintNode(m); }
   paintEdges();
 }
-window.addEventListener('keydown', (e) => { if (drag && e.key === 'Alt'){ drag.alt = true;  paintDetachPreview(); } });
-window.addEventListener('keyup',   (e) => { if (drag && e.key === 'Alt'){ drag.alt = false; paintDetachPreview(); } });
+window.addEventListener('keydown', (e) => {
+  if (!drag) return;
+  if (e.key === 'Alt'){ drag.alt = true;  paintDetachPreview(); }
+  if (e.key === 'Shift'){ drag.shift = true;  applyDragClone(); dragFollow(); }
+});
+window.addEventListener('keyup',   (e) => {
+  if (!drag) return;
+  if (e.key === 'Alt'){ drag.alt = false; paintDetachPreview(); }
+  if (e.key === 'Shift'){ drag.shift = false; applyDragClone(); dragFollow(); }
+});
 
 // ---------- reconnect (re-parent by drag-and-drop) ----------
 function updateDropTarget(dragged, e){
@@ -1347,7 +1400,7 @@ function addChild(parentId){
   applyLayouts();        // a line/fan parent immediately slots the new child into place
   paintAll();
   selectNode(id);
-  startInlineEdit(n);    // drop straight into renaming the fresh card
+  startInlineEdit(n, { isNew: true });   // drop straight into renaming the fresh card; Esc cancels creation
   scheduleSave();
 }
 
@@ -1833,17 +1886,6 @@ function collapseAtDepth(depth = 1){
     n.collapsed = depthOf(n) === depth && childrenOf(n.id).length > 0;
   }
 }
-// collapse / expand EVERY node (a node is collapsible if it has children or a body)
-function setAllCollapsed(collapsed){
-  withLayoutAnimation(() => {
-    for (const n of state.nodes.values())
-      n.collapsed = collapsed && (childrenOf(n.id).length > 0 || !!(n.body && n.body.trim()));
-  });
-  fit();
-  if (store.isOpen) scheduleSave();
-  setStatus(collapsed ? 'Collapsed all nodes' : 'Expanded all nodes');
-}
-
 // ---------- selection + editor ----------
 // Selection and the edit panel are decoupled: a node can stay selected while the
 // panel is closed (press Esc). That closed-but-selected state is when Delete works.
@@ -2224,12 +2266,14 @@ let titleEditId = null;
 // Entered via slow-click (a second click on the already-selected card), F2, or automatically
 // when a node is created. Reuses titleEditing/titleEditId so the save loop still defers the file
 // rename until editing ends (no M.md, Ma.md… litter).
-function startInlineEdit(n){
+function startInlineEdit(n, { isNew = false } = {}){
   if (state.readOnly || !n || !n.el) return;
   if (inlineEdit) endInlineEdit();                              // close any other open editor first
   if (state.selId !== n.id || state.sel.size !== 1) selectNode(n.id);
   const titleEl = n.el.querySelector('.title');
-  inlineEdit = { id:n.id, orig:n.title, el:titleEl };
+  // `isNew` marks a just-created card: Escape then cancels the whole creation (deletes it),
+  // rather than just reverting the rename the way it does for an existing card.
+  inlineEdit = { id:n.id, orig:n.title, el:titleEl, isNew };
   titleEditing = true; titleEditId = n.id;
   titleEl.setAttribute('contenteditable', 'plaintext-only');
   titleEl.classList.add('editing'); titleEl.classList.remove('invalid');
@@ -2264,6 +2308,11 @@ function endInlineEdit({ cancel = false } = {}){
   ie.el.classList.remove('editing', 'invalid');
   titleEditing = false; titleEditId = null;
   if (!n) return;
+  if (cancel && ie.isNew){                            // Esc on a freshly-created card = cancel creation
+    deleteNode(n.id);
+    setStatus('Cancelled new card');
+    return;
+  }
   const val = ie.el.textContent.replace(/[\r\n]+/g, ' ').trim();   // titles map to filenames — no newlines
   if (!cancel && !titleProblem(val, n.id)) n.title = val;
   ie.el.textContent = n.title;                        // restore the canonical text
@@ -2422,7 +2471,7 @@ function createNode(opts = {}) {
     dirty:true, dirtyLayout:true,
   };
   state.nodes.set(id, n);
-  applyLayouts(); paintAll(); selectNode(id); startInlineEdit(n);
+  applyLayouts(); paintAll(); selectNode(id); startInlineEdit(n, { isNew: opts.isNew ?? true });
   scheduleSave();
   return n;
 }
@@ -2448,6 +2497,7 @@ function duplicateNode(srcId) {
     title,
     color: s.color, tags: s.tags, body: s.body,
     layoutType: s.layoutType, layoutDir: s.layoutDir,
+    isNew: false,                  // a duplicate carries real content — Esc just cancels the rename, keeps it
   });
   setStatus(`Duplicated → “${title}”`);
   return n;
@@ -2474,8 +2524,6 @@ function leaveClone(s, pos) {
 document.getElementById('addBtn').onclick = () => createNode();
 document.getElementById('fitBtn').onclick = focusOrFit;
 document.getElementById('edgeBtn').onclick = cycleEdgeStyle;
-document.getElementById('collapseAllBtn').onclick = () => setAllCollapsed(true);
-document.getElementById('expandAllBtn').onclick = () => setAllCollapsed(false);
 document.getElementById('homeBtn').onclick = showStart;   // icon + folder name → home screen
 
 // ---- edit-panel action buttons: on-screen equivalents of the keyboard shortcuts,
