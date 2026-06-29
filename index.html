@@ -1021,9 +1021,6 @@ function paintEdges() {
     // Poised over a valid new parent (the card is shown as a dotted ghost): hide its old
     // parent edge too, so the line doesn't dangle from a card that's about to move.
     if (drag && drag.dropTarget && drag.active.id === n.id) continue;
-    // Dragged-subtree edges move with the card via CSS transform; skip them here so we never
-    // rebuild SVG paths for them mid-drag (they reappear from paintEdges on drop).
-    if (drag?.targets && (drag.targets.has(n.id) || drag.targets.has(n.parent))) continue;
     // tint by the child's branch colour
     const tint = EDGE_TINT[effectiveColor(n)];
     const style = tint ? ` style="stroke:${tint}"` : '';
@@ -1153,17 +1150,14 @@ let autoPanRAF = null;
 // While a node is dragged to the screen edge, pan the view so you can drop onto cards that are
 // currently off-screen. The view pans toward the edge the cursor sits in, and the dragged subtree
 // is shifted in world-space by the inverse so it stays glued under the (stationary) cursor.
-// Drain the deferred drag paint: update drop-target highlight; rebuild edges only when needed.
+// Drain the deferred drag paint: update drop-target highlight and redraw edges every frame.
 function flushDragPaint(){
   dragRAF = null;
   if (!drag) return;
-  let needEdges = !drag.edgesPainted;   // always paint on first frame to hide dragged edges
   if (drag.moved && !drag.multi) {
-    const prev = drag.dropTarget;
     updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
-    if (drag.dropTarget !== prev) needEdges = true;   // ghost/unghost changed → repaint
   }
-  if (needEdges) { paintEdges(); drag.edgesPainted = true; }
+  paintEdges();   // n.x/y is current, so edges track the dragged nodes correctly
   if (drag.moved && !autoPanRAF) autoPanRAF = requestAnimationFrame(autoPanStep);
 }
 function stopAutoPan(){ if (autoPanRAF){ cancelAnimationFrame(autoPanRAF); autoPanRAF = null; } }
@@ -1197,10 +1191,9 @@ function autoPanStep(){
       if (m.el) { const orig = drag.origins.get(id); if (orig) m.el.style.transform = `translate(${m.x-orig.x}px,${m.y-orig.y}px)`; }
     }
     if (!drag.multi) {
-      const prev = drag.dropTarget;
       updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
-      if (drag.dropTarget !== prev) paintEdges();
     }
+    paintEdges();   // redraw edges every auto-pan frame so they follow the moving nodes
   }
   autoPanRAF = requestAnimationFrame(autoPanStep);
 }
@@ -1264,7 +1257,6 @@ function bindNodeDrag(n) {
     // origins = the left/top CSS values frozen at drag start; transforms are relative to these
     const origins = new Map(ids.map(id => { const m2 = state.nodes.get(id); return [id, { x:m2.x, y:m2.y }]; }));
     drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets, origins,
-             edgesPainted:false,               // true once paintEdges has run for this drag session
              moved:false, dropTarget:null, alt:e.altKey, shift:e.shiftKey, cloned:false,
              downTarget:e.target,              // where the press landed → slow-click edits title or body
              meta: e.metaKey || e.ctrlKey };   // ⌘/Ctrl-click toggles this card in the selection
