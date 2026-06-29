@@ -51,7 +51,7 @@
     background: var(--bg); color: var(--text);
     user-select:none; -webkit-user-select:none; }
   /* re-enable selection inside form controls and editable elements */
-  input, textarea, [contenteditable] { user-select:text; -webkit-user-select:text; }
+  input, textarea, [contenteditable] { user-select:text; -webkit-user-select:text; outline:none; }
 
   /* floating "island" toolbar — no border, rounded, soft shadow (Excalidraw-style) */
   #toolbar {
@@ -381,6 +381,8 @@
     .node .addnote { height:28px; line-height:28px; bottom:-14px; padding:0 11px; border-radius:14px; font-size:12px; }
     /* explicit flex:none so flex-basis doesn't override width and stretch them tall */
     .swatch { flex:none; width:22px; height:22px; }
+    /* wrap so swatches never escape the sidebar on narrow panels */
+    .swatches { flex-wrap:wrap; }
     .layoutchip { padding:4px 8px; }
   }
 </style>
@@ -2393,6 +2395,7 @@ function endInlineEdit({ cancel = false } = {}){
   const n = state.nodes.get(ie.id);
   ie.el.removeAttribute('contenteditable');
   ie.el.classList.remove('editing', 'invalid');
+  ie.el.blur();                                       // ensure keyboard closes on iOS when ended by keypress
   titleEditing = false; titleEditId = null;
   if (!n) return;
   if (cancel && ie.isNew){                            // Esc on a freshly-created card = cancel creation
@@ -2463,6 +2466,7 @@ function endBodyEdit({ cancel = false } = {}){
   const be = bodyEdit; if (!be) return;
   bodyEdit = null;                                      // null first → the blur handler becomes a no-op
   bodyEditing = false; bodyEditId = null;
+  be.ta.blur();                                         // ensure keyboard closes on iOS when ended by keypress
   const n = state.nodes.get(be.id);
   be.el.classList.remove('editing');
   if (n && !cancel && be.ta.value !== be.orig){ n.body = be.ta.value; n.dirty = true; }
@@ -2878,15 +2882,99 @@ const opfsStore = {
   recents(){ return []; },
 };
 
+// OPFS write requires FileSystemWritableFileStream (createWritable), which Safari added in 17.2.
+// On iOS ≤16 we fall back to an IndexedDB store with the same interface.
+async function opfsCanWrite(){
+  try {
+    const root = await navigator.storage.getDirectory();
+    const fh = await root.getFileHandle('__writetest__', { create: true });
+    const w = await fh.createWritable();
+    await w.close();
+    await root.removeEntry('__writetest__');
+    return true;
+  } catch { return false; }
+}
+
+// IndexedDB fallback store — identical interface to opfsStore, used on Safari < 17.2.
+const idbStore = (() => {
+  let _db = null, _opened = false;
+  async function db(){
+    if (_db) return _db;
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('mindmap-vault', 1);
+      r.onupgradeneeded = e => e.target.result.createObjectStore('files');
+      r.onsuccess = e => { _db = e.target.result; res(_db); };
+      r.onerror = e => rej(e.target.error);
+    });
+  }
+  return {
+    get isOpen(){ return _opened; },
+    get name(){ return 'On-device storage'; },
+    async pick(){ try { await db(); _opened = true; return 'ok'; } catch { return 'error'; } },
+    async openRecent(){ return this.pick(); },
+    async list(){
+      const d = await db();
+      return new Promise((res, rej) => {
+        const tx = d.transaction('files','readonly'), out = [];
+        tx.objectStore('files').openCursor().onsuccess = e => {
+          const c = e.target.result;
+          if (c){ if (c.key.endsWith('.md')) out.push({ path: c.key, text: c.value }); c.continue(); }
+          else res(out);
+        };
+        tx.onerror = e => rej(e.target.error);
+      });
+    },
+    async write(path, text){
+      const d = await db();
+      return new Promise((res, rej) => {
+        const tx = d.transaction('files','readwrite');
+        tx.objectStore('files').put(text, path);
+        tx.oncomplete = res; tx.onerror = e => rej(e.target.error);
+      });
+    },
+    async remove(path){
+      try {
+        const d = await db();
+        await new Promise((res, rej) => {
+          const tx = d.transaction('files','readwrite');
+          tx.objectStore('files').delete(path);
+          tx.oncomplete = res; tx.onerror = e => rej(e.target.error);
+        });
+      } catch {}
+    },
+    async readBlob(path){
+      try {
+        const d = await db();
+        return new Promise((res, rej) => {
+          const tx = d.transaction('files','readonly');
+          const r = tx.objectStore('files').get(path);
+          r.onsuccess = e => res(e.target.result ? new Blob([e.target.result], { type:'text/plain' }) : null);
+          r.onerror = e => rej(e.target.error);
+        });
+      } catch { return null; }
+    },
+    watch(){ },
+    recents(){ return []; },
+  };
+})();
+
 // Active backend. Local-first: default to the on-device vault; "Open folder" swaps in fsaStore.
 let store = opfsStore;
 const LAST_STORE_KEY = 'mindmap.lastStore';   // 'opfs' | 'folder'
 function useStore(s, kind){ store = s; store.watch(reloadFromDisk); if (kind) localStorage.setItem(LAST_STORE_KEY, kind); }
 
 // ---- on-device (the local-first default) ----
+// On Safari < 17.2 createWritable() is missing; fall back to the IndexedDB store.
+let _onDeviceStore = null;
+async function resolveOnDeviceStore(){
+  if (_onDeviceStore) return _onDeviceStore;
+  _onDeviceStore = await opfsCanWrite() ? opfsStore : idbStore;
+  return _onDeviceStore;
+}
 async function openDevice({ keepView = false } = {}){
-  useStore(opfsStore, 'opfs');
-  await opfsStore.pick();
+  const s = await resolveOnDeviceStore();
+  useStore(s, 'opfs');
+  await s.pick();
   hideStart();
   await loadFromDir({ keepView });
 }
