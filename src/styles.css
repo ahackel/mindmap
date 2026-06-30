@@ -147,6 +147,9 @@ svg#edges path { fill:none; stroke:var(--edge); stroke-width:4;
 .node.reparent-ghost { background:transparent !important; box-shadow:none !important;
   border:2px dashed var(--node-sel); }
 .node.reparent-ghost > * { visibility:hidden; }
+/* landing-spot preview: where the dragged card will actually land once dropped onto a
+   valid reparent target — the dragged card itself keeps following the cursor as usual */
+.node.landing-ghost { pointer-events:none; transition:none; z-index:1; }
 /* break long words / URLs and clip anything that still overflows the card horizontally */
 .node .title { font-weight:600; font-size:14px; margin-bottom:9px; padding-right:16px;
   overflow-wrap:anywhere; overflow:hidden; }

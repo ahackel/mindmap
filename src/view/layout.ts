@@ -5,7 +5,74 @@
 // tree helpers) — a runtime-only cycle.
 import { state, type MindNode } from '../core/state.js';
 import { childrenOf, isHidden, isRoot } from '../utils/model.js';
-import { subtreeIds, layoutH, NODE_W } from '../main.js';
+import { subtreeIds, layoutH, nodeH, NODE_W } from '../main.js';
+
+const LANDING_GAP = 40;   // gap below/beside the hovered card a drag-reparented child/sibling snaps to
+// Where `dragged` will land if dropped onto `target` in the given mode — CHILD (top zone of the
+// card) or SIBLING (bottom zone, adopts target's parent). Shared by the drop-target ghost preview
+// (features/drag.ts) and the actual reparent commit, so what you see while dragging is exactly
+// where the card ends up.
+//
+// The governing layout is TARGET's own (child mode) or TARGET's PARENT's (sibling mode) — note
+// both cases resolve to the same node `dragged` would actually be re-parented onto. SIBLING mode
+// also anchors the insertion: the dragged card slots in right after `target` in the governor's
+// child order (not at the end), so dropping on the lower part of a middle card inserts it there,
+// matching the bottom-zone hover that triggered sibling mode in the first place.
+//
+// For a managed layout (line/fan/two-sided) the only way to know the EXACT final spot is to run
+// the real layout: applying it would also reflow target's other children (a fan re-centers, a
+// chain re-packs), so a simple "just outside target's border" estimate drifts once there's more
+// than one sibling. So we temporarily re-parent `dragged` onto the governor at the anchored
+// order position, run the same layoutSubtree() the commit path uses, read off where it placed
+// `dragged`, then revert every position/order/parent change — a dry run, no visible side effect.
+// A free/unset governing layout never reflows on drop, so the cheap geometric estimate is exact
+// there and a simulation would be wasted work.
+export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' | 'sibling'): { x: number; y: number } {
+  const governor = mode === 'child' ? target : (target.parent ? state.nodes.get(target.parent) : null) ?? target;
+  const eff = effectiveLayout(governor);
+  if (eff.type !== 'line' && eff.type !== 'fan' && eff.type !== 'two-sided') {
+    const y = target.y + nodeH(target) + LANDING_GAP;
+    return mode === 'child' ? { x: target.x + LANDING_GAP, y } : { x: target.x, y };
+  }
+  return simulateLanding(dragged, governor, mode === 'sibling' ? target.id : undefined);
+}
+
+// The order `governor`'s children would have if `draggedId` were inserted right after `afterId`
+// (or appended at the end if `afterId` is omitted/not a current child) — everyone else keeps
+// their existing relative order. Shared by the ghost-preview dry run and the real reparent commit
+// so both agree on where a sibling-mode drop slots in.
+export function insertedKidOrder(governor: MindNode, draggedId: string, afterId?: string): string[] {
+  const kids = childrenOf(governor.id).filter(k => !isHidden(k) && k.id !== draggedId);
+  const order = orderedKids(governor, kids).map(k => k.id);
+  const idx = afterId ? order.indexOf(afterId) : -1;
+  if (idx >= 0) order.splice(idx + 1, 0, draggedId);
+  else order.push(draggedId);
+  return order;
+}
+
+// Dry-run a reparent of `dragged` onto `governor` (inserted right after `afterId`, if given): re-
+// parent, run the real layoutSubtree(), capture dragged's resulting position, then put every
+// touched node/field back exactly as found.
+function simulateLanding(dragged: MindNode, governor: MindNode, afterId?: string): { x: number; y: number } {
+  const prevParent = dragged.parent;
+  const prevKidOrder = governor.kidOrder ? [...governor.kidOrder] : undefined;
+  const snapIds = new Set<string>();
+  for (const k of childrenOf(governor.id)) if (k.id !== dragged.id) for (const id of subtreeIds(k.id)) snapIds.add(id);
+  for (const id of subtreeIds(dragged.id)) snapIds.add(id);
+  const snap = new Map([...snapIds].map(id => {
+    const n = state.nodes.get(id)!; return [id, { x: n.x, y: n.y }] as [string, { x: number; y: number }];
+  }));
+
+  governor.kidOrder = insertedKidOrder(governor, dragged.id, afterId);
+  dragged.parent = governor.id;
+  layoutSubtree(governor);
+  const land = { x: dragged.x, y: dragged.y };
+
+  dragged.parent = prevParent;
+  governor.kidOrder = prevKidOrder;
+  for (const [id, p] of snap) { const n = state.nodes.get(id); if (n) { n.x = p.x; n.y = p.y; } }
+  return land;
+}
 
 // number of leaves under a node (a collapsed node counts as a single leaf, since its
 // subtree is hidden and shouldn't claim angular space)
