@@ -12,7 +12,8 @@ import { applyLayouts, radialLayout, collapseAtDepth } from '../view/layout.js';
 import { fit } from '../view/camera.js';
 import { resetImageCache } from '../features/images.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, seenFolders, markFolderSeen, type Store } from '../store/index.js';
-import { paintAll, selectNode, hideStart, titleEditing, bodyEditing } from '../main.js';
+import { paintAll, selectNode, titleEditing, bodyEditing } from '../main.js';
+import { hideStart } from '../boot.js';
 
 // Active backend. Local-first: default to the on-device vault; "Open folder" swaps in fsaStore.
 export let store: Store = opfsStore;

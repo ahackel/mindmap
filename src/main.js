@@ -11,20 +11,19 @@ import { zipBlob, unzip } from './utils/zip.js';
 import { parseMd, serializeMd } from './utils/frontmatter.js';
 import { childrenOf, isRoot, isHidden, descendantCount, isAncestor } from './utils/model.js';
 import { state, world, stage, edgesSvg, togglesSvg, setStatus } from './core/state.js';
-import { opfsStore, fsaStore, resolveOnDeviceStore, readRecents, writeRecents, forgetRecent, seenFolders, markFolderSeen, setOnRecentsChanged } from './store/index.js';
 import { setupTheme } from './view/theme.js';
 import { mountIcons } from './view/icons.js';
 import { applyView, cancelViewAnim, screenToWorld, zoomAt, fit, frameBox } from './view/camera.js';
-import { applyLayouts, radialLayout, collapseAtDepth, reorderDraggedParents, dirSide, effectiveLayout } from './view/layout.js';
+import { applyLayouts, reorderDraggedParents, dirSide, effectiveLayout } from './view/layout.js';
 import { searchBox } from './features/search.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
-import { store, useStore, scheduleSave, flushSave, loadFromDir, exportZip, openImportPicker, LAST_STORE_KEY } from './data/persistence.js';
+import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
+import { showStart, openHelpTab, boot } from './boot.js';
 
 window.__dbg = { get state(){ return state; }, get drag(){ return drag; } };   // TEMP debug hook
 
 mountIcons();                         // fill [data-icon] placeholders with their SVG assets
 setupTheme();
-setOnRecentsChanged(renderRecents);   // let the store signal recents changes without rendering UI itself
 
 
 
@@ -1085,7 +1084,7 @@ const roBtn = document.getElementById('roBtn');
 // closed padlock (locked) vs open padlock (unlocked)
 const ICON_LOCK_CLOSED = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
 const ICON_LOCK_OPEN   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>`;
-function applyReadOnly(){
+export function applyReadOnly(){
   const ro = state.readOnly;
   document.body.classList.toggle('readonly', ro);
   roBtn.classList.toggle('locked', ro);          // red when locked
@@ -1596,150 +1595,5 @@ window.addEventListener('keydown', (e) => {
   if (k === 's') { e.preventDefault(); flushSave(); }
 });
 
-// ============================================================
-//  Data-source adapter — the ONLY thing that touches the outside world
-//  ---------------------------------------------------------
-//  Picking a source, listing/reading/writing notes, the "recent folders"
-//  list, and change notifications all live behind this one object. Today it
-//  is backed by the browser File System Access API. To turn the tool into an
-//  Obsidian plugin or a Tauri/macOS app, replace ONLY `store`: swap
-//  pick/list/write/remove/watch for the Vault API or native fs. The rest of
-//  the app speaks to `store` by relative path and never sees a directory handle.
-// ============================================================
-// The app is local-first (on-device OPFS vault) everywhere. Chrome/Edge ALSO offer opening a
-// real local folder via the File System Access API; iPad/Firefox/Safari just use on-device +
-// import/export. ?nofsa hides the folder option for testing the no-FSA layout on desktop.
-const HAS_FSA = !location.search.includes('nofsa') && !!window.showDirectoryPicker;
 
-
-// ---- on-device (the local-first default) ----
-async function openDevice({ keepView = false } = {}){
-  const s = await resolveOnDeviceStore();
-  useStore(s, 'opfs');
-  await s.pick();
-  hideStart();
-  await loadFromDir({ keepView });
-}
-
-// ---- local folder (Chrome/Edge only) ----
-async function openFolder() {
-  const r = await fsaStore.pick();
-  if (r === 'unsupported') { setStatus('This browser can’t open a local folder — use Chrome or Edge.'); return; }
-  if (r === 'denied') { setStatus('Folder permission denied.'); alert('Write permission was denied.\nReopen the folder and choose “Edit”/“Allow”.'); return; }
-  if (r !== 'ok') { if (r === 'error') setStatus('Could not open folder.'); return; }
-  useStore(fsaStore, 'folder');
-  hideStart();
-  await loadFromDir();
-}
-async function openRecentFolder(key) {
-  const r = await fsaStore.openRecent(key);
-  if (r === 'gone') {
-    await forgetRecent(key);
-    renderRecents();
-    const msg = document.getElementById('storeStatus');
-    if (msg) msg.textContent = 'That folder is no longer available — removed from recents.';
-    return;
-  }
-  if (r === 'denied') { alert('Write permission was denied for this folder.'); return; }
-  useStore(fsaStore, 'folder');
-  hideStart();
-  await loadFromDir();
-}
-
-
-function timeAgo(ts){
-  const s = (Date.now()-ts)/1000;
-  if (s<60) return 'just now';
-  if (s<3600) return Math.floor(s/60)+'m ago';
-  if (s<86400) return Math.floor(s/3600)+'h ago';
-  return Math.floor(s/86400)+'d ago';
-}
-function renderRecents(){
-  const list = readRecents();
-  const wrap = document.getElementById('recentWrap');
-  const box = document.getElementById('recentList');
-  if (!list.length){ wrap.style.display='none'; return; }
-  wrap.style.display='block';
-  box.innerHTML = list.map(r =>
-    `<button class="recent-item" data-key="${r.key}">
-       <svg class="ri-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-       <span class="ri-name">${r.name}</span>
-       <span class="ri-when">${timeAgo(r.when)}</span></button>`).join('');
-  box.querySelectorAll('.recent-item').forEach(btn => {
-    btn.onclick = () => openRecentFolder(btn.dataset.key);
-  });
-}
-
-// ---------- start screen control ----------
-// ---------- home screen (storage settings; the map itself opens onto the canvas) ----------
-const startScreen = document.getElementById('startScreen');
-function showStart(){ renderStoreScreen(); startScreen.classList.remove('hidden'); }
-export function hideStart(){ startScreen.classList.add('hidden'); }
-
-function renderStoreScreen(){
-  document.getElementById('storeStatus').textContent =
-    store.isOpen ? 'Editing: ' + store.name : 'Loading…';
-  const isTouch = window.matchMedia('(pointer: coarse)').matches;
-  document.getElementById('startOpen').style.display = (HAS_FSA && !isTouch) ? '' : 'none';
-  document.getElementById('useDeviceBtn').style.display = (store === opfsStore) ? 'none' : '';
-  renderRecents();
-}
-
-document.getElementById('startOpen').onclick   = () => openFolder();
-document.getElementById('useDeviceBtn').onclick = () => openDevice();
-document.getElementById('importBtn').onclick   = () => openImportPicker();
-document.getElementById('exportBtn').onclick   = () => exportZip();   // async; fire-and-forget
-document.getElementById('startClose').onclick  = () => hideStart();
-
-// ---------- help mindmap (shipped as help/*.md next to index.html, opened with F1) ----------
-// Read-only store that fetches the help notes; lives in its own tab (?help), so the user's
-// own map and vault are never touched. help/manifest.json lists the note filenames.
-const helpStore = {
-  get isOpen(){ return true; },
-  get name(){ return 'Help'; },
-  async pick(){ return 'ok'; },
-  async openRecent(){ return 'ok'; },
-  async list(){
-    const names = await (await fetch('help/manifest.json', { cache:'no-cache' })).json();
-    const out = [];
-    for (const name of names){
-      const res = await fetch('help/' + encodeURIComponent(name), { cache:'no-cache' });
-      if (res.ok) out.push({ path: name, text: await res.text() });
-    }
-    return out;
-  },
-  async write(){}, async remove(){},
-  async readBlob(path){
-    try { const r = await fetch('help/' + path.split('/').map(encodeURIComponent).join('/'), { cache:'no-cache' }); return r.ok ? await r.blob() : null; }
-    catch { return null; }
-  },
-  watch(){}, recents(){ return []; },
-};
-function openHelpTab(){
-  const url = location.pathname + '?help';
-  if (!window.open(url, '_blank')) location.href = url;   // fall back if a new tab is blocked
-}
-async function openHelp(){
-  state.readOnly = true; applyReadOnly();                 // help is view-only; nothing is saved
-  useStore(helpStore);                                    // no `kind` → doesn't change the saved store
-  try { await loadFromDir(); }
-  catch { setStatus('Help content (help/) not found next to index.html.'); }
-}
-
-// ---------- boot: local-first — open straight into the last map, no gate ----------
-async function boot(){
-  applyView();
-  hideStart();
-  if (new URLSearchParams(location.search).has('help')){ await openHelp(); return; }
-  // resume a local folder only if we can do it silently (permission still granted); else on-device
-  if (HAS_FSA && localStorage.getItem(LAST_STORE_KEY) === 'folder'){
-    const recent = readRecents()[0];
-    if (recent && await fsaStore.resume(recent.key)){
-      useStore(fsaStore, 'folder');
-      await loadFromDir();
-      return;
-    }
-  }
-  await openDevice();   // the on-device vault (empty on first run)
-}
-boot();
+boot();   // local-first: open straight into the last map
