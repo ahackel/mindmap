@@ -13,6 +13,7 @@ import { state, world, stage, edgesSvg, togglesSvg, setStatus } from './state.js
 import { parseMd, serializeMd } from './frontmatter.js';
 import { childrenOf, isRoot, isHidden, descendantCount, isAncestor } from './model.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, readRecents, writeRecents, forgetRecent, seenFolders, markFolderSeen } from './store.js';
+import { searchBox } from './search.js';
 
 window.__dbg = { get state(){ return state; }, get drag(){ return drag; } };   // TEMP debug hook
 
@@ -299,7 +300,7 @@ function paintEdges() {
   edgesSvg.innerHTML = svg;
   togglesSvg.innerHTML = '';             // no edge toggles anymore
 }
-function paintAll() {
+export function paintAll() {
   for (const n of state.nodes.values()) paintNode(n);
   paintEdges();
 }
@@ -997,7 +998,7 @@ function frameBox(nodes){
   animateViewTo(availW/2 - cx*k, availH/2 - cy*k, k);   // glide + zoom, never jump
 }
 // Focus a card: un-collapse hiding ancestors, select it, frame it + all its visible descendants.
-function focusNode(target){
+export function focusNode(target){
   if (!target) return;
   let revealed = false;
   for (let p = target.parent && state.nodes.get(target.parent); p; p = p.parent && state.nodes.get(p.parent)){
@@ -1933,61 +1934,6 @@ document.getElementById('edRename').onclick = () => { if (state.selId) startInli
 document.getElementById('edDuplicate').onclick = () => duplicateSelection();
 document.getElementById('edDelete').onclick = () => { if (state.sel.size) deleteSelection(); };
 
-// ---------- find / jump to a card ----------
-const searchBox = document.getElementById('searchBox');
-const searchResults = document.getElementById('searchResults');
-let searchHits = [], searchActive = -1;
-function runSearch(){
-  const q = searchBox.value.trim().toLowerCase();
-  if (!q){ clearSearch(); return; }
-  // match on title OR body content; dim every visible card that doesn't match
-  const matches = [...state.nodes.values()].filter(n =>
-    n.title.toLowerCase().includes(q) || (n.body && n.body.toLowerCase().includes(q)));
-  state.searchMatch = new Set(matches.map(n => n.id));
-  // dropdown: title matches first, then body-only matches, alphabetical within each
-  searchHits = matches.sort((a,b) => {
-    const at = a.title.toLowerCase().includes(q), bt = b.title.toLowerCase().includes(q);
-    return at !== bt ? (at ? -1 : 1) : a.title.localeCompare(b.title);
-  }).slice(0, 12);
-  searchActive = searchHits.length ? 0 : -1;
-  searchResults.innerHTML = searchHits.length
-    ? searchHits.map((n,i) => `<button class="sr-item${i===searchActive?' active':''}" data-id="${n.id}">${esc(n.title)}</button>`).join('')
-    : '<div class="sr-none">No card matches</div>';
-  searchResults.classList.add('open');
-  paintAll();   // apply the dimming
-}
-function clearSearch(){
-  searchResults.classList.remove('open'); searchResults.innerHTML = '';
-  searchHits = [];
-  if (state.searchMatch){ state.searchMatch = null; paintAll(); }   // un-dim
-}
-function gotoHit(id){
-  const n = state.nodes.get(id); if (!n) return;
-  searchBox.value = ''; clearSearch(); searchBox.blur();
-  focusNode(n);
-}
-searchBox.addEventListener('input', runSearch);
-searchBox.addEventListener('focus', () => { if (searchBox.value.trim()) runSearch(); });
-searchBox.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
-    e.preventDefault();
-    if (!searchHits.length) return;
-    searchActive = (searchActive + (e.key === 'ArrowDown' ? 1 : -1) + searchHits.length) % searchHits.length;
-    [...searchResults.children].forEach((el,i) => el.classList.toggle('active', i === searchActive));
-  } else if (e.key === 'Enter'){
-    e.preventDefault();
-    if (searchHits[searchActive]) gotoHit(searchHits[searchActive].id);
-  } else if (e.key === 'Escape'){
-    e.preventDefault();
-    if (searchBox.value){ searchBox.value = ''; runSearch(); } else searchBox.blur();
-  }
-});
-searchResults.addEventListener('click', (e) => {
-  const item = e.target.closest('.sr-item'); if (item) gotoHit(item.dataset.id);
-});
-document.addEventListener('pointerdown', (e) => {           // click-away closes the dropdown
-  if (!e.target.closest('#searchWrap')) searchResults.classList.remove('open');
-});
 
 // keyboard shortcuts: ⌘S force-save  (duplicate = D, new node = Space — see plain-key handler)
 window.addEventListener('keydown', (e) => {
