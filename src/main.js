@@ -11,7 +11,7 @@ import { zipBlob, unzip } from './utils/zip.js';
 import { parseMd, serializeMd } from './utils/frontmatter.js';
 import { childrenOf, isRoot, isHidden, descendantCount, isAncestor } from './utils/model.js';
 import { state, world, stage, edgesSvg, togglesSvg, setStatus } from './core/state.js';
-import { opfsStore, fsaStore, resolveOnDeviceStore, readRecents, writeRecents, forgetRecent, seenFolders, markFolderSeen } from './store/index.js';
+import { opfsStore, fsaStore, resolveOnDeviceStore, readRecents, writeRecents, forgetRecent, seenFolders, markFolderSeen, setOnRecentsChanged } from './store/index.js';
 import { setupTheme } from './view/theme.js';
 import { applyView, cancelViewAnim, screenToWorld, zoomAt, fit, frameBox } from './view/camera.js';
 import { searchBox } from './features/search.js';
@@ -20,6 +20,7 @@ import { resetImageCache, hydrateImages } from './features/images.js';
 window.__dbg = { get state(){ return state; }, get drag(){ return drag; } };   // TEMP debug hook
 
 setupTheme();
+setOnRecentsChanged(renderRecents);   // let the store signal recents changes without rendering UI itself
 
 
 
@@ -1841,18 +1842,6 @@ window.addEventListener('keydown', (e) => {
 // real local folder via the File System Access API; iPad/Firefox/Safari just use on-device +
 // import/export. ?nofsa hides the folder option for testing the no-FSA layout on desktop.
 const HAS_FSA = !location.search.includes('nofsa') && !!window.showDirectoryPicker;
-
-// Shared "the source may have changed" watcher (window-focus / tab-visible). Wired once and
-// kept pointing at the active store's callback, so switching backends (e.g. → WebDAV, where
-// the OTHER device just edited the same files) keeps the cross-device refresh working.
-let _onExternalChange = null, _watchInstalled = false;
-function installWatch(cb){
-  _onExternalChange = cb;
-  if (_watchInstalled) return; _watchInstalled = true;
-  const fire = () => _onExternalChange && _onExternalChange();
-  window.addEventListener('focus', fire);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') fire(); });
-}
 
 
 // Active backend. Local-first: default to the on-device vault; "Open folder" swaps in fsaStore.
