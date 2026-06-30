@@ -6,16 +6,16 @@
    Edges are DERIVED from parent — no separate edge list.
    ============================================================ */
 
-import { esc, renderBodyHTML } from './markdown.js';
-import { setupTheme } from './theme.js';
-import { zipBlob, unzip } from './zip.js';
-import { state, world, stage, edgesSvg, togglesSvg, setStatus } from './state.js';
-import { parseMd, serializeMd } from './frontmatter.js';
-import { childrenOf, isRoot, isHidden, descendantCount, isAncestor } from './model.js';
-import { opfsStore, fsaStore, resolveOnDeviceStore, readRecents, writeRecents, forgetRecent, seenFolders, markFolderSeen } from './store.js';
-import { searchBox } from './search.js';
-import { resetImageCache, hydrateImages } from './images.js';
-import { applyView, cancelViewAnim, screenToWorld, zoomAt, fit, frameBox } from './view.js';
+import { esc, renderBodyHTML } from './utils/markdown.js';
+import { zipBlob, unzip } from './utils/zip.js';
+import { parseMd, serializeMd } from './utils/frontmatter.js';
+import { childrenOf, isRoot, isHidden, descendantCount, isAncestor } from './utils/model.js';
+import { state, world, stage, edgesSvg, togglesSvg, setStatus } from './core/state.js';
+import { opfsStore, fsaStore, resolveOnDeviceStore, readRecents, writeRecents, forgetRecent, seenFolders, markFolderSeen } from './store/index.js';
+import { setupTheme } from './view/theme.js';
+import { applyView, cancelViewAnim, screenToWorld, zoomAt, fit, frameBox } from './view/camera.js';
+import { searchBox } from './features/search.js';
+import { resetImageCache, hydrateImages } from './features/images.js';
 
 window.__dbg = { get state(){ return state; }, get drag(){ return drag; } };   // TEMP debug hook
 

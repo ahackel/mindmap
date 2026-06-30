@@ -1,7 +1,7 @@
 // ---------- hierarchy helpers ----------
 // The tree is DERIVED from each node's `parent` (no stored edge list). These queries
 // walk that live structure in state.nodes.
-import { state } from './state.js';
+import { state } from '../core/state.js';
 
 export function childrenOf(id){ return [...state.nodes.values()].filter(n => n.parent === id); }
 export function isRoot(n){ return !n.parent || !state.nodes.has(n.parent); }

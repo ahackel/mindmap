@@ -2,9 +2,9 @@
 // Filters on title OR body, dims non-matching cards via state.searchMatch (paintAll
 // applies the dimming), and focuses the chosen hit. searchBox is exported so the global
 // "/" shortcut can focus it.
-import { state } from './state.js';
-import { esc } from './markdown.js';
-import { paintAll, focusNode } from './main.js';
+import { state } from '../core/state.js';
+import { esc } from '../utils/markdown.js';
+import { paintAll, focusNode } from '../main.js';
 
 export const searchBox = document.getElementById('searchBox');
 const searchResults = document.getElementById('searchResults');

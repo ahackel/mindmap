@@ -4,7 +4,7 @@
 // from the active store, remote/data URLs map to themselves. A card that grows when an image
 // finally loads triggers a single debounced relayout so siblings/edges re-settle.
 // (store/applyLayouts/paintAll come from main.js — a runtime-only cycle.)
-import { store, applyLayouts, paintAll } from './main.js';
+import { store, applyLayouts, paintAll } from '../main.js';
 
 const imgUrlCache = new Map();    // src path -> resolved URL (blob:… or the original remote/data URL)
 const imgInflight = new Map();    // src path -> in-flight Promise<url|null> (de-dupes concurrent reads)

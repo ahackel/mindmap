@@ -6,7 +6,7 @@
 // rewrite ONLY the app-owned keys (tags/color/mm_*) while preserving everything else —
 // `date`, `category`, `aliases`, custom fields, and the note body — verbatim.
 // ============================================================
-import { state } from './state.js';
+import { state } from '../core/state.js';
 
 function parseFM(fmText){
   const entries = [];

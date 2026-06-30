@@ -1,9 +1,9 @@
 // ---------- view camera: pan / zoom / fit / frame ----------
 // Pure camera math over state.view (the {x,y,k} pan+zoom). No painting — callers repaint
 // if needed. NODE_W/nodeH come from main.js (render) for measuring; isHidden from model.
-import { state, world, stage } from './state.js';
-import { isHidden } from './model.js';
-import { NODE_W, nodeH } from './main.js';
+import { state, world, stage } from '../core/state.js';
+import { isHidden } from '../utils/model.js';
+import { NODE_W, nodeH } from '../main.js';
 
 export function applyView() {
   world.style.transform = `translate(${state.view.x}px,${state.view.y}px) scale(${state.view.k})`;

@@ -10,7 +10,7 @@
 // Also here: the "recent folders" backing store (handles in IndexedDB, display list in
 // localStorage) and the one-time "seen folders" set.
 // ============================================================
-import { idbGet, idbPut, idbDel } from './idb.js';
+import { idbGet, idbPut, idbDel } from '../utils/idb.js';
 
 // ============================================================
 //  Recent folders backing store: handles live in IndexedDB (not serializable
