@@ -2,7 +2,7 @@
 // Edges are DERIVED from each node's parent (no stored edge list). This module owns the parent→child
 // connector geometry for the three edge styles and paints them into the #edges SVG. It reads the
 // render core's live card heights (nodeH) and branch colour (effectiveColor) from main.
-import { state, edgesSvg, togglesSvg, type MindNode } from '../core/state.js';
+import { state, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode } from '../core/state.js';
 import { isRoot, isHidden } from '../utils/model.js';
 import { effectiveLayout, dirSide, dropLanding } from './layout.js';
 import { ui, type Pt } from '../core/ui-state.js';
@@ -12,6 +12,10 @@ import { NODE_W, nodeH, effectiveColor } from '../main.js';
 const EDGE_TINT: Record<string, string> = { slate:'#7088e0', red:'#f25c72', amber:'#f2ab44', green:'#3fcf81',
   teal:'#33c5d8', blue:'#5fa3f5', violet:'#9d70f0', pink:'#f262ad', grey:'#4a5a6e' };
 const EDGE_R = 12;   // corner radius on orthogonal elbows
+
+// The bright branch tint for a node's effective colour — shared by the dragged card's edges, the
+// reparent-preview edge and the landing-ghost border so the whole "ghost" matches the dragged card.
+export function branchTint(n: MindNode): string { return EDGE_TINT[effectiveColor(n)] ?? EDGE_TINT.grey; }
 
 function nodeCenter(n: MindNode): Pt { return { x: n.x + NODE_W/2, y: n.y + nodeH(n)/2 }; }
 function boxCenter(box: { x: number; y: number; h: number }): Pt { return { x: box.x + NODE_W/2, y: box.y + box.h/2 }; }
@@ -107,8 +111,9 @@ function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: 
 export function paintEdges(): void {
   // While filtering, hide ALL lines — dimmed cards are semi-transparent, so faint lines would
   // show through them and read as clutter. Cleaner to drop the lines entirely until search ends.
-  if (state.searchMatch){ edgesSvg.innerHTML = ''; togglesSvg.innerHTML = ''; return; }
-  let svg = '';
+  if (state.searchMatch){ edgesSvg.innerHTML = ''; togglesSvg.innerHTML = ''; dragEdgesSvg.innerHTML = ''; return; }
+  let svg = '';    // normal edges, behind the cards
+  let top = '';    // drag-time edges (dragged subtree + reparent preview), in the top overlay
   // Draw a connector for every parent→child edge where BOTH ends are visible.
   // A collapsed node hides its children, so those edges simply don't appear.
   for (const n of state.nodes.values()) {
@@ -133,14 +138,18 @@ export function paintEdges(): void {
     const tint = EDGE_TINT[effectiveColor(n)];
     const style = tint ? ` style="stroke:${tint}"` : '';
     const dash = ripping ? ' stroke-dasharray="6 5" opacity="0.5"' : '';
-    svg += `<path${style}${dash} d="${edgePath(parent, n)}"/>`;
+    const path = `<path${style}${dash} d="${edgePath(parent, n)}"/>`;
+    // edges of the dragged subtree ride in the top overlay so they're never hidden behind cards
+    if (ui.drag && ui.drag.targets.has(n.id)) top += path; else svg += path;
   }
   // Dashed preview: while poised over a valid reparent target, draw the would-be new
-  // parent→landing-spot connection so the result is clear before you let go.
+  // parent→landing-spot connection so the result is clear before you let go. Tinted to match
+  // the dragged card, and drawn in the top overlay so it sits above every other card/edge.
   const preview = previewReparent();
   if (preview) {
-    svg += `<path style="stroke:#5ac978" stroke-dasharray="6 5" d="${edgePathBox(preview.parent, preview.box)}"/>`;
+    top += `<path style="stroke:${branchTint(ui.drag!.active)}" stroke-dasharray="6 5" d="${edgePathBox(preview.parent, preview.box)}"/>`;
   }
   edgesSvg.innerHTML = svg;
+  dragEdgesSvg.innerHTML = top;
   togglesSvg.innerHTML = '';             // no edge toggles anymore
 }

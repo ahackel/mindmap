@@ -30,6 +30,9 @@
       <svg id="edges"></svg>
       <!-- toggles overlay renders ABOVE node divs so collapse dots are always visible -->
       <svg id="toggles"></svg>
+      <!-- drag overlay: the dragged card's edges + the reparent preview edge render here,
+           above every other card and edge, so the thing you're dragging is never occluded -->
+      <svg id="dragEdges"></svg>
     </div>
   </div>
 
@@ -70,8 +73,6 @@
 
   <!-- ghost card in the corner — drag it onto the canvas to create a new card -->
   <div id="ghostCard" title="Drag to create a new card">+</div>
-  <!-- clone that follows the cursor while dragging from the ghost -->
-  <div id="ghostDrag">+</div>
 
   <!-- home screen: storage settings (the map itself opens straight onto the canvas) -->
   <div id="startScreen" class="hidden">

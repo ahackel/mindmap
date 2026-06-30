@@ -10,7 +10,7 @@ import { applyLayouts, reorderDraggedParents, dropLanding, effectiveLayout, inse
 import { cancelViewAnim, applyView } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
 import { ui, type Pt, type Drag } from '../core/ui-state.js';
-import { paintEdges } from '../view/edges.js';
+import { paintEdges, branchTint } from '../view/edges.js';
 import { NODE_W, nodeH, paintAll, paintNode, selectNode, setSelectionSet, toggleSel,
          subtreeIds, foldNodeOrGroup } from '../main.js';
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit } from './inline-edit.js';
@@ -41,13 +41,14 @@ function setSubtreeVisibility(ids: Iterable<string>, visible: boolean): void {
     if (el) el.style.visibility = visible ? '' : 'hidden';
   }
 }
-function showLandingGhost(x: number, y: number, h: number, draggedIds: Iterable<string>): void {
+function showLandingGhost(x: number, y: number, h: number, draggedIds: Iterable<string>, color: string): void {
   const el = landingGhostEl();
   el.style.left = x + 'px'; el.style.top = y + 'px';
   el.style.width = NODE_W + 'px'; el.style.height = h + 'px';
   // .node has a 64px min-height (for bodied cards); without this the ghost for a shorter
   // title-only card would get clamped taller than the real card it's previewing.
   el.style.minHeight = h + 'px';
+  el.style.borderColor = color;   // match the dragged card's branch colour
   el.style.display = '';
   setSubtreeVisibility(draggedIds, false);
 }
@@ -160,7 +161,7 @@ export function bindNodeDrag(n: MindNode): void {
     if ((ui.inlineEdit && ui.inlineEdit.id === n.id) || (ui.bodyEdit && ui.bodyEdit.id === n.id)) { e.stopPropagation(); return; }
     clearTimeout(ui.renameTimer);   // any fresh interaction cancels a pending slow-click rename
     e.stopPropagation();
-    el.setPointerCapture(e.pointerId);
+    try { el.setPointerCapture(e.pointerId); } catch { /* no active pointer (e.g. synthetic) */ }
     // Dragging a card that's part of a multi-selection moves the WHOLE selection at once;
     // otherwise just this card's subtree. `active` is the node dragged/dropped; `targets`
     // are the nodes that follow the cursor (or, after a Shift-clone, just the clone).
@@ -180,33 +181,49 @@ export function bindNodeDrag(n: MindNode): void {
              downTarget:e.target,              // where the press landed -> slow-click edits title or body
              meta: e.metaKey || e.ctrlKey,     // ⌘/Ctrl-click toggles this card in the selection
              touch: e.pointerType === 'touch' }; // higher move threshold for finger taps
-    for (const id of ids) { const m2 = state.nodes.get(id); if (m2?.el) m2.el.style.willChange = 'transform'; }
+    for (const id of ids) { const m2 = state.nodes.get(id); if (m2?.el){ m2.el.style.willChange = 'transform'; m2.el.classList.add('dragging'); } }
   });
   el.addEventListener('pointermove', (e) => {
     const drag = ui.drag;
     if (!drag || drag.n !== n) return;
-    if (state.readOnly) return;        // no moving/reparenting in read-only (click & dbl-click still work)
-    drag.alt = e.altKey; drag.shift = e.shiftKey;   // Shift = clone (live — release to cancel), Alt = detach
-    drag.cx = e.clientX; drag.cy = e.clientY;   // remembered for edge auto-pan and RAF flush
-    const dx = (e.clientX - drag.sx)/state.view.k, dy = (e.clientY - drag.sy)/state.view.k;
-    if (Math.abs(dx)+Math.abs(dy) > (drag.touch ? 8 : 2)){ drag.moved = true; document.body.classList.add('grabbing'); }
-    applyDragClone();   // Shift held -> leave a clone & drag the copy; Shift released -> undo it
-    // Update world-space positions immediately (cheap) — visual render is deferred to rAF so that
-    // multiple pointermove events arriving within one display frame collapse into a single paint.
-    // (applyDragClone may have swapped drag.targets/origins for the clones — re-read via ui.drag.)
-    applyDragTransform(ui.drag!, dx, dy);
-    if (!ui.dragRAF) ui.dragRAF = requestAnimationFrame(flushDragPaint);
+    dragPointerMove(e);
   });
   el.addEventListener('pointerup', () => {
+    const drag = ui.drag;
+    if (!drag || drag.n !== n) return;
+    dragPointerUp();
+  });
+}
+// Body of a drag pointermove, operating on the live ui.drag (the node that owns the gesture is
+// whatever drag.n is). Shared by the per-card handler and the ghost-card "drag a new note" flow.
+function dragPointerMove(e: { clientX: number; clientY: number; altKey: boolean; shiftKey: boolean }): void {
+  const drag = ui.drag;
+  if (!drag) return;
+  if (state.readOnly) return;        // no moving/reparenting in read-only (click & dbl-click still work)
+  drag.alt = e.altKey; drag.shift = e.shiftKey;   // Shift = clone (live — release to cancel), Alt = detach
+  drag.cx = e.clientX; drag.cy = e.clientY;   // remembered for edge auto-pan and RAF flush
+  const dx = (e.clientX - drag.sx)/state.view.k, dy = (e.clientY - drag.sy)/state.view.k;
+  if (Math.abs(dx)+Math.abs(dy) > (drag.touch ? 8 : 2)){ drag.moved = true; document.body.classList.add('grabbing'); }
+  applyDragClone();   // Shift held -> leave a clone & drag the copy; Shift released -> undo it
+  // Update world-space positions immediately (cheap) — visual render is deferred to rAF so that
+  // multiple pointermove events arriving within one display frame collapse into a single paint.
+  // (applyDragClone may have swapped drag.targets/origins for the clones — re-read via ui.drag.)
+  applyDragTransform(ui.drag!, dx, dy);
+  if (!ui.dragRAF) ui.dragRAF = requestAnimationFrame(flushDragPaint);
+}
+// Body of a drag pointerup: commit the move/reparent (or handle a plain click). Operates on the
+// live ui.drag. Shared by the per-card handler and the ghost-card flow.
+function dragPointerUp(): void {
     stopAutoPan();
     if (ui.dragRAF){ cancelAnimationFrame(ui.dragRAF); ui.dragRAF = null; }
     const drag = ui.drag;
-    if (drag && drag.n === n) {
+    if (drag) {
+      const n = drag.n;
       // Clear compositor transforms so paintAll()/paintNode() can commit final left/top cleanly,
       // and undo any landing-ghost visibility hide left over from updateDropTarget.
       for (const id of new Set([...drag.targets.keys(), ...drag.start.keys()])){
         const m2 = state.nodes.get(id);
-        if (m2?.el){ m2.el.style.transform = ''; m2.el.style.willChange = ''; m2.el.style.visibility = ''; }
+        if (m2?.el){ m2.el.style.transform = ''; m2.el.style.willChange = ''; m2.el.style.visibility = ''; m2.el.classList.remove('dragging'); }
       }
       const act = drag.active;
       if (!drag.moved) {
@@ -285,7 +302,41 @@ export function bindNodeDrag(n: MindNode): void {
     }
     ui.drag = null;
     document.body.classList.remove('grabbing');
-  });
+}
+// Begin a programmatic drag of an already-created node from a screen point, as if the user had
+// pressed down on it there. Used by the ghost-card "drag a new note" flow so a freshly-made card
+// rides the cursor through the exact same move/reparent/landing-ghost machinery as an existing
+// card. `moved` starts true so even a release without motion commits the placement.
+export function startNodeDrag(n: MindNode, clientX: number, clientY: number): void {
+  const start = new Map<string, Pt>([[n.id, { x:n.x, y:n.y }]]);
+  const targets = new Map<string, Pt>([[n.id, { x:n.x, y:n.y }]]);
+  const origins = new Map<string, Pt>([[n.id, { x:n.x, y:n.y }]]);
+  ui.drag = { n, active:n, multi:false, sx:clientX, sy:clientY, cx:clientX, cy:clientY,
+    start, targets, origins, moved:true, dropTarget:null, dropMode:'child',
+    alt:false, shift:false, cloned:false, rip:false, downTarget:null, meta:false, touch:false };
+  if (n.el){ n.el.style.willChange = 'transform'; n.el.classList.add('dragging'); }
+  document.body.classList.add('grabbing');
+}
+// Forward a move/up from an external (ghost-card) drag into the shared drag machinery.
+export function feedDragMove(clientX: number, clientY: number): void {
+  dragPointerMove({ clientX, clientY, altKey:false, shiftKey:false });
+}
+export function commitDrag(): void { dragPointerUp(); }
+// Abort the live drag with no commit: clear the landing-ghost preview, drop highlight, and any
+// compositor transforms, then forget the gesture. The caller is responsible for the dragged node.
+export function abortDrag(): void {
+  stopAutoPan();
+  if (ui.dragRAF){ cancelAnimationFrame(ui.dragRAF); ui.dragRAF = null; }
+  const drag = ui.drag;
+  if (!drag) return;
+  clearDropTarget();
+  hideLandingGhost(drag.targets.keys());
+  for (const id of new Set([...drag.targets.keys(), ...drag.start.keys()])){
+    const m = state.nodes.get(id);
+    if (m?.el){ m.el.style.transform = ''; m.el.style.willChange = ''; m.el.style.visibility = ''; m.el.classList.remove('dragging'); }
+  }
+  ui.drag = null;
+  document.body.classList.remove('grabbing');
 }
 // Bring the Shift-clone state in line with the live `drag.shift` flag. Shift down (and moved past
 // the threshold) leaves a clone of each dragged card at its start spot and drags the COPIES away;
@@ -406,7 +457,7 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
     // dropped, depending on which zone is hovered), hiding the real dragged card so only
     // the landing preview shows.
     const land = dropLanding(dragged, targetNode, mode);
-    showLandingGhost(land.x, land.y, nodeH(dragged), sub);
+    showLandingGhost(land.x, land.y, nodeH(dragged), sub, branchTint(dragged));
   } else {
     hideLandingGhost(sub);
   }

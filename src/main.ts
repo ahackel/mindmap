@@ -18,13 +18,13 @@ import { state, world, stage, setStatus } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { mountIcons } from './view/icons.js';
 import { zoomAt, frameBox, screenToWorld } from './view/camera.js';
-import { applyLayouts, effectiveLayout } from './view/layout.js';
+import { applyLayouts } from './view/layout.js';
 import { paintEdges } from './view/edges.js';
 import './features/gestures.js';   // registers the canvas pan/zoom/marquee gesture listeners
 import './features/attachments.js';   // registers the OS image drag/drop listeners
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInput, onInlineKeydown } from './features/inline-edit.js';
-import { createNode, createSibling, addChild, duplicateSelection, deleteSelection } from './features/crud.js';
-import { bindNodeDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
+import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
+import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
 import { searchBox } from './features/search.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
@@ -135,6 +135,7 @@ export function paintNode(n: MindNode): void {
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
     + (collapsed ? ' collapsed' : '')
     + (hasBody ? '' : ' no-body')
+    + (ui.drag?.targets?.has(n.id) ? ' dragging' : '')   // float the dragged subtree above all cards
     + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '');
   // During drag: keep left/top frozen at the pre-drag origin and move via transform (compositor-only).
   // Outside drag: commit position normally and clear any leftover transform.
@@ -588,92 +589,59 @@ window.addEventListener('keyup', (e) => {
   if (!isTypingInField() && !wasPan && !ui.pan && state.sel.size === 0) createNode();   // tap = new node
 });
 
-// Ghost-card drag: drag from the corner card to spawn a new node at the drop position.
-// Dropping onto an existing card makes the new node a child of that card.
+// Ghost-card drag: grab the corner card to spawn a new note that rides the cursor through the same
+// move/reparent machinery as dragging an existing card — so the landing-ghost preview, child/sibling
+// drop zones and managed-layout snapping all behave identically. Releasing back on the ghost cancels.
 {
   const ghost = byId('ghostCard');
-  const dragEl = byId('ghostDrag');
-  let dragging = false;
-  let dropTargetEl: HTMLElement | null = null;
+  let newNode: MindNode | null = null;
+
+  // Move/up are handled on `window`, not the ghost, so the drop commits no matter where the pointer
+  // is released or whether pointer-capture survived the mid-drag re-renders (a lost capture used to
+  // deliver pointerup to the card underneath, whose handler ignores it — leaving the ghost stuck and
+  // nothing created). setPointerCapture is still requested (best-effort) so the dragged card's own
+  // handlers stay quiet; capture events bubble to window regardless.
+  function endGhostDrag(): MindNode | null {
+    const n = newNode;
+    newNode = null;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onCancel);
+    return n;
+  }
+  function onMove(e: PointerEvent): void { if (newNode) feedDragMove(e.clientX, e.clientY); }
+  function onUp(e: PointerEvent): void {
+    const n = endGhostDrag();
+    if (!n) return;
+    // released back on the ghost card itself -> cancel: discard the new card, create nothing
+    const r = ghost.getBoundingClientRect();
+    const onGhost = e.clientX >= r.left && e.clientX <= r.right &&
+                    e.clientY >= r.top  && e.clientY <= r.bottom;
+    if (onGhost) { abortDrag(); deleteNode(n.id); return; }
+    commitDrag();                          // land / reparent exactly where the preview showed
+    startInlineEdit(n, { isNew: true });   // drop straight into renaming; Esc cancels creation
+  }
+  function onCancel(): void {
+    const n = endGhostDrag();
+    if (n) { abortDrag(); deleteNode(n.id); }
+  }
 
   ghost.addEventListener('pointerdown', (e: PointerEvent) => {
     if (state.readOnly) return;
     e.preventDefault();
-    dragging = true;
-    ghost.setPointerCapture(e.pointerId);
-    dragEl.classList.add('active');
-    moveDragEl(e.clientX, e.clientY);
+    endInlineEdit(); endBodyEdit();         // grabbing the ghost commits any in-progress edit
+    // anchor the new card at the grab offset within the ghost (i.e. the ghost's own top-left in
+    // world space), then drive it with the real drag so it rides the cursor at that same offset
+    const r = ghost.getBoundingClientRect();
+    const w = screenToWorld(r.left, r.top);
+    newNode = createDetachedNode(w.x, w.y) ?? null;
+    if (!newNode) return;
+    try { ghost.setPointerCapture(e.pointerId); } catch { /* no active pointer (e.g. synthetic) */ }
+    startNodeDrag(newNode, e.clientX, e.clientY);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
   });
-
-  ghost.addEventListener('pointermove', (e: PointerEvent) => {
-    if (!dragging) return;
-    moveDragEl(e.clientX, e.clientY);
-    updateDropTarget(e.clientX, e.clientY);
-  });
-
-  ghost.addEventListener('pointerup', (e: PointerEvent) => {
-    if (!dragging) return;
-    dragging = false;
-    dragEl.classList.remove('active');
-    clearDropTarget();
-    // Ignore if released on the ghost card itself (no drag movement)
-    const ghostRect = ghost.getBoundingClientRect();
-    const onGhost = e.clientX >= ghostRect.left && e.clientX <= ghostRect.right &&
-                    e.clientY >= ghostRect.top  && e.clientY <= ghostRect.bottom;
-    if (onGhost) return;
-    const parentId = nodeIdAt(e.clientX, e.clientY);
-    const parent = parentId ? state.nodes.get(parentId) ?? null : null;
-    let x: number, y: number;
-    if (parent) {
-      const eff = effectiveLayout(parent);
-      const isFree = eff.type !== 'line' && eff.type !== 'fan' && eff.type !== 'two-sided';
-      if (isFree) {
-        x = parent.x;
-        y = parent.y + nodeH(parent) + 40;
-      } else {
-        ({ x, y } = screenToWorld(e.clientX, e.clientY));
-        x -= NODE_W / 2; y -= 20;
-      }
-    } else {
-      ({ x, y } = screenToWorld(e.clientX, e.clientY));
-      x -= NODE_W / 2; y -= 20;
-    }
-    createNode({ x, y, parent: parent?.id ?? null });
-  });
-
-  ghost.addEventListener('pointercancel', () => {
-    dragging = false;
-    dragEl.classList.remove('active');
-    clearDropTarget();
-  });
-
-  function moveDragEl(cx: number, cy: number): void {
-    dragEl.style.left = (cx + 12) + 'px';
-    dragEl.style.top  = (cy - 20) + 'px';
-  }
-
-  // Return the node id of the topmost .node element under (cx, cy), or null.
-  function nodeIdAt(cx: number, cy: number): string | null {
-    for (const el of document.elementsFromPoint(cx, cy)) {
-      if (el instanceof HTMLElement && el.classList.contains('node') && el.dataset.id)
-        return el.dataset.id;
-    }
-    return null;
-  }
-
-  function updateDropTarget(cx: number, cy: number): void {
-    const id = nodeIdAt(cx, cy);
-    const el = id ? state.nodes.get(id)?.el ?? null : null;
-    if (el === dropTargetEl) return;
-    dropTargetEl?.classList.remove('drop-target');
-    dropTargetEl = el;
-    dropTargetEl?.classList.add('drop-target');
-  }
-
-  function clearDropTarget(): void {
-    dropTargetEl?.classList.remove('drop-target');
-    dropTargetEl = null;
-  }
 }
 byId('fitBtn').onclick = focusOrFit;
 byId('edgeBtn').onclick = cycleEdgeStyle;

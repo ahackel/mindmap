@@ -111,11 +111,14 @@ input::placeholder { color:var(--panel); opacity:1; }
 body.grabbing, body.grabbing * { cursor:grabbing !important; }
 #world { position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; touch-action:none; }
 
-svg#edges, svg#toggles { position:absolute; top:0; left:0; overflow:visible; }
+svg#edges, svg#toggles, svg#dragEdges { position:absolute; top:0; left:0; overflow:visible; }
 svg#edges { z-index:1; pointer-events:none; }      /* curves behind nodes */
 .node { z-index:2; }                               /* nodes in the middle */
 svg#toggles { z-index:3; pointer-events:none; }    /* toggles on top; group re-enables events */
-svg#edges path { fill:none; stroke:var(--edge); stroke-width:4;
+/* drag overlay: the dragged/preview edges sit above all normal cards & edges (but just under the
+   dragged card itself, so the edge still tucks behind its own ghost card the usual way) */
+svg#dragEdges { z-index:4; pointer-events:none; }
+svg#edges path, svg#dragEdges path { fill:none; stroke:var(--edge); stroke-width:4;
   stroke-linejoin:round; stroke-linecap:round; }
 
 .node {
@@ -142,14 +145,17 @@ svg#edges path { fill:none; stroke:var(--edge); stroke-width:4;
 .node.drop-target { outline:2px dashed #5ac978; outline-offset:3px;
   box-shadow:0 0 0 2px #5ac978; }
 .node.drop-sibling { box-shadow:0 4px 0 0 #5ac978; }
+/* the dragged card (and its subtree) floats above every other card while moving */
+.node.dragging { z-index:5; }
 /* while poised over a valid parent the dragged card becomes just a dotted outline,
-   so the parent underneath stays visible */
+   so the parent underneath stays visible. Border colour is set inline to match the
+   dragged card's branch colour (see features/drag.ts showLandingGhost). */
 .node.reparent-ghost { background:transparent !important; box-shadow:none !important;
   border:2px dashed var(--node-sel); }
 .node.reparent-ghost > * { visibility:hidden; }
 /* landing-spot preview: where the dragged card will actually land once dropped onto a
-   valid reparent target — the dragged card itself keeps following the cursor as usual */
-.node.landing-ghost { pointer-events:none; transition:none; z-index:1; }
+   valid reparent target — renders on top of all other cards (z-index:5) */
+.node.landing-ghost { pointer-events:none; transition:none; z-index:5; }
 /* break long words / URLs and clip anything that still overflows the card horizontally */
 .node .title { font-weight:600; font-size:14px; margin-bottom:9px; padding-right:16px;
   overflow-wrap:anywhere; overflow:hidden; }
@@ -250,15 +256,6 @@ body.light .swatch.inherit { background:repeating-linear-gradient(45deg,#fff,#ff
 }
 #ghostCard:hover { border-color:var(--accent); color:var(--accent); }
 body.readonly #ghostCard { opacity:.35; pointer-events:none; }
-/* floating clone that follows the cursor during a ghost-drag */
-#ghostDrag {
-  position:fixed; z-index:100; pointer-events:none;
-  width:96px; height:48px;
-  display:none; align-items:center; justify-content:center;
-  background:var(--node); border:1px dashed var(--accent); border-radius:2px;
-  color:var(--accent); font-size:22px; font-weight:400; opacity:.85;
-}
-#ghostDrag.active { display:flex; }
 
 /* floating edit panel — sits below the toolbar, off the right edge, hugs its content */
 #editor {

@@ -75,5 +75,7 @@ export const world = document.getElementById('world') as HTMLElement;
 export const stage = document.getElementById('stage') as HTMLElement;
 export const edgesSvg = document.getElementById('edges') as unknown as SVGSVGElement;
 export const togglesSvg = document.getElementById('toggles') as unknown as SVGSVGElement;
+// Top overlay for drag-time edges (dragged card's connectors + reparent preview) — see view/edges.ts.
+export const dragEdgesSvg = document.getElementById('dragEdges') as unknown as SVGSVGElement;
 export const statusEl = document.getElementById('status') as HTMLElement;
 export const setStatus = (t: string): void => { statusEl.textContent = t; };

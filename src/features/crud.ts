@@ -46,6 +46,16 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
   scheduleSave();
   return n;
 }
+// Make a new unconnected node at (x,y) and render it, but DON'T select / rename / save yet — the
+// caller drives it (e.g. the ghost-card drag rides it under the cursor, then renames on drop or
+// deletes it on cancel). Kept save-free so an abandoned drag never writes a file.
+export function createDetachedNode(x: number, y: number): MindNode | undefined {
+  if (state.readOnly) return;
+  const n = mkNode({ x, y, parent:null, title: uniqueTitle('New Node') });
+  state.nodes.set(n.id, n);
+  paintAll();   // give the card a DOM element so it can be dragged
+  return n;
+}
 // Pick a title not already in use. "Tether Gun" -> "Tether Gun copy" -> "Tether Gun copy 2"…
 // For brand-new nodes, "New Node" -> "New Node 2" -> "New Node 3"…
 function uniqueTitle(base: string, { copy = false }: { copy?: boolean } = {}): string {
