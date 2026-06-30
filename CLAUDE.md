@@ -18,6 +18,12 @@ dependencies; the only deps are the dev-time bundler. No tests.
   needs https/localhost, so use the dev server rather than a bare `file://`.
 - **Build:** `npm run build` → `dist/index.html` (single self-contained file) plus
   `dist/help/` copied verbatim. `npm run preview` serves the built `dist/`.
+- **TypeScript:** the codebase is migrating to TS incrementally. `core/`, `utils/`,
+  `store/`, `view/`, `features/` are `.ts`; only `src/main.js` is still JS. `npm run
+  typecheck` (`tsc --noEmit`) type-checks separately — Vite transpiles `.ts` itself, so
+  typecheck never blocks the build. `allowJs` lets `.js`/`.ts` coexist; keep `.js` in
+  import specifiers (Vite/TS `bundler` resolution maps them to `.ts`). Run `typecheck`
+  after touching types.
 - **`help/` is runtime-fetched**, so it lives in `public/help/` and Vite copies it to
   `dist/help/`; the relative `fetch('help/...')` resolves in dev and prod alike. Edit
   help content there.
