@@ -14,54 +14,12 @@ import { parseMd, serializeMd } from './frontmatter.js';
 import { childrenOf, isRoot, isHidden, descendantCount, isAncestor } from './model.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, readRecents, writeRecents, forgetRecent, seenFolders, markFolderSeen } from './store.js';
 import { searchBox } from './search.js';
+import { resetImageCache, hydrateImages } from './images.js';
 
 window.__dbg = { get state(){ return state; }, get drag(){ return drag; } };   // TEMP debug hook
 
 setupTheme();
 
-// ---------- inline image resolution ----------
-// Cards re-render their whole body on every paint, so the <img>s are recreated constantly.
-// We resolve each referenced path to a URL ONCE and cache it: vault paths become blob URLs read
-// from the active store, remote/data URLs map to themselves. A card that grows when an image
-// finally loads triggers a single debounced relayout so siblings/edges re-settle.
-const imgUrlCache = new Map();    // src path -> resolved URL (blob:… or the original remote/data URL)
-const imgInflight = new Map();    // src path -> in-flight Promise<url|null> (de-dupes concurrent reads)
-function resetImageCache(){
-  for (const url of imgUrlCache.values()) if (typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url);
-  imgUrlCache.clear(); imgInflight.clear();
-}
-function loadImgUrl(path){
-  if (imgUrlCache.has(path)) return Promise.resolve(imgUrlCache.get(path));
-  if (/^(https?:|data:)/i.test(path)){ imgUrlCache.set(path, path); return Promise.resolve(path); }
-  if (imgInflight.has(path)) return imgInflight.get(path);
-  const p = (async () => {
-    const blob = store.readBlob ? await store.readBlob(path) : null;
-    const url = blob ? URL.createObjectURL(blob) : null;
-    if (url) imgUrlCache.set(path, url);
-    imgInflight.delete(path);
-    return url;
-  })();
-  imgInflight.set(path, p);
-  return p;
-}
-let imgRelayoutTimer = null;
-function scheduleImgRelayout(){
-  clearTimeout(imgRelayoutTimer);
-  imgRelayoutTimer = setTimeout(() => { applyLayouts(); paintAll(); }, 60);
-}
-function hydrateImages(el){
-  el.querySelectorAll('img.md-img[data-img-src]').forEach(img => {
-    const path = img.getAttribute('data-img-src');
-    img.removeAttribute('data-img-src');                 // claim it so repaints don't re-trigger
-    if (imgUrlCache.has(path)){ img.src = imgUrlCache.get(path); return; }   // known → set, no relayout
-    loadImgUrl(path).then(url => {
-      if (!url){ img.classList.add('md-img-missing'); img.alt = '⚠ ' + (img.alt || path); return; }
-      img.addEventListener('load',  scheduleImgRelayout, { once:true });     // first real load reflows once
-      img.addEventListener('error', () => img.classList.add('md-img-missing'), { once:true });
-      img.src = url;
-    });
-  });
-}
 
 
 
@@ -1232,7 +1190,7 @@ function layoutSubtree(node){
 // Runs in read-only too (e.g. expanding a node must re-flow its children) — read-only just
 // never persists: scheduleSave is a no-op there, so the in-memory positions are discarded
 // when read-only is left and the map is reloaded from disk.
-function applyLayouts(){
+export function applyLayouts(){
   for (const n of state.nodes.values()) if (isRoot(n)) layoutSubtree(n);
 }
 
@@ -1972,7 +1930,7 @@ function installWatch(cb){
 
 
 // Active backend. Local-first: default to the on-device vault; "Open folder" swaps in fsaStore.
-let store = opfsStore;
+export let store = opfsStore;
 const LAST_STORE_KEY = 'mindmap.lastStore';   // 'opfs' | 'folder'
 function useStore(s, kind){ store = s; store.watch(reloadFromDisk); if (kind) localStorage.setItem(LAST_STORE_KEY, kind); }
 
