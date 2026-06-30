@@ -12,6 +12,7 @@ import { zipBlob, unzip } from './zip.js';
 import { idbGet, idbPut, idbDel } from './idb.js';
 import { state, world, stage, edgesSvg, togglesSvg, setStatus } from './state.js';
 import { parseMd, serializeMd } from './frontmatter.js';
+import { childrenOf, isRoot, isHidden, descendantCount, isAncestor } from './model.js';
 
 window.__dbg = { get state(){ return state; }, get drag(){ return drag; } };   // TEMP debug hook
 
@@ -61,30 +62,6 @@ function hydrateImages(el){
   });
 }
 
-// ---------- hierarchy helpers ----------
-function childrenOf(id){ return [...state.nodes.values()].filter(n => n.parent === id); }
-function isRoot(n){ return !n.parent || !state.nodes.has(n.parent); }
-// A node's `collapsed` flag means "this branch is folded": the node ITSELF and all
-// `collapsed` on a node hides its CHILDREN but keeps the node itself visible (outliner
-// model). So a node is hidden only if one of its ANCESTORS is collapsed.
-function isHidden(n){
-  let p = n.parent && state.nodes.get(n.parent);
-  while (p){
-    if (p.collapsed) return true;
-    p = p.parent && state.nodes.get(p.parent);
-  }
-  return false;
-}
-function descendantCount(id){
-  let c = 0; for (const ch of childrenOf(id)) c += 1 + descendantCount(ch.id); return c;
-}
-// guard against cycles when re-parenting
-function isAncestor(maybeAncestorId, nodeId){
-  let p = state.nodes.get(nodeId);
-  p = p && p.parent && state.nodes.get(p.parent);
-  while (p){ if (p.id === maybeAncestorId) return true; p = p.parent && state.nodes.get(p.parent); }
-  return false;
-}
 
 
 // ---------- rendering ----------
