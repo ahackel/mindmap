@@ -7,6 +7,9 @@
    ============================================================ */
 
 import { esc, renderBodyHTML } from './markdown.js';
+import { setupTheme } from './theme.js';
+import { zipBlob, unzip } from './zip.js';
+import { idbGet, idbPut, idbDel } from './idb.js';
 
 const state = {
   dir: null,
@@ -30,30 +33,7 @@ const togglesSvg = document.getElementById('toggles');
 const statusEl = document.getElementById('status');
 const setStatus = (t) => statusEl.textContent = t;
 
-// ---------- theme (light / dark) ----------
-const THEME_KEY = 'mindmap.theme';
-const ICON_MOON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
-const ICON_SUN  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
-function applyTheme(theme){
-  const light = theme === 'light';
-  document.body.classList.toggle('light', light);
-  const btn = document.getElementById('themeBtn');
-  if (btn) btn.innerHTML = light ? ICON_MOON : ICON_SUN;   // icon = the mode you'd switch TO
-}
-function initTheme(){
-  let saved = null;
-  try { saved = localStorage.getItem(THEME_KEY); } catch {}
-  // fall back to the OS preference the first time
-  if (!saved) saved = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  applyTheme(saved);
-}
-function toggleTheme(){
-  const next = document.body.classList.contains('light') ? 'dark' : 'light';
-  applyTheme(next);
-  try { localStorage.setItem(THEME_KEY, next); } catch {}
-}
-document.getElementById('themeBtn').onclick = toggleTheme;
-initTheme();
+setupTheme();
 
 // ---------- inline image resolution ----------
 // Cards re-render their whole body on every paint, so the <img>s are recreated constantly.
@@ -2517,76 +2497,6 @@ async function exportZip(){
   setStatus(`Exported ${nodes.length} notes${attached ? ` + ${attached} image${attached === 1 ? '' : 's'}` : ''} → mindmap.zip`);
 }
 
-// ---- minimal ZIP writer + reader (store + deflate; no library) ----
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n=0;n<256;n++){ let c=n; for (let k=0;k<8;k++) c = (c&1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); t[n]=c>>>0; }
-  return t;
-})();
-function crc32(bytes){
-  let c = 0xFFFFFFFF;
-  for (let i=0;i<bytes.length;i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
-  return (c ^ 0xFFFFFFFF) >>> 0;
-}
-function zipBlob(files){
-  const enc = new TextEncoder();
-  const u16 = v => [v & 0xFF, (v>>>8) & 0xFF];
-  const u32 = v => [v & 0xFF, (v>>>8) & 0xFF, (v>>>16) & 0xFF, (v>>>24) & 0xFF];
-  const body = [], central = [];
-  let offset = 0;
-  for (const f of files){
-    // f.bytes (a Uint8Array, e.g. an image) is stored verbatim; otherwise f.data is UTF-8 text.
-    const name = enc.encode(f.name), data = f.bytes || enc.encode(f.data), crc = crc32(data);
-    const local = [
-      ...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
-      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0),
-    ];
-    body.push(new Uint8Array(local), name, data);
-    central.push(new Uint8Array([
-      ...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
-      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length),
-      ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset),
-    ]), name);
-    offset += local.length + name.length + data.length;
-  }
-  let centralSize = 0; for (const c of central) centralSize += c.length;
-  const eocd = new Uint8Array([
-    ...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length),
-    ...u32(centralSize), ...u32(offset), ...u16(0),
-  ]);
-  return new Blob([...body, ...central, eocd], { type:'application/zip' });
-}
-async function unzip(buf){
-  const u8 = new Uint8Array(buf), dv = new DataView(buf), dec = new TextDecoder();
-  let eocd = -1;
-  for (let i = u8.length - 22; i >= 0; i--){ if (dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; } }
-  if (eocd < 0) throw new Error('Not a .zip file');
-  const count = dv.getUint16(eocd + 10, true);
-  let off = dv.getUint32(eocd + 16, true);
-  const out = [];
-  for (let n = 0; n < count && off + 46 <= u8.length && dv.getUint32(off, true) === 0x02014b50; n++){
-    const method = dv.getUint16(off + 10, true);
-    const compSize = dv.getUint32(off + 20, true);
-    const nameLen = dv.getUint16(off + 28, true);
-    const extraLen = dv.getUint16(off + 30, true);
-    const commentLen = dv.getUint16(off + 32, true);
-    const localOff = dv.getUint32(off + 42, true);
-    const name = dec.decode(u8.subarray(off + 46, off + 46 + nameLen));
-    const lName = dv.getUint16(localOff + 26, true), lExtra = dv.getUint16(localOff + 28, true);
-    const start = localOff + 30 + lName + lExtra;
-    const comp = u8.subarray(start, start + compSize);
-    let data = null;
-    if (method === 0) data = comp;
-    else if (method === 8) data = await inflateRaw(comp);
-    if (data) out.push({ name, text: dec.decode(data), bytes: data });   // bytes kept for binary entries (images)
-    off += 46 + nameLen + extraLen + commentLen;
-  }
-  return out;
-}
-async function inflateRaw(bytes){
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
 
 async function loadFromDir({ keepView = false } = {}) {
   state.nodes.clear(); state.toDelete = []; world.querySelectorAll('[data-id]').forEach(e=>e.remove());
@@ -2772,40 +2682,6 @@ store.watch(reloadFromDisk);   // re-read on external change (FSA: window-focus 
 //  to JSON), a small display list lives in localStorage. Used by `store` above.
 // ============================================================
 const RECENT_KEY = 'mindmap.recentFolders';   // [{key, name, when}]  (localStorage)
-const IDB_DB = 'mindmap', IDB_STORE = 'handles';
-
-function idb() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(IDB_DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-async function idbPut(key, val) {
-  const db = await idb();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(val, key);
-    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
-  });
-}
-async function idbGet(key) {
-  const db = await idb();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(IDB_STORE, 'readonly');
-    const g = tx.objectStore(IDB_STORE).get(key);
-    g.onsuccess = () => res(g.result); g.onerror = () => rej(g.error);
-  });
-}
-async function idbDel(key) {
-  const db = await idb();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).delete(key);
-    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
-  });
-}
 function readRecents() {
   try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
 }
