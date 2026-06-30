@@ -15,6 +15,7 @@ import { childrenOf, isRoot, isHidden, descendantCount, isAncestor } from './mod
 import { opfsStore, fsaStore, resolveOnDeviceStore, readRecents, writeRecents, forgetRecent, seenFolders, markFolderSeen } from './store.js';
 import { searchBox } from './search.js';
 import { resetImageCache, hydrateImages } from './images.js';
+import { applyView, cancelViewAnim, screenToWorld, zoomAt, fit, frameBox } from './view.js';
 
 window.__dbg = { get state(){ return state; }, get drag(){ return drag; } };   // TEMP debug hook
 
@@ -24,33 +25,6 @@ setupTheme();
 
 
 // ---------- rendering ----------
-function applyView() {
-  world.style.transform = `translate(${state.view.x}px,${state.view.y}px) scale(${state.view.k})`;
-}
-// Smoothly glide the view to (tx,ty) instead of snapping. Any direct pan/zoom cancels it
-// (cancelViewAnim) so the animation never fights the user's own input.
-let viewAnim = null;
-function cancelViewAnim(){ if (viewAnim){ cancelAnimationFrame(viewAnim); viewAnim = null; } }
-function animateViewTo(tx, ty, tk = state.view.k, dur = 420){
-  cancelViewAnim();
-  const sx = state.view.x, sy = state.view.y, sk = state.view.k;
-  if (Math.abs(tx-sx) < 1 && Math.abs(ty-sy) < 1 && Math.abs(tk-sk) < .001){
-    state.view.x = tx; state.view.y = ty; state.view.k = tk; applyView(); return;
-  }
-  const t0 = performance.now();
-  const ease = t => t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;   // easeInOutCubic
-  function step(now){
-    const p = Math.min(1, (now - t0)/dur), e = ease(p);
-    state.view.x = sx + (tx-sx)*e;
-    state.view.y = sy + (ty-sy)*e;
-    // zoom is perceptually multiplicative, so interpolate k geometrically — with the eased
-    // parameter this gives a smooth ease-in/ease-out zoom rather than a linear ramp.
-    state.view.k = sk * Math.pow(tk/sk, e);
-    applyView();
-    viewAnim = p < 1 ? requestAnimationFrame(step) : null;
-  }
-  viewAnim = requestAnimationFrame(step);
-}
 function nodeEl(n) {
   if (n.el) return n.el;
   const el = document.createElement('div');
@@ -151,8 +125,8 @@ function paintNode(n) {
   // folded branch → hidden-descendant count; folded leaf → empty bubble (a white dot)
   if (collapsed) el.querySelector('.hidden-count').textContent = collapsedKids ? String(descendantCount(n.id)) : '';
 }
-const NODE_W = 200;
-function nodeH(n){ return (n.el && n.el.offsetHeight) || 64; } // live height (falls back pre-render)
+export const NODE_W = 200;
+export function nodeH(n){ return (n.el && n.el.offsetHeight) || 64; } // live height (falls back pre-render)
 // Height used for LAYOUT geometry. The selection affordances (+ and the "add note" bubble) are
 // absolutely positioned and overhang the card, so they don't inflate its measured height — a
 // title-only card lays out the same whether or not it's selected.
@@ -740,10 +714,6 @@ function createSibling(refId){
 }
 
 // ---------- pan / zoom ----------
-function screenToWorld(sx, sy) {
-  const r = stage.getBoundingClientRect();
-  return { x:(sx - r.left - state.view.x)/state.view.k, y:(sy - r.top - state.view.y)/state.view.k };
-}
 let pan = null, marquee = null, spaceHeld = false, spaceUsedForPan = false;
 const marqueeEl = document.createElement('div');
 marqueeEl.id = 'marquee'; stage.appendChild(marqueeEl);
@@ -861,16 +831,6 @@ function selectWithinMarquee(cx, cy){
   }
   setSelectionSet(marquee.add ? new Set([...marquee.base, ...hits]) : hits);
 }
-// zoom toward a screen point (mx,my are relative to the stage) by a multiplier
-function zoomAt(mx, my, factor){
-  cancelViewAnim();
-  const k0 = state.view.k;
-  const k1 = Math.min(2.5, Math.max(0.2, k0 * factor));
-  state.view.x = mx - (mx - state.view.x) * (k1 / k0);
-  state.view.y = my - (my - state.view.y) * (k1 / k0);
-  state.view.k = k1;
-  applyView();
-}
 
 // Trackpad on macOS delivers BOTH gestures as wheel events:
 //  · pinch          → wheel with ctrlKey = true  → zoom toward the cursor
@@ -920,41 +880,7 @@ stage.addEventListener('gesturechange', (e) => {
 });
 stage.addEventListener('gestureend', (e) => e.preventDefault());
 
-function fit() {
-  const ns = [...state.nodes.values()].filter(n => !isHidden(n));
-  if (!ns.length) return;
-  const minX = Math.min(...ns.map(n=>n.x)), minY = Math.min(...ns.map(n=>n.y));
-  const maxX = Math.max(...ns.map(n=>n.x+200)), maxY = Math.max(...ns.map(n=>n.y+90));
-  const r = stage.getBoundingClientRect();
-  const k = Math.min(1.4, Math.min(r.width/(maxX-minX+120), r.height/(maxY-minY+120)));
-  state.view.k = k;
-  state.view.x = (r.width - (maxX-minX)*k)/2 - minX*k;
-  state.view.y = (r.height - (maxY-minY)*k)/2 - minY*k;
-  applyView();
-}
 
-// Zoom + glide so a set of nodes fits, honouring the space the editor sidebar takes from the
-// right. Zoom is clamped so we never blow things up huge. Shared by focus-selected and fit-all.
-const FOCUS_MIN_K = 0.2, FOCUS_MAX_K = 1.0, FOCUS_PAD = 80;
-function frameBox(nodes){
-  const group = nodes.filter(n => n && !isHidden(n));
-  if (!group.length) return;
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const n of group){
-    minX = Math.min(minX, n.x);            minY = Math.min(minY, n.y);
-    maxX = Math.max(maxX, n.x + NODE_W);   maxY = Math.max(maxY, n.y + nodeH(n));
-  }
-  const bw = maxX - minX, bh = maxY - minY, cx = (minX+maxX)/2, cy = (minY+maxY)/2;
-  // available canvas = stage minus the sidebar (when open). The sidebar sits on the RIGHT,
-  // so the usable region spans x:[0, availW] and we centre the box within it.
-  const r = stage.getBoundingClientRect();
-  const ed = document.getElementById('editor');
-  const availW = r.width - (ed.classList.contains('open') ? ed.offsetWidth : 0);
-  const availH = r.height;
-  const k = Math.max(FOCUS_MIN_K, Math.min(FOCUS_MAX_K,
-    Math.min((availW - 2*FOCUS_PAD) / bw, (availH - 2*FOCUS_PAD) / bh)));
-  animateViewTo(availW/2 - cx*k, availH/2 - cy*k, k);   // glide + zoom, never jump
-}
 // Focus a card: un-collapse hiding ancestors, select it, frame it + all its visible descendants.
 export function focusNode(target){
   if (!target) return;
