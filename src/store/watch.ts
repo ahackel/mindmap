@@ -2,8 +2,8 @@
 // truly watch files, so these events stand in for "might have changed". Wired once and kept
 // pointing at the active store's callback, so switching backends (e.g. → WebDAV, where the
 // OTHER device just edited the same files) keeps the cross-device refresh working.
-let _onExternalChange = null, _watchInstalled = false;
-export function installWatch(cb){
+let _onExternalChange: (() => void) | null = null, _watchInstalled = false;
+export function installWatch(cb: () => void): void {
   _onExternalChange = cb;
   if (_watchInstalled) return; _watchInstalled = true;
   const fire = () => _onExternalChange && _onExternalChange();

@@ -2,14 +2,15 @@
 // JSON), a small display list lives in localStorage. Plus the one-time "seen folders" set
 // (so the first-open auto-arrange never fires twice).
 import { idbDel } from '../utils/idb.js';
+import type { RecentFolder } from './types.js';
 
 const RECENT_KEY = 'mindmap.recentFolders';   // [{key, name, when}]  (localStorage)
-export function readRecents() {
+export function readRecents(): RecentFolder[] {
   try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
 }
-export function writeRecents(list) { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 5))); }
+export function writeRecents(list: RecentFolder[]): void { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 5))); }
 // Drop a recent folder by its key (display list + its stored handle) when it can no longer be opened.
-export async function forgetRecent(key){
+export async function forgetRecent(key: string): Promise<void> {
   writeRecents(readRecents().filter(r => r.key !== key));
   try { await idbDel(key); } catch {}
 }
@@ -17,16 +18,16 @@ export async function forgetRecent(key){
 // Folders we've already auto-arranged once. Used so the one-time auto-collapse never
 // fires again — every later open restores the saved frontmatter state verbatim.
 const SEEN_KEY = 'mindmap.seenFolders';
-export function seenFolders(){
+export function seenFolders(): string[] {
   try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); } catch { return []; }
 }
-export function markFolderSeen(name){
+export function markFolderSeen(name: string): void {
   const s = seenFolders();
   if (!s.includes(name)) { s.push(name); localStorage.setItem(SEEN_KEY, JSON.stringify(s)); }
 }
 
 // The store layer must not render UI. main wires this to renderRecents so the FSA adapter
 // can signal "the recents list changed" without reaching into the view layer.
-let _onChanged = () => {};
-export function setOnRecentsChanged(fn){ _onChanged = fn; }
-export function notifyRecentsChanged(){ _onChanged(); }
+let _onChanged: () => void = () => {};
+export function setOnRecentsChanged(fn: () => void): void { _onChanged = fn; }
+export function notifyRecentsChanged(): void { _onChanged(); }
