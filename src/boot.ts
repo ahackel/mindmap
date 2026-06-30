@@ -95,6 +95,7 @@ setOnRecentsChanged(renderRecents);   // let the store signal recents changes wi
 // ---------- help mindmap (shipped as help/*.md next to index.html, opened with F1) ----------
 // Read-only store that fetches the help notes; lives in its own tab (?help), so the user's
 // own map and vault are never touched. help/manifest.json lists the note filenames.
+const helpUrl = (rel: string) => 'help/' + rel.split('/').map(encodeURIComponent).join('/');
 const helpStore: Store = {
   get isOpen(){ return true; },
   get name(){ return 'Help'; },
@@ -104,14 +105,14 @@ const helpStore: Store = {
     const names: string[] = await (await fetch('help/manifest.json', { cache:'no-cache' })).json();
     const out = [];
     for (const name of names){
-      const res = await fetch('help/' + encodeURIComponent(name), { cache:'no-cache' });
+      const res = await fetch(helpUrl(name), { cache:'no-cache' });
       if (res.ok) out.push({ path: name, text: await res.text() });
     }
     return out;
   },
   async write(){}, async remove(){},
   async readBlob(path: string){
-    try { const r = await fetch('help/' + path.split('/').map(encodeURIComponent).join('/'), { cache:'no-cache' }); return r.ok ? await r.blob() : null; }
+    try { const r = await fetch(helpUrl(path), { cache:'no-cache' }); return r.ok ? await r.blob() : null; }
     catch { return null; }
   },
   watch(){}, recents(){ return []; },

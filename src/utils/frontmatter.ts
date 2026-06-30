@@ -88,9 +88,8 @@ function todayISO(): string { return new Date().toISOString().slice(0,10); }
 // kept verbatim; `date` is stamped only when the note has none yet (never overwritten).
 export function serializeMd(n: MindNode): string {
   const entries: FmEntry[] = (n.fmEntries || []).map(e => ({ key: e.key, lines: [...e.lines] }));
+  // strip any stale mm_* (re-added fresh below); the prefix match covers every layout key
   entries.filter(e => e.key && e.key.startsWith('mm_')).forEach(e => fmRemove(entries, e.key as string));
-  // (re-add layout fresh below; strip any stale mm_* first)
-  for (const k of ['mm_parent','mm_x','mm_y','mm_collapsed','mm_layout','mm_dir']) fmRemove(entries, k);
   fmSet(entries, 'tags', `tags: ${n.tags.length ? `[${n.tags.join(', ')}]` : '[]'}`);
   if (n.color) fmSet(entries, 'color', `color: ${n.color}`); else fmRemove(entries, 'color');
   if (!fmEntry(entries, 'date')) entries.unshift({ key:'date', lines:[`date: ${todayISO()}`] });

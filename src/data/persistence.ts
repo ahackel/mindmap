@@ -78,11 +78,13 @@ export async function exportZip(): Promise<void> {
   const refs = new Set<string>();
   const re = /!\[[^\]]*\]\(([^)\s]+)\)/g;
   for (const n of nodes){ let m: RegExpExecArray | null; const b = n.body || ''; while ((m = re.exec(b))){ const p = m[1]; if (!/^(https?:|data:)/i.test(p)) refs.add(p); } }
-  let attached = 0;
-  for (const path of refs){
+  // read every referenced image concurrently, then pack the ones that resolved
+  const images = await Promise.all([...refs].map(async path => {
     const blob = store.readBlob ? await store.readBlob(path) : null;
-    if (blob){ files.push({ name: path, bytes: new Uint8Array(await blob.arrayBuffer()) }); attached++; }
-  }
+    return blob ? { name: path, bytes: new Uint8Array(await blob.arrayBuffer()) } : null;
+  }));
+  const attached = images.filter(Boolean).length;
+  for (const img of images) if (img) files.push(img);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(zipBlob(files));
   a.download = 'mindmap.zip';

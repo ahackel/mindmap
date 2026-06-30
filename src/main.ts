@@ -695,16 +695,13 @@ function addChild(parentId){
   const parent = state.nodes.get(parentId); if (!parent) return;
   if (parent.collapsed){ parent.collapsed = false; } // reveal so the new child is visible
   const sibs = childrenOf(parentId);
-  const id = 'n' + (state.idSeq++);
-  const n = {
-    id, file:null,
+  const n = mkNode({
     x: parent.x + 40 + sibs.length * 30,
     y: parent.y + 150 + sibs.length * 10,
-    parent: parentId, collapsed:false,
-    title: uniqueTitle('New Node'), color:'', keepStatus:'', tags:[], body:'',
-    layoutType:'none', layoutDir:'right',
-    dirty:true, dirtyLayout:true,
-  };
+    parent: parentId,
+    title: uniqueTitle('New Node'),
+  });
+  const id = n.id;
   state.nodes.set(id, n);
   applyLayouts();        // a line/fan parent immediately slots the new child into place
   paintAll();
@@ -1169,13 +1166,11 @@ function extractToChild(){
   // make the child below the parent and jump to it
   const sibs = childrenOf(n.id);
   if (n.collapsed) n.collapsed = false;
-  const id = 'n' + (state.idSeq++);
-  const child = {
-    id, file:null, x: n.x + 40 + sibs.length*30, y: n.y + 180 + sibs.length*10,
-    parent: n.id, collapsed:false, title, color:'', keepStatus:'', tags:[], body: childBody,
-    layoutType:'none', layoutDir:'right',
-    dirty:true, dirtyLayout:true,
-  };
+  const child = mkNode({
+    x: n.x + 40 + sibs.length*30, y: n.y + 180 + sibs.length*10,
+    parent: n.id, title, body: childBody,
+  });
+  const id = child.id;
   state.nodes.set(id, child);
   applyLayouts(); paintAll(); selectNode(id); scheduleSave();
   setStatus(`Extracted “${title}” as a child`);
@@ -1406,9 +1401,10 @@ function endBodyEdit({ cancel = false } = {}){
   be.ta.blur();                                         // ensure keyboard closes on iOS when ended by keypress
   const n = state.nodes.get(be.id);
   be.el.classList.remove('editing');
-  if (n && !cancel && be.ta.value !== be.orig){ n.body = be.ta.value; n.dirty = true; }
+  const changed = !!n && !cancel && be.ta.value !== be.orig;
+  if (changed){ n.body = be.ta.value; n.dirty = true; }
   paintAll(); applyLayouts(); paintAll();               // re-render the body and reflow the height change
-  if (n && !cancel && be.ta.value !== be.orig) scheduleSave();
+  if (changed) scheduleSave();
 }
 
 // Forget a set of node ids: drop them from state, remove their DOM cards, and queue
@@ -1491,21 +1487,32 @@ window.addEventListener('keyup', (e) => {
 });
 
 // ---------- create / duplicate nodes ----------
+// Mint a fresh node with the standard shape; callers override only the fields they care about.
+// Keeps the node schema (and its defaults) in ONE place so every create/duplicate path stays in
+// sync — the id is always minted here (ids are ephemeral, see below).
+function mkNode(fields = {}) {
+  return {
+    id: 'n' + (state.idSeq++), file:null,
+    x:0, y:0, parent:null, collapsed:false,
+    title:'', color:'', keepStatus:'', tags:[], body:'',
+    layoutType:'none', layoutDir:'right',
+    dirty:true, dirtyLayout:true,
+    ...fields,
+  };
+}
 // Make a new UNCONNECTED node (parent:null) at the viewport centre (or a given spot).
 function createNode(opts = {}) {
   if (state.readOnly) return;
-  const id = 'n' + (state.idSeq++);
   const c = screenToWorld(window.innerWidth/2, window.innerHeight/2);
-  const n = {
-    id, file:null,
+  const n = mkNode({
     x: opts.x ?? (c.x - 100), y: opts.y ?? (c.y - 40),
-    parent: opts.parent ?? null, collapsed:false,
+    parent: opts.parent ?? null,
     title: opts.title ?? uniqueTitle('New Node'),  // avoid colliding with an existing "New Node"
-    color: opts.color ?? '', keepStatus:'',
+    color: opts.color ?? '',
     tags: opts.tags ? [...opts.tags] : [], body: opts.body ?? '',
     layoutType: opts.layoutType ?? 'none', layoutDir: opts.layoutDir ?? 'right',
-    dirty:true, dirtyLayout:true,
-  };
+  });
+  const id = n.id;
   state.nodes.set(id, n);
   applyLayouts(); paintAll(); selectNode(id); startInlineEdit(n, { isNew: opts.isNew ?? true });
   scheduleSave();
@@ -1525,18 +1532,15 @@ function uniqueTitle(base, { copy = false } = {}) {
 // keeping its parent, so the duplicate stays attached as a sibling. Gets a unique "… copy"
 // title so its file is valid. Doesn't touch selection/layout — callers batch those once.
 function copyNode(s) {
-  const id = 'n' + (state.idSeq++);
-  const copy = {
-    id, file:null,
+  const copy = mkNode({
     x: s.x, y: s.y + nodeH(s) + 24,   // directly below the original, clear of it
-    parent: s.parent, collapsed:false,    // connected to the same parent as the original
+    parent: s.parent,                 // connected to the same parent as the original
     title: uniqueTitle(s.title, { copy: true }),
-    color: s.color, keepStatus:'',
+    color: s.color,
     tags: [...s.tags], body: s.body,
     layoutType: s.layoutType || 'none', layoutDir: s.layoutDir || 'right',
-    dirty:true, dirtyLayout:true,
-  };
-  state.nodes.set(id, copy);
+  });
+  state.nodes.set(copy.id, copy);
   return copy;
 }
 // Duplicate every selected card (or just the one). Each copy keeps its source's parent, so it
@@ -1565,18 +1569,15 @@ function duplicateSelection() {
 // Shift+drag clone: drop a copy at `pos` that keeps the source's parent (a sibling),
 // while the original is the node being dragged away. Doesn't steal selection/focus.
 function leaveClone(s, pos) {
-  const id = 'n' + (state.idSeq++);
   const title = uniqueTitle(s.title, { copy: true });
-  const copy = {
-    id, file:null,
+  const copy = mkNode({
     x: pos.x, y: pos.y,
-    parent: s.parent, collapsed:false,
-    title, color: s.color, keepStatus:'',
+    parent: s.parent,
+    title, color: s.color,
     tags: [...s.tags], body: s.body,
     layoutType: s.layoutType || 'none', layoutDir: s.layoutDir || 'right',
-    dirty:true, dirtyLayout:true,
-  };
-  state.nodes.set(id, copy);
+  });
+  state.nodes.set(copy.id, copy);
   setStatus(`Cloned → “${title}”`);
   return copy;
 }
