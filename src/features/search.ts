@@ -2,14 +2,14 @@
 // Filters on title OR body, dims non-matching cards via state.searchMatch (paintAll
 // applies the dimming), and focuses the chosen hit. searchBox is exported so the global
 // "/" shortcut can focus it.
-import { state } from '../core/state.js';
+import { state, type MindNode } from '../core/state.js';
 import { esc } from '../utils/markdown.js';
 import { paintAll, focusNode } from '../main.js';
 
-export const searchBox = document.getElementById('searchBox');
-const searchResults = document.getElementById('searchResults');
-let searchHits = [], searchActive = -1;
-function runSearch(){
+export const searchBox = document.getElementById('searchBox') as HTMLInputElement;
+const searchResults = document.getElementById('searchResults') as HTMLElement;
+let searchHits: MindNode[] = [], searchActive = -1;
+function runSearch(): void {
   const q = searchBox.value.trim().toLowerCase();
   if (!q){ clearSearch(); return; }
   // match on title OR body content; dim every visible card that doesn't match
@@ -28,19 +28,19 @@ function runSearch(){
   searchResults.classList.add('open');
   paintAll();   // apply the dimming
 }
-function clearSearch(){
+function clearSearch(): void {
   searchResults.classList.remove('open'); searchResults.innerHTML = '';
   searchHits = [];
   if (state.searchMatch){ state.searchMatch = null; paintAll(); }   // un-dim
 }
-function gotoHit(id){
+function gotoHit(id: string): void {
   const n = state.nodes.get(id); if (!n) return;
   searchBox.value = ''; clearSearch(); searchBox.blur();
   focusNode(n);
 }
 searchBox.addEventListener('input', runSearch);
 searchBox.addEventListener('focus', () => { if (searchBox.value.trim()) runSearch(); });
-searchBox.addEventListener('keydown', (e) => {
+searchBox.addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
     e.preventDefault();
     if (!searchHits.length) return;
@@ -48,15 +48,17 @@ searchBox.addEventListener('keydown', (e) => {
     [...searchResults.children].forEach((el,i) => el.classList.toggle('active', i === searchActive));
   } else if (e.key === 'Enter'){
     e.preventDefault();
-    if (searchHits[searchActive]) gotoHit(searchHits[searchActive].id);
+    const hit = searchHits[searchActive];
+    if (hit) gotoHit(hit.id);
   } else if (e.key === 'Escape'){
     e.preventDefault();
     if (searchBox.value){ searchBox.value = ''; runSearch(); } else searchBox.blur();
   }
 });
-searchResults.addEventListener('click', (e) => {
-  const item = e.target.closest('.sr-item'); if (item) gotoHit(item.dataset.id);
+searchResults.addEventListener('click', (e: MouseEvent) => {
+  const item = (e.target as Element).closest('.sr-item');
+  if (item) gotoHit((item as HTMLElement).dataset.id!);
 });
-document.addEventListener('pointerdown', (e) => {           // click-away closes the dropdown
-  if (!e.target.closest('#searchWrap')) searchResults.classList.remove('open');
+document.addEventListener('pointerdown', (e: PointerEvent) => {           // click-away closes the dropdown
+  if (!(e.target as Element).closest('#searchWrap')) searchResults.classList.remove('open');
 });
