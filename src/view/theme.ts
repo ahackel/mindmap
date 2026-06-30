@@ -5,11 +5,11 @@ import moonIcon from '../assets/icons/moon.svg?raw';
 import sunIcon from '../assets/icons/sun.svg?raw';
 
 const THEME_KEY = 'mindmap.theme';
+let themeBtn: HTMLElement | null = null;   // cached at setupTheme; applyTheme only runs after that
 function applyTheme(theme: string): void {
   const light = theme === 'light';
   document.body.classList.toggle('light', light);
-  const btn = document.getElementById('themeBtn');
-  if (btn) btn.innerHTML = light ? moonIcon : sunIcon;   // icon = the mode you'd switch TO
+  if (themeBtn) themeBtn.innerHTML = light ? moonIcon : sunIcon;   // icon = the mode you'd switch TO
 }
 function initTheme(): void {
   let saved: string | null = null;
@@ -25,7 +25,7 @@ function toggleTheme(): void {
 }
 // Wire the toolbar button and apply the saved/OS theme. Called once at startup.
 export function setupTheme(): void {
-  const btn = document.getElementById('themeBtn');
-  if (btn) btn.onclick = toggleTheme;
+  themeBtn = document.getElementById('themeBtn');
+  if (themeBtn) themeBtn.onclick = toggleTheme;
   initTheme();
 }

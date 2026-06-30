@@ -21,6 +21,15 @@ export function isHidden(n: MindNode): boolean {
 export function descendantCount(id: string): number {
   let c = 0; for (const ch of childrenOf(id)) c += 1 + descendantCount(ch.id); return c;
 }
+// The set of titles already in use (lowercased + trimmed), optionally excluding one node.
+// Filenames collide case-insensitively on macOS/Windows, so collision checks compare lowercased.
+// Shared by the rename validator (inline-edit) and the unique-name minter (crud).
+export function takenTitles(exceptId?: string): Set<string> {
+  const taken = new Set<string>();
+  for (const n of state.nodes.values())
+    if (n.id !== exceptId) taken.add(n.title.trim().toLowerCase());
+  return taken;
+}
 // guard against cycles when re-parenting
 export function isAncestor(maybeAncestorId: string, nodeId: string): boolean {
   let p = state.nodes.get(nodeId);

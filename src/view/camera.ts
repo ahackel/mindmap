@@ -53,7 +53,7 @@ export function fit(): void {
   const ns = [...state.nodes.values()].filter(n => !isHidden(n));
   if (!ns.length) return;
   const minX = Math.min(...ns.map(n=>n.x)), minY = Math.min(...ns.map(n=>n.y));
-  const maxX = Math.max(...ns.map(n=>n.x+200)), maxY = Math.max(...ns.map(n=>n.y+90));
+  const maxX = Math.max(...ns.map(n=>n.x+NODE_W)), maxY = Math.max(...ns.map(n=>n.y+nodeH(n)));
   const r = stage.getBoundingClientRect();
   const k = Math.min(1.4, Math.min(r.width/(maxX-minX+120), r.height/(maxY-minY+120)));
   state.view.k = k;

@@ -18,14 +18,11 @@ dependencies; the only deps are the dev-time bundler. No tests.
   needs https/localhost, so use the dev server rather than a bare `file://`.
 - **Build:** `npm run build` → `dist/index.html` (single self-contained file) plus
   `dist/help/` copied verbatim. `npm run preview` serves the built `dist/`.
-- **TypeScript:** the whole codebase is `.ts`. `core/`, `utils/`, `store/`, `view/`,
-  `features/`, `data/`, `boot.ts` are fully strict-typed and covered by `npm run typecheck`
-  (`tsc --noEmit`, run after touching types). `src/main.ts` (the canvas+editing core) is
-  renamed but carries `// @ts-nocheck` — it's the one remaining strict-typing target (~1.5k
-  lines of tightly-coupled interactive code sharing mutable UI state). Vite transpiles it
-  the same as everything else, so the build/output is unaffected. `allowJs` is on for safety
-  but nothing is `.js` anymore; keep `.js` in import specifiers (Vite/TS `bundler` resolution
-  maps them to `.ts`).
+- **TypeScript:** the whole codebase is `.ts` and **fully strict-typed** — every module,
+  including `src/main.ts` (the canvas+editing core), is covered by `npm run typecheck`
+  (`tsc --noEmit`, run after touching types). No `@ts-nocheck` remains; keep it that way.
+  `allowJs` is on for safety but nothing is `.js` anymore; keep `.js` in import specifiers
+  (Vite/TS `bundler` resolution maps them to `.ts`).
 - **`help/` is runtime-fetched**, so it lives in `public/help/` and Vite copies it to
   `dist/help/`; the relative `fetch('help/...')` resolves in dev and prod alike. Edit
   help content there.
@@ -41,10 +38,16 @@ dependencies; the only deps are the dev-time bundler. No tests.
 ## Core architecture
 
 **Module layout (`src/`).** The app was split out of the old single inline script into
-domain folders (all TypeScript). Pure functions live in `utils/`; `main.ts` holds the
-remaining canvas + in-place-editing core and wires DOM events.
+domain folders (all TypeScript). Pure functions live in `utils/`; the interactive subsystems
+(drag, gestures, inline-edit, crud, attachments) are split into `features/` and share live
+interaction state through the `ui` holder in `core/ui-state.ts`; `main.ts` keeps the render +
+selection core and wires the global keyboard/toolbar events.
 - `core/state.ts` — the shared mutable `state` object + domain types (`MindNode`, `View`,
   `AppState`, …) + DOM handles (`world`/`stage`/`edgesSvg`/`togglesSvg`) + `setStatus`.
+- `core/ui-state.ts` — the shared mutable **`ui`** holder for the interactive subsystem
+  (`drag`/`inlineEdit`/`bodyEdit`/`pan`/`marquee`/`pinch`/timers…) + their types, plus the
+  `gPointers` map. Mutate its properties in place (never reassign `ui`) so drag / inline-edit /
+  gestures / the render core all share one live interaction state across module boundaries.
 - `utils/` — pure helpers: `markdown.ts` (`esc`, `renderBodyHTML`), `frontmatter.ts`
   (`parseMd`/`serializeMd`), `model.ts` (derived-tree queries), `zip.ts`, `idb.ts`.
 - `store/` — **the swappable I/O boundary**, one concern per file: `opfs.ts`, `fsa.ts`,
@@ -55,15 +58,23 @@ remaining canvas + in-place-editing core and wires DOM events.
   debounced autosave (`scheduleSave`/`flushSave`/`saveAll`), `loadFromDir`, `reloadFromDisk`,
   import/export `.zip`. Signals recents-UI changes via `setOnRecentsChanged` (never renders UI).
 - `view/` — `camera.ts` (pan/zoom/`fit`/`frameBox`), `layout.ts` (radial + line/fan/two-sided
-  node layout: `applyLayouts`/`radialLayout`/`collapseAtDepth`/`effectiveLayout`), `theme.ts`,
-  `icons.ts` (loads `assets/icons/*.svg` via `import.meta.glob` `?raw`, fills `[data-icon]`).
-- `features/` — `search.ts` (find box, exports `searchBox`), `images.ts` (inline image resolution).
+  node layout: `applyLayouts`/`radialLayout`/`collapseAtDepth`/`effectiveLayout`), `edges.ts`
+  (parent→child connector geometry + `paintEdges`), `theme.ts`, `icons.ts` (loads
+  `assets/icons/*.svg` via `import.meta.glob` `?raw`, fills `[data-icon]`).
+- `features/` — the interactive subsystems split out of `main.ts`, each owning its concern and
+  sharing state via `ui`: `drag.ts` (`bindNodeDrag` + clone/detach/auto-pan + reparent-by-drop),
+  `gestures.ts` (canvas pan/zoom/marquee, registers its own listeners on import), `inline-edit.ts`
+  (in-place title/body editing: `startInlineEdit`/`startBodyEdit`/`end…`), `crud.ts` (node
+  lifecycle: `createNode`/`addChild`/`createSibling`/`duplicateSelection`/`delete…`/`extractToChild`),
+  `attachments.ts` (image paste/drop, registers document listeners), `search.ts` (find box,
+  exports `searchBox`), `images.ts` (inline image resolution).
 - `boot.ts` — `boot()` (local-first open of the last map) + the home/storage screen + help store.
-- `main.ts` — entry (`<script type="module" src="/src/main.ts">`). ~1.5k lines of the
-  render/drag/edit/crud/selection core + global event wiring. Imports the kernels it needs from
-  the modules above and exports a few (`paintAll`/`selectNode`/`applyReadOnly`/`inlineEdit`…)
-  back to them — deliberate, runtime-only `main`↔module cycles that Rollup bundles fine.
-  Carries `// @ts-nocheck` (the one not-yet-strict-typed file).
+- `main.ts` — entry (`<script type="module" src="/src/main.ts">`). ~600 lines: the render core
+  (`nodeEl`/`paintNode`/`paintAll`/`effectiveColor`/relayout animation), selection + edit-panel
+  (swatches/layout chips/`selectNode`/`setSelectionSet`), read-only mode, focus, and the global
+  keyboard/toolbar wiring. Imports each feature module and exports the kernels they call back
+  (`paintAll`/`paintNode`/`selectNode`/`subtreeIds`/`nodeH`/`toggleCollapse`…) — deliberate,
+  runtime-only `main`↔module cycles that Rollup bundles fine. Fully strict-typed.
 
 NOTE: line numbers cited elsewhere in this file refer to the pre-split inline script and
 are now only approximate — grep for the symbol.

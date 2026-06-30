@@ -15,27 +15,30 @@ export async function listMd(root: FileSystemDirectoryHandle): Promise<NoteFile[
   await walk(root, '');
   return out;
 }
+// Walk to the directory holding the final segment of `path`, returning [that dir, the leaf name].
+// `create` makes the intermediate dirs as it goes (for writes); without it a missing dir throws.
+async function resolvePath(root: FileSystemDirectoryHandle, path: string, create = false): Promise<[FileSystemDirectoryHandle, string]> {
+  const parts = path.split('/'); let d = root;
+  for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i], { create });
+  return [d, parts[parts.length-1]];
+}
 // Create/overwrite a note at a relative path (intermediate dirs created).
 export async function writeFile(root: FileSystemDirectoryHandle, path: string, data: string | Blob): Promise<void> {
-  let d = root;
-  const parts = path.split('/');
-  for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i], { create:true });
-  const h = await d.getFileHandle(parts[parts.length-1], { create:true });
+  const [d, name] = await resolvePath(root, path, true);
+  const h = await d.getFileHandle(name, { create:true });
   const w = await h.createWritable(); await w.write(data); await w.close();
 }
 // Delete a note (a missing file is fine).
 export async function removeFile(root: FileSystemDirectoryHandle, path: string): Promise<void> {
   try {
-    const parts = path.split('/'); let d = root;
-    for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i]);
-    await d.removeEntry(parts[parts.length-1]);
+    const [d, name] = await resolvePath(root, path);
+    await d.removeEntry(name);
   } catch { /* already gone — fine */ }
 }
 // Read a binary file (e.g. an image attachment) as a Blob, or null if it's gone.
 export async function readFileBlob(root: FileSystemDirectoryHandle, path: string): Promise<Blob | null> {
   try {
-    const parts = path.split('/'); let d = root;
-    for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i]);
-    return await (await d.getFileHandle(parts[parts.length-1])).getFile();
+    const [d, name] = await resolvePath(root, path);
+    return await (await d.getFileHandle(name)).getFile();
   } catch { return null; }
 }

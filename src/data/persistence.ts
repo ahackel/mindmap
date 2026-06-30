@@ -12,7 +12,8 @@ import { applyLayouts, radialLayout, collapseAtDepth } from '../view/layout.js';
 import { fit } from '../view/camera.js';
 import { resetImageCache } from '../features/images.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, seenFolders, markFolderSeen, type Store } from '../store/index.js';
-import { paintAll, selectNode, titleEditing, bodyEditing } from '../main.js';
+import { paintAll, selectNode } from '../main.js';
+import { ui, isTypingInField } from '../core/ui-state.js';
 import { hideStart } from '../boot.js';
 
 // Active backend. Local-first: default to the on-device vault; "Open folder" swaps in fsaStore.
@@ -187,7 +188,7 @@ export async function saveAll(): Promise<void> {
   const removals: string[] = [];
   for (const n of state.nodes.values()) {
     // While the title is being typed, keep the current filename (rename happens on blur).
-    const freezeName = titleEditing && n.id === state.selId && n.file;
+    const freezeName = !!ui.inlineEdit && n.id === state.selId && n.file;
     const target = freezeName ? n.file : desiredFileFor(n);
     if (n.file && n.file !== target) {
       removals.push(n.file);                       // old file to delete once the rename is written
@@ -249,7 +250,7 @@ export async function reloadFromDisk(): Promise<void> {
   if (saving) return;                 // a write is mid-flight; don't read torn state
   const selBefore = state.selId;
   // Don't yank the rug out while the user is actively typing in the panel or renaming a card.
-  if (titleEditing || bodyEditing || ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName || '')) return;
+  if (ui.inlineEdit || ui.bodyEdit || isTypingInField()) return;
   reloading = true;
   try {
     await loadFromDir({ keepView:true });

@@ -1,15 +1,19 @@
 // ---- IndexedDB key/value (persists FSA directory handles across sessions) ----
 // The File System Access store stows real directory handles here so resume() can
 // silently reopen the folder at boot. Plain get/put/del over a single object store.
-const IDB_DB = 'mindmap', IDB_STORE = 'handles';
-function idb(): Promise<IDBDatabase> {
+// Open a single-object-store IndexedDB database, creating the store on first run. Shared by this
+// key/value helper and the on-device file vault (store/idb-store.ts) so the open boilerplate lives once.
+export function openDB(name: string, store: string): Promise<IDBDatabase> {
   return new Promise((res, rej) => {
-    const r = indexedDB.open(IDB_DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
+    const r = indexedDB.open(name, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(store);
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
   });
 }
+
+const IDB_DB = 'mindmap', IDB_STORE = 'handles';
+const idb = (): Promise<IDBDatabase> => openDB(IDB_DB, IDB_STORE);
 export async function idbPut(key: IDBValidKey, val: unknown): Promise<void> {
   const db = await idb();
   return new Promise((res, rej) => {

@@ -1,17 +1,12 @@
 // IndexedDB fallback store — identical interface to opfsStore, used on Safari < 17.2 where
 // OPFS lacks createWritable(). A flat key/value object store keyed by relative path.
 import type { Store, PickResult, NoteFile } from './types.js';
+import { openDB } from '../utils/idb.js';
 
 export const idbStore = (() => {
   let _db: IDBDatabase | null = null, _opened = false;
   async function db(): Promise<IDBDatabase> {
-    if (_db) return _db;
-    return new Promise<IDBDatabase>((res, rej) => {
-      const r = indexedDB.open('mindmap-vault', 1);
-      r.onupgradeneeded = e => (e.target as IDBOpenDBRequest).result.createObjectStore('files');
-      r.onsuccess = e => { _db = (e.target as IDBOpenDBRequest).result; res(_db); };
-      r.onerror = e => rej((e.target as IDBOpenDBRequest).error);
-    });
+    return _db ??= await openDB('mindmap-vault', 'files');
   }
   return {
     get isOpen(){ return _opened; },
