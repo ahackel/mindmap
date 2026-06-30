@@ -36,6 +36,7 @@ export interface MindNode {
   fmEntries?: FmEntry[];           // original frontmatter, preserved verbatim on save
   dirty: boolean;                  // needs a disk write
   dirtyLayout: boolean;            // needs (re)positioning by applyLayouts
+  kidOrder?: string[];             // stored child order (line/fan layouts); reseeded only on child drag
   el?: HTMLElement | null;         // the rendered card (added during paint)
 }
 
