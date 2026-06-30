@@ -6,11 +6,13 @@
 // ============================================================
 
 // escape text for safe insertion into SVG/HTML markup
-export function esc(s){ return String(s).replace(/[&<>"']/g, c => (
-  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const ESC_MAP: Record<string, string> = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
+export function esc(s: unknown): string {
+  return String(s).replace(/[&<>"']/g, c => ESC_MAP[c]);
+}
 
 // Inline emphasis on a PLAIN text run (escaped first so user text can't inject markup).
-function mdEmphasis(s){
+function mdEmphasis(s: string): string {
   return esc(s)
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/__([^_]+)__/g,     '<strong>$1</strong>')
@@ -23,9 +25,10 @@ function mdEmphasis(s){
 //   [text](url) / bare https?:// → external link (new tab)
 //   [[Note]] or [[Note|alias]]   → wikilink → focuses that node in the map
 // NOTE: the image alternative comes first so ![..](..) isn't mis-read as a link with a stray "!".
-function mdLinks(text){
+function mdLinks(text: string): string {
   const re = /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|(https?:\/\/[^\s)]+)/g;
-  let out = '', last = 0, m;
+  let out = '', last = 0;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(text))){
     out += mdEmphasis(text.slice(last, m.index));
     if (m[2])      out += imgTag(m[2], m[1]);                                                         // ![alt](src)
@@ -40,13 +43,14 @@ function mdLinks(text){
 // An <img> for inline markdown. The real src is resolved after insertion (hydrateImages): vault
 // paths are read from the store as blob URLs, remote/data URLs pass through — so rendering stays
 // synchronous while disk reads happen lazily.
-function imgTag(src, alt){
+function imgTag(src: string, alt: string): string {
   return `<img class="md-img" data-img-src="${esc(src.trim())}" alt="${esc(alt || '')}">`;
 }
 // Full inline pass: protect `code` spans first (no formatting inside), then links + emphasis.
-function mdInline(text){
-  let out = '', last = 0, m;
+function mdInline(text: string): string {
+  let out = '', last = 0;
   const re = /`([^`]+)`/g;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(text))){
     out += mdLinks(text.slice(last, m.index));
     out += `<code>${esc(m[1])}</code>`;
@@ -56,7 +60,7 @@ function mdInline(text){
   return out;
 }
 // Block-level pass: headings, lists, blockquotes, fenced code, rules, paragraphs.
-export function renderBodyHTML(md){
+export function renderBodyHTML(md: string | null | undefined): string {
   const src = (md || '').replace(/\r\n?/g, '\n').trim();
   if (!src) return '';                 // empty body → nothing (no stray blank line under the title)
   const lines = src.split('\n');
@@ -65,23 +69,23 @@ export function renderBodyHTML(md){
   while (i < lines.length){
     const line = lines[i];
     if (/^```/.test(line)){                                   // fenced code block
-      i++; const code = [];
+      i++; const code: string[] = [];
       while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]);
       i++;                                                    // skip closing fence
       html += `<pre><code>${esc(code.join('\n'))}</code></pre>`; continue;
     }
-    let h;
+    let h: RegExpMatchArray | null;
     if ((h = line.match(/^(#{1,6})\s+(.*)$/))){               // heading
       html += `<h${h[1].length}>${mdInline(h[2])}</h${h[1].length}>`; i++; continue;
     }
     if (/^\s*(?:[-*_]\s*){3,}$/.test(line)){ html += '<hr>'; i++; continue; }   // horizontal rule
     if (/^\s*>/.test(line)){                                   // blockquote
-      const q = [];
+      const q: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, ''));
       html += `<blockquote>${q.map(mdInline).join('<br>')}</blockquote>`; continue;
     }
     if (/^\s*[-*+]\s+/.test(line)){                            // unordered list (incl. [ ]/[x] tasks)
-      const items = [];
+      const items: string[] = [];
       while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*+]\s+/, ''));
       html += '<ul>' + items.map(it => {
         const tm = it.match(/^\[([ xX])\]\s+(.*)$/);
@@ -91,14 +95,14 @@ export function renderBodyHTML(md){
       }).join('') + '</ul>'; continue;
     }
     if (/^\s*\d+\.\s+/.test(line)){                            // ordered list
-      const items = [];
+      const items: string[] = [];
       while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+\.\s+/, ''));
       html += `<ol>${items.map(it => `<li>${mdInline(it)}</li>`).join('')}</ol>`; continue;
     }
     // text run: gather until the next block. Every blank line is KEPT and rendered as an empty
     // line (like Obsidian) — including blanks right before/after a list or other block. A run
     // that's only blank lines (a gap between two blocks) becomes that many empty lines.
-    const para = [];
+    const para: string[] = [];
     while (i < lines.length && !BLOCK.test(lines[i])) para.push(lines[i++]);
     if (para.some(l => l.trim())) html += `<p>${para.map(mdInline).join('<br>')}</p>`;
     else html += '<br>'.repeat(para.length);
