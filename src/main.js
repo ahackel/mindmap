@@ -13,12 +13,14 @@ import { childrenOf, isRoot, isHidden, descendantCount, isAncestor } from './uti
 import { state, world, stage, edgesSvg, togglesSvg, setStatus } from './core/state.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, readRecents, writeRecents, forgetRecent, seenFolders, markFolderSeen, setOnRecentsChanged } from './store/index.js';
 import { setupTheme } from './view/theme.js';
+import { mountIcons } from './view/icons.js';
 import { applyView, cancelViewAnim, screenToWorld, zoomAt, fit, frameBox } from './view/camera.js';
 import { searchBox } from './features/search.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 
 window.__dbg = { get state(){ return state; }, get drag(){ return drag; } };   // TEMP debug hook
 
+mountIcons();                         // fill [data-icon] placeholders with their SVG assets
 setupTheme();
 setOnRecentsChanged(renderRecents);   // let the store signal recents changes without rendering UI itself
 
