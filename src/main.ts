@@ -1,3 +1,9 @@
+// @ts-nocheck — the canvas + in-place-editing core (render / drag / edit / crud / selection).
+// Renamed from main.js so the whole codebase is uniformly TypeScript and Vite transpiles it
+// the same as every other module. Its ~1.5k lines aren't strict-typed YET: it's one tightly
+// coupled interactive subsystem sharing mutable UI state (inlineEdit/bodyEdit/selection) — the
+// remaining incremental-typing target. Every OTHER module (core/utils/store/view/features/data
+// /boot) is fully typed and checked; `npm run typecheck` covers them.
 /* ============================================================
    Markdown Mindmap — PoC v2: hierarchy + collapse + add-child
    Storage: one .md per node. Layout lives in each note's frontmatter as mm_* keys
