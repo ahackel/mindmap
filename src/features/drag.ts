@@ -21,6 +21,21 @@ import { leaveClone } from './crud.js';
 let _editor: HTMLElement | null = null;
 function editorEl(): HTMLElement | null { return _editor ??= document.getElementById('editor'); }
 
+const RIP_THRESHOLD = 400; // screen-space px before edge snaps and drag detaches on drop
+
+// Recompute whether the dragged card has been pulled past the rip threshold from its parent.
+// Must be called before paintEdges() so the dashed-edge rendering reads the latest state.
+function updateRip(drag: Drag): void {
+  if (drag.multi || drag.cloned || !drag.moved) return;
+  const act = drag.active;
+  if (!act.parent) { drag.rip = false; return; }
+  const parent = state.nodes.get(act.parent);
+  if (!parent) { drag.rip = false; return; }
+  const dx = (act.x + NODE_W/2 - parent.x - NODE_W/2) * state.view.k;
+  const dy = (act.y - parent.y) * state.view.k;
+  drag.rip = Math.hypot(dx, dy) > RIP_THRESHOLD;
+}
+
 // Move every dragged card to start + (dx,dy) in world space, mirroring it with a compositor-only
 // transform (left/top stay frozen at the card's origin). Shared by the pointermove, auto-pan, and
 // modifier-follow paths — all three apply the same offset to drag.targets.
@@ -43,6 +58,7 @@ function flushDragPaint(): void {
   if (drag.moved && !drag.multi) {
     updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
   }
+  updateRip(drag);
   paintEdges();   // n.x/y is current, so edges track the dragged nodes correctly
   if (drag.moved && !ui.autoPanRAF) ui.autoPanRAF = requestAnimationFrame(autoPanStep);
 }
@@ -75,13 +91,14 @@ function autoPanStep(): void {
     if (!drag.multi) {
       updateDropTarget(drag.active, { clientX: drag.cx, clientY: drag.cy });
     }
+    updateRip(drag);
     paintEdges();   // redraw edges every auto-pan frame so they follow the moving nodes
   }
   ui.autoPanRAF = requestAnimationFrame(autoPanStep);
 }
 export function bindNodeDrag(n: MindNode): void {
   const el = n.el!;
-  // Double-tap on touch → collapse/expand (mirrors dblclick on desktop; also prevents iOS double-tap zoom)
+  // Double-tap on touch -> collapse/expand (mirrors dblclick on desktop; also prevents iOS double-tap zoom)
   let lastTouchTap = 0, lastTouchTapTarget: EventTarget | null = null;
   el.addEventListener('touchstart', (e) => {
     // While editing this card, let the browser handle double-tap normally (word selection)
@@ -124,8 +141,8 @@ export function bindNodeDrag(n: MindNode): void {
     // origins = the left/top CSS values frozen at drag start; transforms are relative to these
     const origins = new Map(ids.map(id => { const m2 = state.nodes.get(id)!; return [id, { x:m2.x, y:m2.y }] as [string, Pt]; }));
     ui.drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets, origins,
-             moved:false, dropTarget:null as string | null, alt:e.altKey, shift:e.shiftKey, cloned:false,
-             downTarget:e.target,              // where the press landed → slow-click edits title or body
+             moved:false, dropTarget:null as string | null, dropMode:'child', alt:e.altKey, shift:e.shiftKey, cloned:false, rip:false,
+             downTarget:e.target,              // where the press landed -> slow-click edits title or body
              meta: e.metaKey || e.ctrlKey,     // ⌘/Ctrl-click toggles this card in the selection
              touch: e.pointerType === 'touch' }; // higher move threshold for finger taps
     for (const id of ids) { const m2 = state.nodes.get(id); if (m2?.el) m2.el.style.willChange = 'transform'; }
@@ -138,7 +155,7 @@ export function bindNodeDrag(n: MindNode): void {
     drag.cx = e.clientX; drag.cy = e.clientY;   // remembered for edge auto-pan and RAF flush
     const dx = (e.clientX - drag.sx)/state.view.k, dy = (e.clientY - drag.sy)/state.view.k;
     if (Math.abs(dx)+Math.abs(dy) > (drag.touch ? 8 : 2)){ drag.moved = true; document.body.classList.add('grabbing'); }
-    applyDragClone();   // Shift held → leave a clone & drag the copy; Shift released → undo it
+    applyDragClone();   // Shift held -> leave a clone & drag the copy; Shift released -> undo it
     // Update world-space positions immediately (cheap) — visual render is deferred to rAF so that
     // multiple pointermove events arriving within one display frame collapse into a single paint.
     // (applyDragClone may have swapped drag.targets/origins for the clones — re-read via ui.drag.)
@@ -167,7 +184,7 @@ export function bindNodeDrag(n: MindNode): void {
         }
         else if (!state.readOnly) {
           // a second (slow) click on the already-sole-selected card = edit in place, Finder-style.
-          // Click the title → rename; click anywhere else on the card → edit the note.
+          // Click the title -> rename; click anywhere else on the card -> edit the note.
           // Delay it so a double-click (which fires dblclick first) can cancel it and fold instead.
           clearTimeout(ui.renameTimer);
           const dt = drag.downTarget as HTMLElement | null;
@@ -178,7 +195,7 @@ export function bindNodeDrag(n: MindNode): void {
         // dropped onto a node? re-parent. Alt+drop on empty canvas? detach to root.
         // Otherwise it's just a move.
         const tgt = drag.dropTarget;
-        const { cloned, targets, alt, shift, clones } = drag;
+        const { cloned, targets, alt, shift, clones, rip, dropMode } = drag;
         clearDropTarget();
         act.el?.classList.remove('reparent-ghost');
         // Null drag NOW so every paintAll/paintEdges in the commit phase sees no active drag
@@ -186,7 +203,10 @@ export function bindNodeDrag(n: MindNode): void {
         // when paintAll was called, and nothing repainted after drag = null.)
         ui.drag = null;
         document.body.classList.remove('grabbing');
-        if (tgt && tgt !== act.parent) {
+        const effectiveParent = tgt
+          ? (dropMode === 'sibling' ? state.nodes.get(tgt)!.parent! : tgt)
+          : null;
+        if (effectiveParent && effectiveParent !== act.parent) {
           // reparent in place: the card keeps its ORIGINAL position, only its parent changes
           // (a clone keeps where you dropped it, since that's a fresh card you're placing).
           if (!cloned){
@@ -194,7 +214,7 @@ export function bindNodeDrag(n: MindNode): void {
               const m = state.nodes.get(id); if (m){ m.x = s.x; m.y = s.y; m.dirtyLayout = true; }
             }
           }
-          reparent(act.id, tgt);
+          reparent(act.id, effectiveParent);
         } else {
           // snap onto the 20px grid: align the dragged node, shift the rest of its
           // subtree by the same delta so relative layout is preserved.
@@ -205,14 +225,14 @@ export function bindNodeDrag(n: MindNode): void {
             const m = state.nodes.get(id); if (!m) continue;
             m.x += ddx; m.y += ddy; m.dirtyLayout = true;
           }
-          if (alt && !shift && act.parent) {
+          if ((alt || rip) && !shift && act.parent) {
             act.parent = null;
-            setStatus(`”${act.title}” is now a root`);
+            setStatus(`"${act.title}" is now a root`);
           }
         }
         // Paint first so freshly-created clone cards have real DOM heights before applyLayouts
         // measures them — otherwise a chain/fan of clones lays out on the 64px height fallback
-        // (only the first lands right). Mirrors the duplicate path: paint → layout → paint.
+        // (only the first lands right). Mirrors the duplicate path: paint -> layout -> paint.
         paintAll();
         reorderDraggedParents(targets.keys());   // a drag is the ONLY thing that reorders siblings
         applyLayouts(); paintAll();   // re-snap any dragged child back into its parent's layout
@@ -256,7 +276,7 @@ function applyDragClone(): void {
     drag.active = drag.n;                           // back to dragging the original
     drag.targets = new Map([...drag.start].map(([id, s]) => [id, { x:s.x, y:s.y }] as [string, Pt]));
     drag.origins = new Map([...drag.start]);         // restore origins for the original subtree
-    setStatus(`Duplication cancelled — moving “${drag.n.title}”`);
+    setStatus(`Duplication cancelled — moving "${drag.n.title}"`);
     paintAll();
   }
 }
@@ -289,6 +309,8 @@ window.addEventListener('keyup',   (e) => {
 });
 
 // ---------- reconnect (re-parent by drag-and-drop) ----------
+const SIBLING_ZONE = 0.3; // bottom fraction of a card that triggers sibling-insert mode
+
 function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: number }): void {
   const sub = new Set(subtreeIds(dragged.id)); // dragged card + all its descendants
   // Geometric hit test in world space — no layout read, no elementsFromPoint.
@@ -296,33 +318,54 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   const wx = (e.clientX - state.view.x) / state.view.k;
   const wy = (e.clientY - state.view.y) / state.view.k;
   let hovered: string | null = null;
+  let hoveredBottomZone = false;
   for (const [id, m] of state.nodes) {
     if (isHidden(m) || sub.has(id)) continue;
     const h = nodeH(m);
-    if (wx >= m.x && wx <= m.x + NODE_W && wy >= m.y && wy <= m.y + h){ hovered = id; break; }
+    if (wx >= m.x && wx <= m.x + NODE_W && wy >= m.y && wy <= m.y + h){
+      hovered = id;
+      hoveredBottomZone = wy >= m.y + h * (1 - SIBLING_ZONE);
+      break;
+    }
   }
   clearDropTarget();
   let target: string | null = null;
-  // Refusing to drop onto your own child/descendant would make a cycle — say so out loud,
-  // otherwise the drag just silently does nothing and looks broken.
+  let mode: 'child' | 'sibling' = 'child';
   if (hovered && sub.has(hovered)){
-    setStatus(`Can’t parent “${dragged.title}” onto its own child/descendant`);
-  } else if (hovered && hovered === dragged.parent){   // already its parent — nothing to do
-    const p = state.nodes.get(hovered);
-    setStatus(`“${dragged.title}” is already a child of “${p ? p.title : 'that card'}”`);
-  } else if (hovered){
-    target = hovered;
+    setStatus(`Can't parent "${dragged.title}" onto its own child/descendant`);
+  } else if (hovered) {
+    const hoveredNode = state.nodes.get(hovered)!;
+    // Bottom zone + hovered card has a parent -> sibling drop (adopt hovered's parent)
+    if (hoveredBottomZone && hoveredNode.parent) {
+      const sibParent = hoveredNode.parent;
+      // Valid as long as it wouldn't re-parent onto self or create a cycle
+      if (sibParent !== dragged.id && !sub.has(sibParent)) {
+        target = hovered;
+        mode = 'sibling';
+      }
+    }
+    // Top/center zone -> child drop (existing behaviour), but skip if already this node's parent
+    if (!target) {
+      if (hovered === dragged.parent) {
+        const p = state.nodes.get(hovered);
+        setStatus(`"${dragged.title}" is already a child of "${p ? p.title : 'that card'}"`);
+      } else {
+        target = hovered;
+        mode = 'child';
+      }
+    }
   }
-  if (ui.drag) ui.drag.dropTarget = target;
-  if (target){
+  if (ui.drag) { ui.drag.dropTarget = target; ui.drag.dropMode = mode; }
+  if (target) {
     const tEl = state.nodes.get(target)?.el;
-    if (tEl) tEl.classList.add('drop-target');
+    if (tEl) tEl.classList.add(mode === 'sibling' ? 'drop-sibling' : 'drop-target');
   }
-  // poised over a valid parent → ghost the dragged card so the parent shows through
+  // poised over a valid target -> ghost the dragged card so the card underneath stays visible
   if (dragged.el) dragged.el.classList.toggle('reparent-ghost', !!target);
 }
 function clearDropTarget(): void {
-  document.querySelectorAll('.node.drop-target').forEach(el => el.classList.remove('drop-target'));
+  document.querySelectorAll('.node.drop-target, .node.drop-sibling')
+    .forEach(el => el.classList.remove('drop-target', 'drop-sibling'));
 }
 function reparent(childId: string, newParentId: string): void {
   if (state.readOnly) return;
@@ -332,5 +375,5 @@ function reparent(childId: string, newParentId: string): void {
   child.parent = newParentId;
   child.dirtyLayout = true;
   applyLayouts(); paintAll();
-  setStatus(`Re-parented “${child.title}” → “${state.nodes.get(newParentId)?.title}”`);
+  setStatus(`Re-parented "${child.title}" -> "${state.nodes.get(newParentId)?.title}"`);
 }

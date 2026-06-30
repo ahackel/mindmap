@@ -17,8 +17,8 @@ import { childrenOf, isHidden, descendantCount } from './utils/model.js';
 import { state, world, stage, setStatus } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { mountIcons } from './view/icons.js';
-import { zoomAt, frameBox } from './view/camera.js';
-import { applyLayouts } from './view/layout.js';
+import { zoomAt, frameBox, screenToWorld } from './view/camera.js';
+import { applyLayouts, effectiveLayout } from './view/layout.js';
 import { paintEdges } from './view/edges.js';
 import './features/gestures.js';   // registers the canvas pan/zoom/marquee gesture listeners
 import './features/attachments.js';   // registers the OS image drag/drop listeners
@@ -495,7 +495,7 @@ export function applyReadOnly(): void {
   roBtn.classList.toggle('locked', ro);          // red when locked
   roBtn.innerHTML = ro ? ICON_LOCK_CLOSED : ICON_LOCK_OPEN;
   roBtn.title = ro ? 'Read-only — click to unlock & edit (R)' : 'Lock to read-only (R) — view & collapse only';
-  byId<HTMLButtonElement>('fabAdd').disabled = ro;
+  // ghost card visibility is driven by body.readonly CSS rule
   applySidebar();
   setStatus(ro ? 'Read-only — nothing is saved' : 'Editing enabled');
 }
@@ -588,7 +588,93 @@ window.addEventListener('keyup', (e) => {
   if (!isTypingInField() && !wasPan && !ui.pan && state.sel.size === 0) createNode();   // tap = new node
 });
 
-byId('fabAdd').onclick = () => createNode();
+// Ghost-card drag: drag from the corner card to spawn a new node at the drop position.
+// Dropping onto an existing card makes the new node a child of that card.
+{
+  const ghost = byId('ghostCard');
+  const dragEl = byId('ghostDrag');
+  let dragging = false;
+  let dropTargetEl: HTMLElement | null = null;
+
+  ghost.addEventListener('pointerdown', (e: PointerEvent) => {
+    if (state.readOnly) return;
+    e.preventDefault();
+    dragging = true;
+    ghost.setPointerCapture(e.pointerId);
+    dragEl.classList.add('active');
+    moveDragEl(e.clientX, e.clientY);
+  });
+
+  ghost.addEventListener('pointermove', (e: PointerEvent) => {
+    if (!dragging) return;
+    moveDragEl(e.clientX, e.clientY);
+    updateDropTarget(e.clientX, e.clientY);
+  });
+
+  ghost.addEventListener('pointerup', (e: PointerEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    dragEl.classList.remove('active');
+    clearDropTarget();
+    // Ignore if released on the ghost card itself (no drag movement)
+    const ghostRect = ghost.getBoundingClientRect();
+    const onGhost = e.clientX >= ghostRect.left && e.clientX <= ghostRect.right &&
+                    e.clientY >= ghostRect.top  && e.clientY <= ghostRect.bottom;
+    if (onGhost) return;
+    const parentId = nodeIdAt(e.clientX, e.clientY);
+    const parent = parentId ? state.nodes.get(parentId) ?? null : null;
+    let x: number, y: number;
+    if (parent) {
+      const eff = effectiveLayout(parent);
+      const isFree = eff.type !== 'line' && eff.type !== 'fan' && eff.type !== 'two-sided';
+      if (isFree) {
+        x = parent.x;
+        y = parent.y + nodeH(parent) + 40;
+      } else {
+        ({ x, y } = screenToWorld(e.clientX, e.clientY));
+        x -= NODE_W / 2; y -= 20;
+      }
+    } else {
+      ({ x, y } = screenToWorld(e.clientX, e.clientY));
+      x -= NODE_W / 2; y -= 20;
+    }
+    createNode({ x, y, parent: parent?.id ?? null });
+  });
+
+  ghost.addEventListener('pointercancel', () => {
+    dragging = false;
+    dragEl.classList.remove('active');
+    clearDropTarget();
+  });
+
+  function moveDragEl(cx: number, cy: number): void {
+    dragEl.style.left = (cx + 12) + 'px';
+    dragEl.style.top  = (cy - 20) + 'px';
+  }
+
+  // Return the node id of the topmost .node element under (cx, cy), or null.
+  function nodeIdAt(cx: number, cy: number): string | null {
+    for (const el of document.elementsFromPoint(cx, cy)) {
+      if (el instanceof HTMLElement && el.classList.contains('node') && el.dataset.id)
+        return el.dataset.id;
+    }
+    return null;
+  }
+
+  function updateDropTarget(cx: number, cy: number): void {
+    const id = nodeIdAt(cx, cy);
+    const el = id ? state.nodes.get(id)?.el ?? null : null;
+    if (el === dropTargetEl) return;
+    dropTargetEl?.classList.remove('drop-target');
+    dropTargetEl = el;
+    dropTargetEl?.classList.add('drop-target');
+  }
+
+  function clearDropTarget(): void {
+    dropTargetEl?.classList.remove('drop-target');
+    dropTargetEl = null;
+  }
+}
 byId('fitBtn').onclick = focusOrFit;
 byId('edgeBtn').onclick = cycleEdgeStyle;
 byId('homeBtn').onclick = showStart;   // icon + folder name → home screen

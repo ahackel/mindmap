@@ -97,10 +97,13 @@ export function paintEdges(): void {
     if (ui.drag && ui.drag.dropTarget && ui.drag.active.id === n.id) continue;
     // While Shift-cloning, the dragged copies aren't placed yet — don't draw their parent edges.
     if (ui.drag && ui.drag.cloned && ui.drag.targets.has(n.id)) continue;
+    // Rip threshold reached: draw the edge dashed as a "about to snap" signal.
+    const ripping = !!(ui.drag && ui.drag.rip && ui.drag.active.id === n.id);
     // tint by the child's branch colour
     const tint = EDGE_TINT[effectiveColor(n)];
     const style = tint ? ` style="stroke:${tint}"` : '';
-    svg += `<path${style} d="${edgePath(parent, n)}"/>`;
+    const dash = ripping ? ' stroke-dasharray="6 5" opacity="0.5"' : '';
+    svg += `<path${style}${dash} d="${edgePath(parent, n)}"/>`;
   }
   edgesSvg.innerHTML = svg;
   togglesSvg.innerHTML = '';             // no edge toggles anymore

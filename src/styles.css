@@ -141,6 +141,7 @@ svg#edges path { fill:none; stroke:var(--edge); stroke-width:4;
   border-color: var(--cardline, var(--node-border)); box-shadow:none; }
 .node.drop-target { outline:2px dashed #5ac978; outline-offset:3px;
   box-shadow:0 0 0 2px #5ac978; }
+.node.drop-sibling { box-shadow:0 4px 0 0 #5ac978; }
 /* while poised over a valid parent the dragged card becomes just a dotted outline,
    so the parent underneath stays visible */
 .node.reparent-ghost { background:transparent !important; box-shadow:none !important;
@@ -234,16 +235,27 @@ body.grabbing .node .addnote,
 body.light .swatch.inherit { background:repeating-linear-gradient(45deg,#fff,#fff 5px,#e7ebf1 5px,#e7ebf1 10px); }
 
 /* big new-card button, bottom-left of the canvas */
-#fabAdd {
+/* ghost card — drag it onto the canvas to create a new card */
+#ghostCard {
   position:fixed; left:18px; bottom:18px; z-index:20;
-  width:56px; height:56px; border-radius:50%; border:none; cursor:pointer;
-  background:var(--accent); color:#fff;
+  width:96px; height:48px;
   display:flex; align-items:center; justify-content:center;
-  box-shadow:0 4px 14px rgba(0,0,0,.25); transition:transform .12s, box-shadow .12s; }
-#fabAdd svg { width:26px; height:26px; display:block; }
-#fabAdd:hover { transform:scale(1.06); box-shadow:0 6px 18px rgba(0,0,0,.3); }
-#fabAdd:active { transform:scale(.96); }
-#fabAdd:disabled { opacity:.35; cursor:default; box-shadow:none; transform:none; }
+  background:var(--node); border:1px dashed var(--node-border); border-radius:2px;
+  color:var(--muted); font-size:22px; font-weight:400;
+  cursor:grab; user-select:none; touch-action:none;
+  transition:border-color .15s, color .15s, opacity .15s;
+}
+#ghostCard:hover { border-color:var(--accent); color:var(--accent); }
+body.readonly #ghostCard { opacity:.35; pointer-events:none; }
+/* floating clone that follows the cursor during a ghost-drag */
+#ghostDrag {
+  position:fixed; z-index:100; pointer-events:none;
+  width:96px; height:48px;
+  display:none; align-items:center; justify-content:center;
+  background:var(--node); border:1px dashed var(--accent); border-radius:2px;
+  color:var(--accent); font-size:22px; font-weight:400; opacity:.85;
+}
+#ghostDrag.active { display:flex; }
 
 /* floating edit panel — sits below the toolbar, off the right edge, hugs its content */
 #editor {

@@ -15,8 +15,8 @@ export interface Drag {
   n: MindNode; active: MindNode; multi: boolean;
   sx: number; sy: number; cx: number; cy: number;
   start: Map<string, Pt>; targets: Map<string, Pt>; origins: Map<string, Pt>;
-  moved: boolean; dropTarget: string | null;
-  alt: boolean; shift: boolean; cloned: boolean;
+  moved: boolean; dropTarget: string | null; dropMode: 'child' | 'sibling';
+  alt: boolean; shift: boolean; cloned: boolean; rip: boolean;
   downTarget: EventTarget | null; meta: boolean; touch: boolean;
   clones?: MindNode[] | null;
 }

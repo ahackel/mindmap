@@ -68,9 +68,10 @@
     </div>
   </div>
 
-  <!-- big new-card button, bottom-left of the canvas -->
-  <button id="fabAdd" title="New card (Space)" aria-label="New card">
-    <span class="ic" data-icon="plus"></span></button>
+  <!-- ghost card in the corner — drag it onto the canvas to create a new card -->
+  <div id="ghostCard" title="Drag to create a new card">+</div>
+  <!-- clone that follows the cursor while dragging from the ghost -->
+  <div id="ghostDrag">+</div>
 
   <!-- home screen: storage settings (the map itself opens straight onto the canvas) -->
   <div id="startScreen" class="hidden">
