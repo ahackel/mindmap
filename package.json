@@ -1,0 +1,16 @@
+{
+  "name": "markdown-mindmap",
+  "version": "2.0.0",
+  "description": "Single-file, local-first mindmap editor for a folder of Markdown notes.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "vite-plugin-singlefile": "^2.1.0"
+  }
+}

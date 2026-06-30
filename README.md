@@ -8,8 +8,10 @@ saved straight back to disk as plain Markdown.
 
 ## How it works
 
-The whole app is one static `index.html` — no server, no backend, no build step.
-It's **local-first**: your map is saved in a private on-device store (the browser's
+The deployed app is a single static `index.html` — no server, no backend, no runtime
+dependencies. (Source lives in `src/` and is bundled back into that one file at build
+time; see *Hosting* below.) It's **local-first**: your map is saved in a private
+on-device store (the browser's
 [Origin Private File System](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system))
 and reopens automatically every visit — no sign-in, no setup, works on every browser
 including iPad. Your notes never leave your machine.
@@ -67,6 +69,10 @@ the app to an Obsidian vault or a Tauri/native build.
 
 ## Hosting
 
-The repo is the site: GitHub Pages serves `index.html` from the default branch.
-To run locally, serve it over `http://localhost` (e.g. `python3 -m http.server`) — the
-on-device store needs a secure context, so a bare `file://` open won't persist reliably.
+A GitHub Action (`.github/workflows/deploy.yml`) bundles the source with Vite into a
+single self-contained `dist/index.html` and deploys it to GitHub Pages on every push to
+`main`. Pages "Source" is set to *GitHub Actions* in the repo settings.
+
+To run locally: `npm install`, then `npm run dev` (Vite dev server on `localhost:5173`).
+The on-device store needs a secure context, so use the dev server rather than opening the
+file directly. `npm run build` produces the deployable single-file `dist/`.

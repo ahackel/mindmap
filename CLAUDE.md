@@ -4,23 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single-file, zero-build mindmap editor for a local folder of Markdown notes. The
-**entire app is `index.html`** (~2500 lines: `<style>`, then HTML, then one inline
-`<script type="module">` starting at line 368). There is no build step, no
-dependencies, no package manager, and no tests.
+A local-first mindmap editor for a local folder of Markdown notes. Source lives in
+`index.html` (the `<style>` + HTML shell) plus ES modules under `src/` (entry
+`src/main.js`). A Vite build (`vite-plugin-singlefile`) bundles **everything back into
+one self-contained `dist/index.html`** — JS and CSS inlined — so the *deployed* artifact
+stays a single file and offline-via-HTTP-cache works the same as before. No runtime
+dependencies; the only deps are the dev-time bundler. No tests.
 
 ## Running / developing
 
-- **Run locally:** serve over a secure context — `python3 -m http.server` then open
-  `http://localhost:8000`. OPFS (the local-first store) needs https/localhost; from a
-  bare `file://` it may not persist, so prefer the local server for real testing.
+- **Run locally:** `npm install` once, then `npm run dev` (Vite dev server on
+  `localhost:5173`, serves `src/` unbundled with HMR). OPFS (the local-first store)
+  needs https/localhost, so use the dev server rather than a bare `file://`.
+- **Build:** `npm run build` → `dist/index.html` (single self-contained file) plus
+  `dist/help/` copied verbatim. `npm run preview` serves the built `dist/`.
+- **`help/` is runtime-fetched**, so it lives in `public/help/` and Vite copies it to
+  `dist/help/`; the relative `fetch('help/...')` resolves in dev and prod alike. Edit
+  help content there.
 - **Works in any modern browser** (incl. iPad Safari) thanks to the OPFS default. The
   "Open folder" option additionally needs the File System Access API
   (`showDirectoryPicker`), which only Chrome/Edge implement.
-- **Hosting:** the repo *is* the site. GitHub Pages serves `index.html` from the
-  default branch; pushing to `main` deploys.
-- **No lint/test/build commands exist.** Verify changes by opening the file in the
-  browser and exercising the canvas.
+- **Hosting:** `.github/workflows/deploy.yml` runs `npm run build` and deploys `dist/`
+  to GitHub Pages on push to `main` (Pages "Source" must be set to *GitHub Actions* in
+  repo settings). The repo no longer serves a hand-written `index.html` directly.
+- **No lint/test commands exist.** Verify changes by running the app in the browser and
+  exercising the canvas.
 
 ## Core architecture
 
