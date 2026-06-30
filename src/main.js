@@ -10,28 +10,9 @@ import { esc, renderBodyHTML } from './markdown.js';
 import { setupTheme } from './theme.js';
 import { zipBlob, unzip } from './zip.js';
 import { idbGet, idbPut, idbDel } from './idb.js';
-
-const state = {
-  dir: null,
-  nodes: new Map(),   // id -> {id,file,x,y,parent,collapsed,title,status,tags[],body,el,dirty}
-  view: { x: 80, y: 40, k: 1 },
-  selId: null,         // the "primary" selected node — drives the single-node editor fields
-  sel: new Set(),      // full selection set (⌘-click / marquee); colour applies to all of these
-  edgeStyle: 'orthogonal',   // 'straight' | 'orthogonal' | 'bezier' — restored from localStorage
-  searchMatch: null,         // Set of ids matching the find query, or null when not searching
-  readOnly: false,           // read-only mode: no saves, no edits; collapse/expand only
-  idSeq: 1,
-  toDelete: [],
-  sidebarOpen: true,   // edit panel is open by default; toolbar button toggles it
-};
+import { state, world, stage, edgesSvg, togglesSvg, setStatus } from './state.js';
 
 window.__dbg = { get state(){ return state; }, get drag(){ return drag; } };   // TEMP debug hook
-const world = document.getElementById('world');
-const stage = document.getElementById('stage');
-const edgesSvg = document.getElementById('edges');
-const togglesSvg = document.getElementById('toggles');
-const statusEl = document.getElementById('status');
-const setStatus = (t) => statusEl.textContent = t;
 
 setupTheme();
 
