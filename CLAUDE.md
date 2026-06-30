@@ -32,21 +32,26 @@ dependencies; the only deps are the dev-time bundler. No tests.
 
 ## Core architecture
 
-**Module layout (`src/`).** The app was split out of the old single inline script.
-Leaf/foundation modules have clean one-way deps; `main.js` is the orchestrator that
+**Module layout (`src/`).** The app was split out of the old single inline script into
+domain folders. Pure functions live in `utils/`; `main.js` is the entry/orchestrator that
 still holds the render/view/layout/drag/edit/crud core and wires DOM events.
-- `state.js` — the shared mutable `state` object + DOM handles (`world`/`stage`/
+- `core/state.js` — the shared mutable `state` object + DOM handles (`world`/`stage`/
   `edgesSvg`/`togglesSvg`) + `setStatus`. Everyone imports the live object.
-- `markdown.js` — `esc`, `renderBodyHTML` (+ internal inline/link/emphasis passes).
-- `frontmatter.js` — `parseMd`/`serializeMd` (ordered-entry fm* helpers internal).
-- `model.js` — derived-tree queries (`childrenOf`/`isHidden`/`isAncestor`/…).
-- `theme.js` — `setupTheme()`. `zip.js` — `zipBlob`/`unzip`. `idb.js` — `idbGet/Put/Del`.
-- `store.js` — **the swappable I/O boundary**: `opfsStore`/`fsaStore`/`idbStore` +
-  `resolveOnDeviceStore` + recents/seen helpers. Owns the only `idb` import. `main.js`
-  keeps the active `let store` binding + `useStore`.
-- `search.js` — find box; imports `paintAll`/`focusNode` from `main.js` and exports
-  `searchBox` (a deliberate, runtime-only `main`↔`search` import cycle; Rollup bundles it).
-- `main.js` — entry: `<script type="module" src="/src/main.js">`. Still ~2.3k lines of
+- `utils/` — pure helpers: `markdown.js` (`esc`, `renderBodyHTML`), `frontmatter.js`
+  (`parseMd`/`serializeMd`), `model.js` (derived-tree queries), `zip.js` (`zipBlob`/`unzip`),
+  `idb.js` (`idbGet/Put/Del`).
+- `store/` — **the swappable I/O boundary**, one concern per file: `opfs.js`, `fsa.js`,
+  `idb-store.js` (the three adapters), `handle-store.js` (the shared list/write/remove/read
+  ops the OPFS+FSA adapters delegate to — DRY), `recents.js`, `watch.js`, and `index.js`
+  (barrel + `resolveOnDeviceStore`). `main.js` keeps the active `let store` binding +
+  `useStore`; the store signals recents-UI changes via `setOnRecentsChanged` (it never
+  renders UI itself).
+- `view/` — `camera.js` (pan/zoom/`fit`/`frameBox`), `theme.js` (`setupTheme()`).
+- `features/` — `search.js` (find box, exports `searchBox`), `images.js` (inline image
+  resolution). Both import the `paintAll`/`applyLayouts`/`focusNode`/`store` kernel from
+  `main.js` — deliberate, runtime-only `main`↔feature cycles that Rollup bundles fine.
+- `assets/icons/*.svg` — icon markup, imported via Vite `?raw` (inlined in the build).
+- `main.js` — entry: `<script type="module" src="/src/main.js">`. Still ~2.2k lines of
   the interconnected render/view/layout/drag/edit/crud core + boot + event wiring.
 
 NOTE: line numbers cited elsewhere in this file refer to the pre-split inline script and
