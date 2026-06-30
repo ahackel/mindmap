@@ -16,12 +16,12 @@ export async function listMd(root: FileSystemDirectoryHandle): Promise<NoteFile[
   return out;
 }
 // Create/overwrite a note at a relative path (intermediate dirs created).
-export async function writeFile(root: FileSystemDirectoryHandle, path: string, text: string): Promise<void> {
+export async function writeFile(root: FileSystemDirectoryHandle, path: string, data: string | Blob): Promise<void> {
   let d = root;
   const parts = path.split('/');
   for (let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i], { create:true });
   const h = await d.getFileHandle(parts[parts.length-1], { create:true });
-  const w = await h.createWritable(); await w.write(text); await w.close();
+  const w = await h.createWritable(); await w.write(data); await w.close();
 }
 // Delete a note (a missing file is fine).
 export async function removeFile(root: FileSystemDirectoryHandle, path: string): Promise<void> {

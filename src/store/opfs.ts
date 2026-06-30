@@ -19,7 +19,7 @@ export const opfsStore = {
   async pick(): Promise<PickResult> { try { await this._root(); this._opened = true; return 'ok'; } catch { return 'error'; } },
   async openRecent(): Promise<PickResult> { return this.pick(); },
   async list(){ return listMd(await this._root()); },
-  async write(path: string, text: string){ return writeFile(await this._root(), path, text); },
+  async write(path: string, data: string | Blob){ return writeFile(await this._root(), path, data); },
   async remove(path: string){ return removeFile(await this._root(), path); },
   async readBlob(path: string){ return readFileBlob(await this._root(), path); },
   watch(){ /* OPFS can't change underneath us */ },

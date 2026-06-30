@@ -18,6 +18,7 @@ import { applyView, cancelViewAnim, screenToWorld, zoomAt, fit, frameBox } from 
 import { applyLayouts, radialLayout, collapseAtDepth, reorderDraggedParents, dirSide, effectiveLayout } from './view/layout.js';
 import { searchBox } from './features/search.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
+import { store, useStore, scheduleSave, flushSave, loadFromDir, exportZip, openImportPicker, LAST_STORE_KEY } from './data/persistence.js';
 
 window.__dbg = { get state(){ return state; }, get drag(){ return drag; } };   // TEMP debug hook
 
@@ -1111,7 +1112,7 @@ async function setReadOnly(on){
 roBtn.onclick = () => setReadOnly(!state.readOnly);
 
 // Select exactly one node (or clear with null), replacing any multi-selection.
-function selectNode(id, _openPanel = true) {
+export function selectNode(id, _openPanel = true) {
   if (id == null){ state.sel.clear(); state.selId = null; }
   else { state.sel = new Set([id]); state.selId = id; }
   applySelection();
@@ -1279,7 +1280,7 @@ document.addEventListener('drop', async (e) => {
 // While a title is being renamed (inline, on the canvas) we DON'T rename the file on every
 // keystroke (that would litter the folder with M.md, Ma.md, Mag.md…) — the save loop defers the
 // file rename until editing ends. These flags are set/cleared by startInlineEdit / endInlineEdit.
-let titleEditing = false;
+export let titleEditing = false;
 let titleEditId = null;
 
 // ---------- inline title rename (edit the title on the card itself) ----------
@@ -1348,7 +1349,7 @@ function endInlineEdit({ cancel = false } = {}){
 // textarea inside .body; Enter inserts a newline, Esc cancels (restores the original), blur commits.
 // `bodyEditing`/`bodyEditId` mirror the title guards so the save loop / disk-reload behave the same.
 let bodyEdit = null;       // { id, orig, el, ta } while a card body is being edited in place
-let bodyEditing = false;
+export let bodyEditing = false;
 let bodyEditId = null;
 function autosizeBody(ta){ ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
 function startBodyEdit(n, { atStart = false } = {}){
@@ -1611,11 +1612,6 @@ window.addEventListener('keydown', (e) => {
 const HAS_FSA = !location.search.includes('nofsa') && !!window.showDirectoryPicker;
 
 
-// Active backend. Local-first: default to the on-device vault; "Open folder" swaps in fsaStore.
-export let store = opfsStore;
-const LAST_STORE_KEY = 'mindmap.lastStore';   // 'opfs' | 'folder'
-function useStore(s, kind){ store = s; store.watch(reloadFromDisk); if (kind) localStorage.setItem(LAST_STORE_KEY, kind); }
-
 // ---- on-device (the local-first default) ----
 async function openDevice({ keepView = false } = {}){
   const s = await resolveOnDeviceStore();
@@ -1650,253 +1646,6 @@ async function openRecentFolder(key) {
   await loadFromDir();
 }
 
-// ---- import / export as .zip (move a map between devices / back it up) ----
-const importInput = document.createElement('input');
-importInput.type = 'file';
-importInput.accept = '.zip,.md,.markdown,.png,.jpg,.jpeg,.gif,.webp,.svg,.avif,.bmp';
-importInput.multiple = true;
-importInput.style.display = 'none';
-document.body.appendChild(importInput);
-importInput.addEventListener('change', async () => {
-  const files = [...importInput.files];
-  importInput.value = '';
-  if (files.length) await importFiles(files);
-});
-
-const IMG_RE = /\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i;
-async function importFiles(files){
-  const entries = [];   // { name, text?, bytes? }
-  for (const f of files){
-    if (/\.zip$/i.test(f.name)) { try { entries.push(...await unzip(await f.arrayBuffer())); } catch { setStatus('That .zip could not be read.'); } }
-    else if (/\.(md|markdown)$/i.test(f.name)) entries.push({ name: f.name, text: await f.text() });
-    else if (IMG_RE.test(f.name)) entries.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
-  }
-  let md  = entries.filter(e => /\.(md|markdown)$/i.test(e.name) && !e.name.endsWith('/'));
-  let img = entries.filter(e => e.bytes && IMG_RE.test(e.name) && !e.name.endsWith('/'));
-  if (!md.length){ setStatus('No Markdown files found to import.'); return; }
-  // strip a single common top-level folder (e.g. a zip of "MyNotes/…") from notes AND attachments,
-  // so the relative ![](attachments/…) links still resolve after import
-  const slash = md[0].name.indexOf('/');
-  const top = slash >= 0 ? md[0].name.slice(0, slash + 1) : '';
-  if (top && md.every(e => e.name.startsWith(top))){
-    md  = md.map(e => ({ ...e, name: e.name.slice(top.length) }));
-    img = img.map(e => e.name.startsWith(top) ? { ...e, name: e.name.slice(top.length) } : e);
-  }
-  for (const e of md)  await store.write(e.name, e.text);
-  for (const e of img) await store.write(e.name, new Blob([e.bytes]));
-  hideStart();
-  await loadFromDir();
-  setStatus(`Imported ${md.length} note${md.length===1?'':'s'}${img.length ? ` + ${img.length} image${img.length===1?'':'s'}` : ''}.`);
-}
-
-// download every current note (plus the image attachments they reference) packed into a .zip
-async function exportZip(){
-  const nodes = [...state.nodes.values()];
-  if (!nodes.length){ setStatus('Nothing to export yet.'); return; }
-  const used = new Set();
-  const files = nodes.map(n => {
-    let name = n.file || (safeName(n.title) + '.md');
-    while (used.has(name)) name = name.replace(/(\.md)?$/, '') + '-1.md';
-    used.add(name);
-    return { name, data: serializeMd(n) };
-  });
-  // collect every vault-relative image referenced in a body, and pack the files alongside the notes
-  const refs = new Set();
-  const re = /!\[[^\]]*\]\(([^)\s]+)\)/g;
-  for (const n of nodes){ let m; const b = n.body || ''; while ((m = re.exec(b))){ const p = m[1]; if (!/^(https?:|data:)/i.test(p)) refs.add(p); } }
-  let attached = 0;
-  for (const path of refs){
-    const blob = store.readBlob ? await store.readBlob(path) : null;
-    if (blob){ files.push({ name: path, bytes: new Uint8Array(await blob.arrayBuffer()) }); attached++; }
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(zipBlob(files));
-  a.download = 'mindmap.zip';
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  setStatus(`Exported ${nodes.length} notes${attached ? ` + ${attached} image${attached === 1 ? '' : 's'}` : ''} → mindmap.zip`);
-}
-
-
-async function loadFromDir({ keepView = false } = {}) {
-  state.nodes.clear(); state.toDelete = []; world.querySelectorAll('[data-id]').forEach(e=>e.remove());
-  resetImageCache();   // blob URLs from the previous map (or store) are stale now
-
-  // First pass: read every .md and parse it (layout now lives in each note's frontmatter).
-  const entries = [];   // { rel, parsed }
-  for (const { path, text } of await store.list()) {
-    const base = path.slice(path.lastIndexOf('/') + 1);
-    entries.push({ rel: path, parsed: parseMd(text, base) });
-  }
-
-  // Ids are ephemeral (minted fresh each load) since the filename is the real identity —
-  // parent links are stored/resolved BY PATH, so ids never need to survive a reload.
-  let seq = 0;
-  let placed = 0;          // count of notes lacking a saved position, for fallback layout
-  for (const { rel, parsed } of entries) {
-    const { mm, ...rest } = parsed;
-    const hasPos = (mm.x != null && mm.y != null);
-    const node = {
-      id: 'n' + (++seq), file:rel,
-      x: hasPos ? mm.x : (120 + (placed % 4) * 240),
-      y: hasPos ? mm.y : (120 + Math.floor(placed / 4) * 200),
-      _parentPath: mm.parent || '',                // resolved to an id once all notes are loaded
-      parent: null,
-      collapsed: !!mm.collapsed,
-      layoutType: mm.layout || 'none',
-      layoutDir: mm.dir || 'right',
-      ...rest, dirty:false, dirtyLayout: !hasPos,   // notes lacking a position get one persisted
-    };
-    if (!hasPos) placed++;                         // new note with no saved position
-    state.nodes.set(node.id, node);
-  }
-  // Resolve each note's parent path -> the loaded node's id (drops links to missing files).
-  const byPath = new Map([...state.nodes.values()].map(n => [n.file, n.id]));
-  for (const n of state.nodes.values()) {
-    n.parent = n._parentPath ? (byPath.get(n._parentPath) || null) : null;
-    delete n._parentPath;
-  }
-  // advance the runtime id counter past everything we just loaded so new nodes don't collide
-  state.idSeq = seq + 1;
-  // Auto-collapse a big map ONLY the very first time this folder is opened. After that we
-  // always restore exactly the saved frontmatter state — reopening must look like you left it.
-  const firstEver = !seenFolders().includes(store.name);
-  if (!keepView && firstEver && state.nodes.size > 40) {
-    collapseAtDepth(1);
-    radialLayout();
-  }
-  if (!keepView) markFolderSeen(store.name);
-  // Resolve layouts in three steps: paint once so every card has a real measured height, run
-  // the line/fan layout against those true heights, then paint the resolved positions. (Laying
-  // out before the first paint used a fallback height for every card, leaving tall cards
-  // overlapping — "layouts not resolved on open".)
-  paintAll();
-  applyLayouts();
-  paintAll();
-  if (!keepView) fit();
-  // Persist the resolved layout so the saved mm_x/mm_y match what's on screen. Reopening then
-  // reproduces the exact same arrangement (and the seeded child order) instead of drifting.
-  // Only write when the load actually moved something, so a stable reopen touches no files.
-  if (!state.readOnly && [...state.nodes.values()].some(n => n.dirty || n.dirtyLayout))
-    scheduleSave();
-  // show the loaded folder's name inside the home button (:empty hides it until loaded)
-  document.getElementById('folderName').textContent = store.name;
-  document.title = 'Mindmap - ' + store.name;
-}
-// title -> safe filename component (no path separators or illegal chars)
-function safeName(title){
-  return (title || 'Untitled').trim().replace(/[\/\\:*?"<>|]/g, '-').replace(/\s+/g,' ').slice(0,120);
-}
-// returns the filename a node SHOULD have, given its title, keeping its current directory.
-// New nodes (no file yet) are created directly in the selected folder — no "nodes/" subfolder.
-function desiredFileFor(n){
-  const dir = n.file ? n.file.slice(0, n.file.lastIndexOf('/')+1) : '';
-  let base = safeName(n.title) + '.md';
-  let rel = dir + base;
-  // avoid clobbering a DIFFERENT node that already uses this filename
-  let i = 2;
-  while ([...state.nodes.values()].some(o => o !== n && o.file === rel)) {
-    rel = dir + safeName(n.title) + ' ' + (i++) + '.md';
-  }
-  return rel;
-}
-async function saveAll() {
-  if (state.readOnly) return;        // read-only mode never writes to disk
-  if (!store.isOpen) { setStatus('Open a folder first.'); return; }
-  for (const f of state.toDelete) await store.remove(f);
-  state.toDelete = [];
-
-  // Layout lives in each note's frontmatter, so any content OR layout change rewrites the file.
-  const needWrite = new Set();
-  for (const n of state.nodes.values()) if (n.dirty || n.dirtyLayout || !n.file) needWrite.add(n.id);
-
-  // Phase 1 — settle every note's final filename IN MEMORY first. A child records its parent
-  // by path (mm_parent), so a renamed parent forces its children to be rewritten, and all
-  // parent paths must be final before we serialize anyone.
-  const removals = [];
-  for (const n of state.nodes.values()) {
-    // While the title is being typed, keep the current filename (rename happens on blur).
-    const freezeName = titleEditing && n.id === state.selId && n.file;
-    const target = freezeName ? n.file : desiredFileFor(n);
-    if (n.file && n.file !== target) {
-      removals.push(n.file);                       // old file to delete once the rename is written
-      for (const c of childrenOf(n.id)) needWrite.add(c.id);
-    }
-    if (n.file !== target) needWrite.add(n.id);    // brand-new node, or a rename
-    n.file = target;                               // adopt the final name
-  }
-
-  // Phase 2 — write everything that changed, now that all paths are final.
-  let written = 0;
-  for (const n of state.nodes.values()) {
-    if (!needWrite.has(n.id)) continue;
-    await store.write(n.file, serializeMd(n));
-    n.dirty = false; n.dirtyLayout = false;
-    written++;
-  }
-  // Phase 3 — drop files left behind by renames (unless some node now legitimately holds the path).
-  for (const old of removals)
-    if (![...state.nodes.values()].some(n => n.file === old)) await store.remove(old);
-
-  state.lastSelfWrite = Date.now();   // so focus-reload can ignore our own writes
-  paintAll();
-  setStatus(`Saved ${written} file${written===1?'':'s'} · ` + new Date().toLocaleTimeString());
-}
-
-// ---------- autosave (debounced) ----------
-// Every mutation calls scheduleSave(); we write ~400ms after the last change so a
-// burst of keystrokes becomes one disk write, not one per character.
-let saveTimer = null, saving = false, saveAgain = false;
-function scheduleSave() {
-  if (state.readOnly) return;         // read-only mode never writes to disk
-  if (!store.isOpen) return;          // demo mode: nothing to write
-  setStatus('Saving…');
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(flushSave, 400);
-}
-async function flushSave() {
-  if (!store.isOpen) return;
-  if (saving) { saveAgain = true; return; }   // coalesce overlapping writes
-  saving = true;
-  try {
-    await saveAll();
-  } catch (err) {
-    console.error('Save failed:', err);
-    setStatus('⚠ Save failed: ' + (err.message || err.name));
-  }
-  saving = false;
-  if (saveAgain) { saveAgain = false; flushSave(); }
-}
-
-// ---------- reload on focus ----------
-// When the window regains focus (e.g. you edited a .md in another app), flush any
-// pending write first, then re-read everything from disk and restore selection.
-let reloading = false;
-async function reloadFromDisk() {
-  if (!store.isOpen) return;
-  // A single refocus dispatches BOTH window 'focus' and 'visibilitychange', so this fires
-  // twice. loadFromDir is async (it awaits store.list), so a second run would interleave with
-  // the first and paint a duplicate, orphaned set of cards. Guard against re-entry: run once.
-  if (reloading) return;
-  // if we just wrote, the focus event is almost certainly our own round-trip — skip
-  if (Date.now() - (state.lastSelfWrite || 0) < 600) return;
-  clearTimeout(saveTimer);
-  if (saving) return;                 // a write is mid-flight; don't read torn state
-  const selBefore = state.selId;
-  // Don't yank the rug out while the user is actively typing in the panel or renaming a card.
-  if (titleEditing || bodyEditing || ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
-  reloading = true;
-  try {
-    await loadFromDir({ keepView:true });
-    // restore selection (and re-populate the panel from fresh data) if the node still exists
-    if (selBefore && state.nodes.has(selBefore)) selectNode(selBefore);
-    else selectNode(null);
-  } finally {
-    reloading = false;
-  }
-}
-store.watch(reloadFromDisk);   // re-read on external change (FSA: window-focus / tab-visible)
-
 
 function timeAgo(ts){
   const s = (Date.now()-ts)/1000;
@@ -1925,7 +1674,7 @@ function renderRecents(){
 // ---------- home screen (storage settings; the map itself opens onto the canvas) ----------
 const startScreen = document.getElementById('startScreen');
 function showStart(){ renderStoreScreen(); startScreen.classList.remove('hidden'); }
-function hideStart(){ startScreen.classList.add('hidden'); }
+export function hideStart(){ startScreen.classList.add('hidden'); }
 
 function renderStoreScreen(){
   document.getElementById('storeStatus').textContent =
@@ -1938,7 +1687,7 @@ function renderStoreScreen(){
 
 document.getElementById('startOpen').onclick   = () => openFolder();
 document.getElementById('useDeviceBtn').onclick = () => openDevice();
-document.getElementById('importBtn').onclick   = () => importInput.click();
+document.getElementById('importBtn').onclick   = () => openImportPicker();
 document.getElementById('exportBtn').onclick   = () => exportZip();   // async; fire-and-forget
 document.getElementById('startClose').onclick  = () => hideStart();
 

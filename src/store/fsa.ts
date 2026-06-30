@@ -64,7 +64,7 @@ export const fsaStore = {
   },
 
   list(){ return listMd(this._dir!); },
-  write(path: string, text: string){ return writeFile(this._dir!, path, text); },
+  write(path: string, data: string | Blob){ return writeFile(this._dir!, path, data); },
   remove(path: string){ return removeFile(this._dir!, path); },
   readBlob(path: string){ return readFileBlob(this._dir!, path); },
 

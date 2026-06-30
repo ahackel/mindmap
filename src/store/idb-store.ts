@@ -30,11 +30,11 @@ export const idbStore = (() => {
         tx.onerror = e => rej((e.target as IDBTransaction).error);
       });
     },
-    async write(path: string, text: string): Promise<void> {
+    async write(path: string, data: string | Blob): Promise<void> {
       const d = await db();
       return new Promise<void>((res, rej) => {
         const tx = d.transaction('files','readwrite');
-        tx.objectStore('files').put(text, path);
+        tx.objectStore('files').put(data, path);
         tx.oncomplete = () => res(); tx.onerror = e => rej((e.target as IDBTransaction).error);
       });
     },

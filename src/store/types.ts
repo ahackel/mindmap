@@ -17,7 +17,7 @@ export interface Store {
   openRecent(key?: string): Promise<PickResult>;
   resume?(key: string): Promise<boolean>;   // FSA only: silent reopen if permission persists
   list(): Promise<NoteFile[]>;
-  write(path: string, text: string): Promise<void>;
+  write(path: string, data: string | Blob): Promise<void>;
   remove(path: string): Promise<void>;
   readBlob(path: string): Promise<Blob | null>;
   watch(cb: () => void): void;
