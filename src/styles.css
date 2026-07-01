@@ -135,13 +135,16 @@ svg#edges path, svg#dragEdges path { fill:none; stroke:var(--edge); stroke-width
 /* bodyless cards shrink to just fit the title (no reserved body height) */
 .node.no-body { min-height:0; }
 .node.no-body .title { margin-bottom:0; }
-/* card-level "done" mark: a checkbox next to the title, only shown on title-only cards
-   (a body's own task list carries per-line state instead — see .taskbox below) */
+/* checklist item: a done checkbox next to the title, shown when this card's PARENT has its own
+   `checklist` turned on (Trello-style — see showsDoneCheckbox in main.ts). A body's own task
+   list carries separate per-line state instead — see .taskbox below. */
 .node .title-row { display:flex; align-items:flex-start; gap:.5em; }
 .node .title-row .title { flex:1 1 auto; min-width:0; }
 .node .donebox { display:none; margin-top:.2em; }
 .node.show-done .donebox { display:block; }
 .node.done .title { text-decoration:line-through; opacity:.65; }
+/* checklist owner: this card's own "n/m" progress over its direct children */
+.node .progress { flex:none; margin-left:auto; padding-left:.5em; font-size:11px; font-weight:600; opacity:.7; }
 /* an uncoloured card sits on the page background, so its text follows the theme, not white */
 .node.c-none { color: var(--text); }
 .node.sel { border-color: var(--node-sel); box-shadow:0 0 0 2px var(--node-sel); }

@@ -52,7 +52,7 @@ function nodeEl(n: MindNode): HTMLElement {
   if (n.el) return n.el;
   const el = document.createElement('div');
   el.dataset.id = n.id;
-  el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><div class="title"></div></div><div class="body"></div>
+  el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><div class="title"></div><span class="progress"></span></div><div class="body"></div>
     <span class="hidden-count"></span>
     <div class="addnote" title="Add note">Add note…</div>`;
   world.appendChild(el);
@@ -126,26 +126,24 @@ export function effectiveColor(n: MindNode): string {
     if (c.color) return c.color;
   return 'grey';
 }
-// The done checkbox is opt-in (most cards shouldn't grow one) and inherits down the subtree like
-// `color`: turning it 'on' for a card turns it on for every descendant too, unless one of them is
-// explicitly set 'off'. Default (no ancestor opts in) is no checkbox anywhere.
-function effectiveChecklistOn(n: MindNode): boolean {
-  for (let c: MindNode | null | undefined = n; c; c = c.parent ? state.nodes.get(c.parent) : null){
-    if (c.checklist === 'on') return true;
-    if (c.checklist === 'off') return false;
-  }
-  return false;
+// A card shows a done checkbox only if its PARENT has `checklist` on — Trello-style: the
+// setting lives on the parent ("treat my children as a checklist"), not on the item itself, and
+// doesn't cascade past that one level (a checklist item can run its own checklist for its kids).
+function showsDoneCheckbox(n: MindNode): boolean {
+  const p = n.parent ? state.nodes.get(n.parent) : undefined;
+  return !!(p && p.checklist);
 }
 export function paintNode(n: MindNode): void {
   const el = nodeEl(n);
   if (isHidden(n)) { el.style.display = 'none'; return; }
   el.style.display = '';
-  const hasKids = childrenOf(n.id).length > 0;
+  const kids = childrenOf(n.id);
+  const hasKids = kids.length > 0;
   const editingBody = ui.bodyEdit && ui.bodyEdit.id === n.id;    // body editor open on this card
   const hasBody = editingBody || !!(n.body && n.body.trim());  // keep the body slot while editing
   const collapsedKids = n.collapsed && hasKids;            // hidden children → +N chip
   const collapsed = n.collapsed && (hasKids || hasBody);   // folded to just its title
-  const showDone = !hasBody && effectiveChecklistOn(n);    // opt-in checkbox, title-only cards only
+  const showDone = showsDoneCheckbox(n);                   // checklist item of a checklist parent
   el.className = 'node c-' + effectiveColor(n)
     + (state.sel.has(n.id) ? ' sel' : '')
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
@@ -156,6 +154,9 @@ export function paintNode(n: MindNode): void {
     + (ui.drag?.targets?.has(n.id) ? ' dragging' : '')   // float the dragged subtree above all cards
     + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '');
   (el.querySelector('.donebox') as HTMLInputElement).checked = n.done;
+  // this card's own checklist (over ITS children) → an "n/m done" progress readout by the title
+  el.querySelector('.progress')!.textContent =
+    (n.checklist && hasKids) ? `${kids.filter(k => k.done).length}/${kids.length}` : '';
   // During drag: keep left/top frozen at the pre-drag origin and move via transform (compositor-only).
   // Outside drag: commit position normally and clear any leftover transform.
   const dragOrig = ui.drag?.origins?.get(n.id);
@@ -288,12 +289,15 @@ export function toggleCollapseSelection(ids: Iterable<string>): void {
   scheduleSave();
   setStatus(`${target ? 'Collapsed' : 'Expanded'} ${cards.length} card${cards.length > 1 ? 's' : ''}`);
 }
-// Flip a title-only card's done mark (mm_done) and persist. Independent of any body task list.
+// Flip a checklist item's done mark (mm_done) and persist. Independent of any body task list.
+// Also repaints the parent so its "n/m" checklist progress readout stays in sync.
 function toggleDone(n: MindNode): void {
   if (state.readOnly) return;
   n.done = !n.done;
   n.dirty = true;
-  paintNode(n); scheduleSave();
+  paintNode(n);
+  if (n.parent){ const p = state.nodes.get(n.parent); if (p) paintNode(p); }
+  scheduleSave();
 }
 // Flip the idx-th task checkbox in a node's body and write the change back to disk.
 function toggleTask(n: MindNode, idx: number): void {
@@ -443,32 +447,31 @@ function markLayoutChips(): void {
   });
 }
 
-// ---------- done-checkbox picker: inherit (default) / on / off — same tri-state shape as colour.
-// 'on' cascades to every descendant (effectiveChecklistOn walks up), so switching a branch's root
-// on turns on the whole subtree at once; a descendant can still opt back out with 'off'.
+// ---------- checklist picker: off (default) / on — Trello-style, set on the PARENT. Turning it on
+// gives each of its direct children a done checkbox and shows their "n/m" progress on this card;
+// it does not cascade further down (see showsDoneCheckbox).
 const CHECKLIST_MODES = [
-  { key:'', label:'Inherit — take the parent’s checklist setting (default)' },
-  { key:'on', label:'On — show a done checkbox on this card and its children' },
-  { key:'off', label:'Off — no checkbox on this card or its children' },
+  { key:'off', label:'Off — children are plain cards (default)' },
+  { key:'on',  label:'On — children get a done checkbox; this card shows their progress' },
 ];
 (function buildChecklistChips(){
   edChecklist.innerHTML = CHECKLIST_MODES.map(m =>
-    `<div class="layoutchip text" data-mode="${m.key}" title="${m.label}">${m.key || 'inherit'}</div>`).join('');
+    `<div class="layoutchip text" data-mode="${m.key}" title="${m.label}">${m.key}</div>`).join('');
   edChecklist.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-    c.addEventListener('click', () => setChecklist(c.dataset.mode ?? '')));
+    c.addEventListener('click', () => setChecklist(c.dataset.mode === 'on')));
 })();
-function setChecklist(mode: string): void {
+function setChecklist(on: boolean): void {
   const ids = selectedIds(); if (!ids.length) return;
-  for (const id of ids){ const n = state.nodes.get(id); if (n){ n.checklist = mode; n.dirty = true; } }
+  for (const id of ids){ const n = state.nodes.get(id); if (n){ n.checklist = on; n.dirty = true; } }
   markChecklistChip();
   paintAll(); scheduleSave();
 }
 function markChecklistChip(): void {
   const ids = selectedIds();
-  const modes = new Set(ids.map(id => state.nodes.get(id)?.checklist || ''));
-  const m = modes.size === 1 ? [...modes][0] : null;
+  const vals = new Set(ids.map(id => !!state.nodes.get(id)?.checklist));
+  const v = vals.size === 1 ? [...vals][0] : null;
   edChecklist.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-    c.classList.toggle('active', c.dataset.mode === m));
+    c.classList.toggle('active', v !== null && c.dataset.mode === (v ? 'on' : 'off')));
 }
 
 function openEditor(n: MindNode | undefined): void {

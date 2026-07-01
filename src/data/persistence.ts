@@ -120,7 +120,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
       parent: null,
       collapsed: !!mm.collapsed,
       done: !!mm.done,
-      checklist: mm.checklist || '',
+      checklist: !!mm.checklist,
       layoutType: (mm.layout || 'none') as LayoutType,
       layoutDir: (mm.dir || 'right') as LayoutDir,
       ...rest, dirty:false, dirtyLayout: !hasPos,   // notes lacking a position get one persisted

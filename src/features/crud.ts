@@ -17,7 +17,7 @@ import { startInlineEdit } from './inline-edit.js';
 function mkNode(fields: Partial<MindNode> = {}): MindNode {
   return {
     id: 'n' + (state.idSeq++), file:null,
-    x:0, y:0, parent:null, collapsed:false, done:false, checklist:'',
+    x:0, y:0, parent:null, collapsed:false, done:false, checklist:false,
     title:'', color:'', keepStatus:'', tags:[], body:'',
     layoutType:'none', layoutDir:'right',
     dirty:true, dirtyLayout:true,
