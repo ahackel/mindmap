@@ -131,14 +131,13 @@ export function paintEdges(): void {
     if (ui.drag && ui.drag.dropTarget && ui.drag.targets.has(n.id)) continue;
     // While Shift-cloning, the dragged copies aren't placed yet — don't draw their parent edges.
     if (ui.drag && ui.drag.cloned && ui.drag.targets.has(n.id)) continue;
-    // Rip threshold reached: don't draw the normal solid edge — dash it instead, as a clearly
-    // visible (not faded) "about to detach" signal, matching the other ghost-edge previews.
-    const ripping = !!(ui.drag && ui.drag.rip && ui.drag.active.id === n.id);
+    // Rip threshold reached: it's about to detach, so drop its parent edge entirely — same
+    // treatment as the Alt-detach preview above, not a dashed line.
+    if (ui.drag && ui.drag.rip && ui.drag.active.id === n.id) continue;
     // tint by the child's branch colour
     const tint = SWATCH_BG[effectiveColor(n)];
     const style = tint ? ` style="stroke:${tint}"` : '';
-    const dash = ripping ? ' class="ghost-edge" stroke-dasharray="6 5"' : '';
-    const path = `<path${style}${dash} d="${edgePath(parent, n)}"/>`;
+    const path = `<path${style} d="${edgePath(parent, n)}"/>`;
     // edges of the dragged subtree ride in the top overlay so they're never hidden behind cards
     if (ui.drag && ui.drag.targets.has(n.id)) top += path; else svg += path;
   }
