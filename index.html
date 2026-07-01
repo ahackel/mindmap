@@ -27,6 +27,8 @@
 
   <div id="stage">
     <div id="world">
+      <!-- group backgrounds: the "encloses card + descendants" tint, behind everything else -->
+      <svg id="backgrounds"></svg>
       <svg id="edges"></svg>
       <!-- toggles overlay renders ABOVE node divs so collapse dots are always visible -->
       <svg id="toggles"></svg>
@@ -53,6 +55,9 @@
       </div>
       <div class="fgroup fg-checklist">
         <label class="checkbox-label"><input id="edChecklist" type="checkbox"> Checklist</label>
+      </div>
+      <div class="fgroup fg-bg">
+        <label class="checkbox-label"><input id="edBg" type="checkbox"> Group background</label>
       </div>
       <div class="fgroup fg-tags">
         <label>Tags (comma)</label>

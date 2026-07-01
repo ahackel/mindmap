@@ -368,11 +368,16 @@ const edTags  = byId<HTMLInputElement>('edTags');
 const edLayoutTypes = byId('edLayoutTypes');
 const edColors = byId('edColors');
 const edChecklist = byId<HTMLInputElement>('edChecklist');
+const edBg = byId<HTMLInputElement>('edBg');
 
-// colour palette (keys match the .c-* CSS classes); 'grey' is the old neutral "none" look
-const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey'];
-export const SWATCH_BG: Record<string, string> = { slate:'#4860c0', red:'#d62f48', amber:'#d18a1d', green:'#1ba85a',
-  teal:'#129fb3', blue:'#2f7fe8', violet:'#7a42da', pink:'#d6368e', grey:'#2b3645' };
+// colour palette (keys match the .c-* CSS classes); 'grey' is the old neutral "none" look.
+// The hexes themselves live in ONE place — the --pal-* custom properties in styles.css's
+// :root — so CSS (.c-*, #ghostCard) and JS (edges/backgrounds fills, swatch dots below) can
+// never drift apart. Read once at load; palette colours don't change with the theme.
+const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey','white'];
+const rootStyle = getComputedStyle(document.documentElement);
+const pal = (name: string): string => rootStyle.getPropertyValue(`--pal-${name}`).trim();
+export const SWATCH_BG: Record<string, string> = Object.fromEntries(PALETTE.map(c => [c, pal(c)]));
 // build the swatch row once: inherit (default) + the palette colours + explicit "none".
 // '' = inherit the nearest coloured ancestor (effectiveColor walks up); 'none' = no colour, terminal.
 (function buildSwatches(){
@@ -457,6 +462,22 @@ function markChecklistBox(): void {
   edChecklist.checked = vals.size === 1 && [...vals][0];
 }
 
+// ---------- group background toggle: encloses a card + all its visible descendants in a
+// translucent tint (see view/edges.ts paintBackgrounds), coloured by the card's effective colour.
+edBg.addEventListener('change', () => setBg(edBg.checked));
+function setBg(on: boolean): void {
+  const ids = selectedIds(); if (!ids.length) return;
+  for (const id of ids){ const n = state.nodes.get(id); if (n){ n.bg = on; n.dirty = true; } }
+  markBgBox();
+  paintAll(); scheduleSave();
+}
+function markBgBox(): void {
+  const ids = selectedIds();
+  const vals = new Set(ids.map(id => !!state.nodes.get(id)?.bg));
+  edBg.indeterminate = vals.size > 1;
+  edBg.checked = vals.size === 1 && [...vals][0];
+}
+
 function openEditor(n: MindNode | undefined): void {
   if (!n) return;
   editor.classList.remove('multi');
@@ -465,6 +486,7 @@ function openEditor(n: MindNode | undefined): void {
   markActiveSwatch(n.color);
   markLayoutChips();
   markChecklistBox();
+  markBgBox();
   editor.classList.add('has-selection');   // show fields instead of the empty hint
 }
 // many nodes selected → show just the colour picker + a count; swatches recolour all of them
@@ -476,6 +498,7 @@ function openMultiEditor(): void {
   markActiveSwatch(colors.size === 1 ? [...colors][0] : '');  // none active when mixed
   markLayoutChips();
   markChecklistBox();
+  markBgBox();
   editor.classList.add('has-selection', 'multi');
 }
 // no node selected → keep the sidebar open but show the empty hint

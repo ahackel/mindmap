@@ -31,6 +31,8 @@ export interface MindNode {
   checklist: boolean;              // Trello-style: treat my DIRECT children as a checklist — each
                                     // gets a done checkbox and I show their `n/m` progress. Doesn't
                                     // cascade further down; a child can run its own checklist too.
+  bg: boolean;                     // draw a translucent background enclosing me + all my visible
+                                    // descendants (see view/edges.ts paintBackgrounds)
   layoutType: LayoutType;
   // Which of the PARENT's 4 sides this node attaches on. Stored, not derived — set explicitly
   // by a drop (or copied onto a clone), and backfilled once from position on load/creation if
@@ -81,6 +83,7 @@ export const state: AppState = {
 
 export const world = document.getElementById('world') as HTMLElement;
 export const stage = document.getElementById('stage') as HTMLElement;
+export const backgroundsSvg = document.getElementById('backgrounds') as unknown as SVGSVGElement;
 export const edgesSvg = document.getElementById('edges') as unknown as SVGSVGElement;
 export const togglesSvg = document.getElementById('toggles') as unknown as SVGSVGElement;
 // Top overlay for drag-time edges (dragged card's connectors + reparent preview) — see view/edges.ts.

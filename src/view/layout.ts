@@ -142,7 +142,7 @@ const LAYOUT_CROSS = 22;   // gap between FANNED sibling subtrees (spread across
 const LAYOUT_CHAIN = 12;   // gap between CHAINED sibling subtrees (a line along the direction)
 
 // Bounding box over a node + its VISIBLE descendants (what the layout actually placed).
-function subtreeBox(node: MindNode){
+export function subtreeBox(node: MindNode){
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const id of subtreeIds(node.id)){
     const n = state.nodes.get(id); if (!n || isHidden(n)) continue;

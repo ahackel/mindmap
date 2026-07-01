@@ -2,9 +2,9 @@
 // Edges are DERIVED from each node's parent (no stored edge list). This module owns the parent→child
 // connector geometry for the three edge styles and paints them into the #edges SVG. It reads the
 // render core's live card heights (nodeH) and branch colour (effectiveColor) from main.
-import { state, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, backgroundsSvg, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode, type LayoutSide } from '../core/state.js';
 import { isRoot, isHidden } from '../utils/model.js';
-import { dropLanding, sideOf } from './layout.js';
+import { dropLanding, sideOf, subtreeBox } from './layout.js';
 import { ui, type Pt } from '../core/ui-state.js';
 import { NODE_W, nodeH, effectiveColor, SWATCH_BG } from '../main.js';
 
@@ -106,7 +106,39 @@ function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: 
   const land = dropLanding(drag.active, tgtNode, drag.dropMode, drag.dropSide);
   return { parent, box: { x: land.x, y: land.y, h }, side: drag.dropSide };
 }
+const BG_PAD = 20;      // margin around the enclosed cards — hugs the bounds, kept a multiple of 20
+const BG_R = 10;         // corner radius — subtly rounded, not pill-shaped
+const BG_ALPHA = 0.16;  // fill opacity — translucent, reads as a tint rather than a card
+function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
+  if (!m) return hex;
+  const [r, g, b] = m.slice(1).map(h => parseInt(h, 16));
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+// A node's own "group background" (mm_bg) encloses it + all its VISIBLE descendants — drawn
+// behind everything else (see #backgrounds z-index in styles.css). Nested enclosures (a
+// descendant also has its background on) are fine: painted largest-first so a parent's bigger
+// rect sits behind, and each smaller descendant rect layers on top of it.
+function paintBackgrounds(): void {
+  if (state.searchMatch) { backgroundsSvg.innerHTML = ''; return; }
+  const rects: { area: number; markup: string }[] = [];
+  for (const n of state.nodes.values()) {
+    if (!n.bg || isHidden(n)) continue;
+    const box = subtreeBox(n);
+    if (!isFinite(box.x0)) continue;
+    const x = box.x0 - BG_PAD, y = box.y0 - BG_PAD;
+    const w = (box.x1 - box.x0) + BG_PAD * 2, h = (box.y1 - box.y0) + BG_PAD * 2;
+    const fill = hexToRgba(SWATCH_BG[effectiveColor(n)] ?? SWATCH_BG.grey, BG_ALPHA);
+    rects.push({
+      area: w * h,
+      markup: `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${BG_R}" fill="${fill}"/>`,
+    });
+  }
+  rects.sort((a, b) => b.area - a.area);   // biggest enclosure first (behind), smaller ones on top
+  backgroundsSvg.innerHTML = rects.map(r => r.markup).join('');
+}
 export function paintEdges(): void {
+  paintBackgrounds();
   // While filtering, hide ALL lines — dimmed cards are semi-transparent, so faint lines would
   // show through them and read as clutter. Cleaner to drop the lines entirely until search ends.
   if (state.searchMatch){ edgesSvg.innerHTML = ''; togglesSvg.innerHTML = ''; dragEdgesSvg.innerHTML = ''; return; }

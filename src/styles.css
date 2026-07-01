@@ -11,6 +11,21 @@
   --muted: #8a99ad;
   --accent: #5aa9ff;
   --panel: #1f2734;   /* bar/chrome surface — brighter than the canvas */
+
+  /* 8-colour muted card palette + grey (the "no colour" fallback) — identical in both themes.
+     The SINGLE SOURCE OF TRUTH for these hexes: main.ts's SWATCH_BG reads them straight from
+     here (getComputedStyle) at load, so JS (edges/backgrounds/swatch fills) and CSS (.c-*
+     below, #ghostCard) never drift apart. Change a colour here only. */
+  --pal-slate: #4860c0;
+  --pal-red: #d62f48;
+  --pal-amber: #d18a1d;
+  --pal-green: #1ba85a;
+  --pal-teal: #129fb3;
+  --pal-blue: #2f7fe8;
+  --pal-violet: #7a42da;
+  --pal-pink: #d6368e;
+  --pal-grey: #3a4759;
+  --pal-white: #f2f4f7;
 }
 /* ---- light theme: override the base variables ---- */
 body.light {
@@ -26,17 +41,17 @@ body.light {
   --panel: #ffffff;
 }
 
-/* 8-colour muted palette — fills the whole card background (dark theme) */
 /* card colours are identical in both themes; text on a card is always white */
-.c-slate  { --card:#4860c0; }
-.c-red    { --card:#d62f48; }
-.c-amber  { --card:#d18a1d; }
-.c-green  { --card:#1ba85a; }
-.c-teal   { --card:#129fb3; }
-.c-blue   { --card:#2f7fe8; }
-.c-violet { --card:#7a42da; }
-.c-pink   { --card:#d6368e; }
-.c-grey   { --card:#2b3645; }
+.c-slate  { --card:var(--pal-slate); }
+.c-red    { --card:var(--pal-red); }
+.c-amber  { --card:var(--pal-amber); }
+.c-green  { --card:var(--pal-green); }
+.c-teal   { --card:var(--pal-teal); }
+.c-blue   { --card:var(--pal-blue); }
+.c-violet { --card:var(--pal-violet); }
+.c-pink   { --card:var(--pal-pink); }
+.c-grey   { --card:var(--pal-grey); }
+.c-white  { --card:var(--pal-white); }
 /* "none" = no colour at all: blend into the canvas (border returns when selected) */
 .c-none   { --card:var(--bg); }
 
@@ -111,7 +126,8 @@ input::placeholder { color:var(--panel); opacity:1; }
 body.grabbing, body.grabbing * { cursor:grabbing !important; }
 #world { position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; touch-action:none; }
 
-svg#edges, svg#toggles, svg#dragEdges { position:absolute; top:0; left:0; overflow:visible; }
+svg#backgrounds, svg#edges, svg#toggles, svg#dragEdges { position:absolute; top:0; left:0; overflow:visible; }
+svg#backgrounds { z-index:0; pointer-events:none; } /* group backgrounds behind everything */
 svg#edges { z-index:1; pointer-events:none; }      /* curves behind nodes */
 .node { z-index:2; }                               /* nodes in the middle */
 svg#toggles { z-index:3; pointer-events:none; }    /* toggles on top; group re-enables events */
@@ -151,6 +167,8 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 .node .progress { flex:none; margin-left:auto; padding-left:.5em; font-size:11px; font-weight:600; opacity:.7; }
 /* an uncoloured card sits on the page background, so its text follows the theme, not white */
 .node.c-none { color: var(--text); }
+/* white is the one palette colour too light for white text — dark grey instead, both themes */
+.node.c-white { color: #2b3645; }
 .node.sel { box-shadow:0 0 0 2px var(--node-sel); }
 /* while editing a title/body in place, drop the card's selection ring so only the editor's
    own outline shows */
@@ -261,16 +279,19 @@ body.light .swatch.inherit { background:repeating-linear-gradient(45deg,#fff,#ff
 
 /* big new-card button, bottom-left of the canvas */
 /* ghost card — drag it onto the canvas to create a new card */
+/* Styled like the card it actually creates (an unconnected node — effectiveColor's 'grey'
+   fallback, same --card value as .c-grey), not a generic dashed placeholder, so it previews
+   the real result. */
 #ghostCard {
   position:fixed; left:18px; bottom:18px; z-index:20;
   width:96px; height:48px;
   display:flex; align-items:center; justify-content:center;
-  background:var(--node); border:1px dashed var(--node-border); border-radius:2px;
-  color:var(--muted); font-size:22px; font-weight:400;
+  background:var(--pal-grey); border:none; border-radius:2px;
+  color:#ffffff; font-size:22px; font-weight:400;
   cursor:grab; user-select:none; touch-action:none;
-  transition:border-color .15s, color .15s, opacity .15s;
+  transition:box-shadow .15s, opacity .15s;
 }
-#ghostCard:hover { border-color:var(--accent); color:var(--accent); }
+#ghostCard:hover { box-shadow:0 0 0 2px var(--accent); }
 body.readonly #ghostCard { opacity:.35; pointer-events:none; }
 
 /* floating edit panel — sits below the toolbar, off the right edge, hugs its content */
