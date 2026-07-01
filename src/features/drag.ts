@@ -182,16 +182,31 @@ export function bindNodeDrag(n: MindNode): void {
              meta: e.metaKey || e.ctrlKey,     // ⌘/Ctrl-click toggles this card in the selection
              touch: e.pointerType === 'touch' }; // higher move threshold for finger taps
     for (const id of ids) { const m2 = state.nodes.get(id); if (m2?.el){ m2.el.style.willChange = 'transform'; m2.el.classList.add('dragging'); } }
-  });
-  el.addEventListener('pointermove', (e) => {
-    const drag = ui.drag;
-    if (!drag || drag.n !== n) return;
-    dragPointerMove(e);
-  });
-  el.addEventListener('pointerup', () => {
-    const drag = ui.drag;
-    if (!drag || drag.n !== n) return;
-    dragPointerUp();
+    // Continue/commit this drag on `window`, not `el` — pointer capture (above) is still requested
+    // best-effort so the dragged card's own hover/other handlers stay quiet, but capture can be
+    // lost across a mid-drag re-render (paintAll/layout-snap/landing-ghost swap all run while
+    // dragging). A lost capture hands pointerup to whatever's actually under the cursor instead —
+    // e.g. the reparent target — whose own pointerdown-scoped listener has nothing to do with THIS
+    // gesture, so the event used to vanish, leaving the landing ghost stuck on screen and the real
+    // (Shift-cloned or reparented) card invisible forever. `pointercancel` (tab switch, interrupted
+    // touch) commits in place too, for the same reliability reason. Listeners are added/removed per
+    // gesture (not left permanently on window) so they can't double-fire alongside the ghost-card
+    // flow's own window listeners in main.ts, which drives its drag through the same dragPointerMove
+    // /dragPointerUp via feedDragMove/commitDrag.
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    // Guard on `ui.drag.n === n` (not just truthiness): there's a single shared `ui.drag` slot, so
+    // if a second card's pointerdown ever hijacks it before this gesture's up/cancel arrives (e.g.
+    // true two-finger touch on two different cards at once), this stale pair must still remove
+    // itself without touching the OTHER drag that's now live.
+    function onMove(ev: PointerEvent): void { if (ui.drag && ui.drag.n === n) dragPointerMove(ev); }
+    function onUp(): void {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      if (ui.drag && ui.drag.n === n) dragPointerUp();
+    }
   });
 }
 // Body of a drag pointermove, operating on the live ui.drag (the node that owns the gesture is
