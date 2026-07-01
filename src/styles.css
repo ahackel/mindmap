@@ -185,7 +185,9 @@ svg#edges path, svg#dragEdges path { fill:none; stroke:var(--edge); stroke-width
 .node .body ul,.node .body ol { padding-left:1.1em; }
 .node .body li { margin:.1em 0; }
 .node .body li.task { list-style:none; margin-left:-1.0em; display:flex; align-items:flex-start; gap:.4em; }
-.node .body li.task .taskbox { margin:.15em 0 0; cursor:pointer; accent-color:var(--accent); flex:none; }
+.node .body li.task .taskbox { -webkit-appearance:none; appearance:none; width:14px; height:14px; margin:.15em 0 0; border:none; outline:none; border-radius:3px; background:#fff; cursor:pointer; flex:none; position:relative; }
+.node .body li.task .taskbox:checked { background:var(--accent); }
+.node .body li.task .taskbox:checked::after { content:""; position:absolute; left:4px; top:1px; width:4px; height:8px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
 .node .body strong { font-weight:700; }
 .node .body em { font-style:italic; }
 .node .body del { opacity:.7; }
