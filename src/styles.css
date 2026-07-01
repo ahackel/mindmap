@@ -155,9 +155,6 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 /* while editing a title/body in place, drop the card's selection ring so only the editor's
    own outline shows */
 .node.sel:has(.title.editing), .node.sel:has(.body.editing) { box-shadow:none; }
-.node.drop-target { outline:2px dashed #5ac978; outline-offset:3px;
-  box-shadow:0 0 0 2px #5ac978; }
-.node.drop-sibling { box-shadow:0 4px 0 0 #5ac978; }
 /* the dragged card (and its subtree) floats above every other card while moving */
 .node.dragging { z-index:5; }
 /* while poised over a valid parent the dragged card becomes just a dotted outline,

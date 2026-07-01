@@ -68,7 +68,7 @@ function trueRoots(ids: string[]): string[] {
   return ids.filter(id => { const p = state.nodes.get(id)?.parent; return !p || !idSet.has(p); });
 }
 
-const RIP_THRESHOLD = 400; // screen-space px dragged from THIS gesture's start before edge hides/detaches on drop
+const RIP_THRESHOLD = 200; // screen-space px dragged from THIS gesture's start before edge hides/detaches on drop
 
 // Recompute whether the dragged card has been pulled past the rip threshold DURING THIS DRAG —
 // measured from where the gesture started (drag.start), not from the parent's position. Using the
@@ -346,12 +346,16 @@ function dragPointerUp(): void {
             act.side = undefined;   // a root has no side
             setStatus(`"${act.title}" is now a root`);
           } else {
-            // No drop target and no detach — a plain reposition. Refresh each root's stored
-            // side from its new position (same rule as the load backfill) so its edge still
-            // tracks visually, even though nothing was explicitly dropped onto anything.
+            // No drop target and no detach — a plain reposition. For a MANAGED parent (line/fan)
+            // refresh each root's stored side from its new position (same rule as the load
+            // backfill) so its edge/bucket still tracks visually. A FREE parent never reflows its
+            // children, so the side is purely a stored label — keep whatever it already was
+            // rather than relabeling it from wherever the drag happened to leave the card.
             for (const rootId of selRoots){
               const r = state.nodes.get(rootId);
-              if (r?.parent) { const p = state.nodes.get(r.parent); if (p) r.side = deriveSide(p, r); }
+              if (!r?.parent) continue;
+              const p = state.nodes.get(r.parent);
+              if (p && effectiveLayout(p).type !== 'free') r.side = deriveSide(p, r);
             }
           }
         }

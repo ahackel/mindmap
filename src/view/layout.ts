@@ -37,8 +37,16 @@ export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' |
   const governor = mode === 'child' ? target : (target.parent ? state.nodes.get(target.parent) : null) ?? target;
   const eff = effectiveLayout(governor);
   if (eff.type !== 'line' && eff.type !== 'fan') {
-    const y = target.y + nodeH(target) + LANDING_GAP;
-    return mode === 'child' ? { x: target.x + LANDING_GAP, y } : { x: target.x, y };
+    // Nudge the cross-axis in child mode (a fresh attachment, offset from target) but keep it
+    // aligned with target in sibling mode (it's slotting into target's own spot). `side` is the
+    // side of TARGET the card is docking against — same geometry regardless of which side that is.
+    const nudge = mode === 'child' ? LANDING_GAP : 0;
+    switch (side) {
+      case 'up':    return { x: target.x + nudge, y: target.y - nodeH(dragged) - LANDING_GAP };
+      case 'left':  return { x: target.x - NODE_W - LANDING_GAP, y: target.y + nudge };
+      case 'right': return { x: target.x + NODE_W + LANDING_GAP, y: target.y + nudge };
+      default:      return { x: target.x + nudge, y: target.y + nodeH(target) + LANDING_GAP };
+    }
   }
   return simulateLanding(dragged, governor, side, mode === 'sibling' ? target.id : undefined);
 }
