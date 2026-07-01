@@ -22,6 +22,7 @@ export interface ParsedNote {
     y: number | null;
     collapsed: boolean;
     done: boolean;
+    checklist: string;
     layout: string;
     dir: string;
   };
@@ -79,6 +80,7 @@ export function parseMd(text: string, fileName: string): ParsedNote {
       y: num(fmValue(entries, 'mm_y')),
       collapsed: fmValue(entries, 'mm_collapsed') === 'true',
       done: fmValue(entries, 'mm_done') === 'true',
+      checklist: fmValue(entries, 'mm_checklist'),       // '' inherit (default) | on | off
       layout: fmValue(entries, 'mm_layout') || 'none',   // none(inherit) | free | line | fan | two-sided
       dir: fmValue(entries, 'mm_dir') || 'right',         // left | right | top | bottom
     },
@@ -101,6 +103,7 @@ export function serializeMd(n: MindNode): string {
   entries.push({ key:'mm_y', lines:[`mm_y: ${Math.round(n.y)}`] });
   if (n.collapsed) entries.push({ key:'mm_collapsed', lines:['mm_collapsed: true'] });
   if (n.done) entries.push({ key:'mm_done', lines:['mm_done: true'] });
+  if (n.checklist) entries.push({ key:'mm_checklist', lines:[`mm_checklist: ${n.checklist}`] });
   if (n.layoutType && n.layoutType !== 'none'){   // none (inherit) is the default — omit from file
     entries.push({ key:'mm_layout', lines:[`mm_layout: ${n.layoutType}`] });
     entries.push({ key:'mm_dir',    lines:[`mm_dir: ${n.layoutDir || 'right'}`] });

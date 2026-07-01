@@ -140,7 +140,7 @@ svg#edges path, svg#dragEdges path { fill:none; stroke:var(--edge); stroke-width
 .node .title-row { display:flex; align-items:flex-start; gap:.5em; }
 .node .title-row .title { flex:1 1 auto; min-width:0; }
 .node .donebox { display:none; margin-top:.2em; }
-.node.no-body .donebox { display:block; }
+.node.show-done .donebox { display:block; }
 .node.done .title { text-decoration:line-through; opacity:.65; }
 /* an uncoloured card sits on the page background, so its text follows the theme, not white */
 .node.c-none { color: var(--text); }
@@ -346,6 +346,7 @@ body.readonly #ghostCard { opacity:.35; pointer-events:none; }
 .layoutchip.active { color:#fff; background:var(--accent); }
 .layoutchip.disabled { opacity:.35; cursor:default; }
 .layoutchip.disabled:hover { color:var(--muted); background:transparent; }
+.layoutchip.text { width:auto; padding:0 10px; font-size:11px; font-weight:600; text-transform:capitalize; white-space:nowrap; }
 
 kbd { background:var(--node); border:1px solid var(--node-border); border-radius:4px;
   padding:0 5px; font-size:11px; }

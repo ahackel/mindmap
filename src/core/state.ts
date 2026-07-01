@@ -26,7 +26,11 @@ export interface MindNode {
   parent: string | null;           // parent node id (resolved from mm_parent path at load)
   _parentPath?: string;            // transient: the mm_parent path, resolved to `parent` post-load
   collapsed: boolean;
-  done: boolean;                   // card-level "done" mark, shown as a checkbox on title-only cards
+  done: boolean;                   // card-level "done" mark (only meaningful while its checkbox shows)
+  checklist: string;               // '' inherit from parent (default) | 'on' | 'off' — shows the
+                                    // done checkbox on title-only cards; inherits down the subtree
+                                    // like `color`, so turning it on for a card turns it on for its
+                                    // descendants too, unless one of them explicitly opts out
   layoutType: LayoutType;
   layoutDir: LayoutDir;
   title: string;

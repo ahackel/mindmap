@@ -17,7 +17,7 @@ import { startInlineEdit } from './inline-edit.js';
 function mkNode(fields: Partial<MindNode> = {}): MindNode {
   return {
     id: 'n' + (state.idSeq++), file:null,
-    x:0, y:0, parent:null, collapsed:false, done:false,
+    x:0, y:0, parent:null, collapsed:false, done:false, checklist:'',
     title:'', color:'', keepStatus:'', tags:[], body:'',
     layoutType:'none', layoutDir:'right',
     dirty:true, dirtyLayout:true,
@@ -75,7 +75,7 @@ function cloneNodeAt(s: MindNode, x: number, y: number): MindNode {
     parent: s.parent,
     title: uniqueTitle(s.title, { copy: true }),
     color: s.color,
-    tags: [...s.tags], body: s.body, done: s.done,
+    tags: [...s.tags], body: s.body, done: s.done, checklist: s.checklist,
     layoutType: s.layoutType || 'none', layoutDir: s.layoutDir || 'right',
   });
   state.nodes.set(copy.id, copy);

@@ -126,6 +126,16 @@ export function effectiveColor(n: MindNode): string {
     if (c.color) return c.color;
   return 'grey';
 }
+// The done checkbox is opt-in (most cards shouldn't grow one) and inherits down the subtree like
+// `color`: turning it 'on' for a card turns it on for every descendant too, unless one of them is
+// explicitly set 'off'. Default (no ancestor opts in) is no checkbox anywhere.
+function effectiveChecklistOn(n: MindNode): boolean {
+  for (let c: MindNode | null | undefined = n; c; c = c.parent ? state.nodes.get(c.parent) : null){
+    if (c.checklist === 'on') return true;
+    if (c.checklist === 'off') return false;
+  }
+  return false;
+}
 export function paintNode(n: MindNode): void {
   const el = nodeEl(n);
   if (isHidden(n)) { el.style.display = 'none'; return; }
@@ -135,12 +145,14 @@ export function paintNode(n: MindNode): void {
   const hasBody = editingBody || !!(n.body && n.body.trim());  // keep the body slot while editing
   const collapsedKids = n.collapsed && hasKids;            // hidden children → +N chip
   const collapsed = n.collapsed && (hasKids || hasBody);   // folded to just its title
+  const showDone = !hasBody && effectiveChecklistOn(n);    // opt-in checkbox, title-only cards only
   el.className = 'node c-' + effectiveColor(n)
     + (state.sel.has(n.id) ? ' sel' : '')
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
     + (collapsed ? ' collapsed' : '')
     + (hasBody ? '' : ' no-body')
-    + (n.done ? ' done' : '')
+    + (showDone ? ' show-done' : '')
+    + (showDone && n.done ? ' done' : '')
     + (ui.drag?.targets?.has(n.id) ? ' dragging' : '')   // float the dragged subtree above all cards
     + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '');
   (el.querySelector('.donebox') as HTMLInputElement).checked = n.done;
@@ -338,6 +350,7 @@ const edTags  = byId<HTMLInputElement>('edTags');
 const edLayoutTypes = byId('edLayoutTypes');
 const edLayoutDirs  = byId('edLayoutDirs');
 const edColors = byId('edColors');
+const edChecklist = byId('edChecklist');
 
 // colour palette (keys match the .c-* CSS classes); 'grey' is the old neutral "none" look
 const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey'];
@@ -430,6 +443,34 @@ function markLayoutChips(): void {
   });
 }
 
+// ---------- done-checkbox picker: inherit (default) / on / off — same tri-state shape as colour.
+// 'on' cascades to every descendant (effectiveChecklistOn walks up), so switching a branch's root
+// on turns on the whole subtree at once; a descendant can still opt back out with 'off'.
+const CHECKLIST_MODES = [
+  { key:'', label:'Inherit — take the parent’s checklist setting (default)' },
+  { key:'on', label:'On — show a done checkbox on this card and its children' },
+  { key:'off', label:'Off — no checkbox on this card or its children' },
+];
+(function buildChecklistChips(){
+  edChecklist.innerHTML = CHECKLIST_MODES.map(m =>
+    `<div class="layoutchip text" data-mode="${m.key}" title="${m.label}">${m.key || 'inherit'}</div>`).join('');
+  edChecklist.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
+    c.addEventListener('click', () => setChecklist(c.dataset.mode ?? '')));
+})();
+function setChecklist(mode: string): void {
+  const ids = selectedIds(); if (!ids.length) return;
+  for (const id of ids){ const n = state.nodes.get(id); if (n){ n.checklist = mode; n.dirty = true; } }
+  markChecklistChip();
+  paintAll(); scheduleSave();
+}
+function markChecklistChip(): void {
+  const ids = selectedIds();
+  const modes = new Set(ids.map(id => state.nodes.get(id)?.checklist || ''));
+  const m = modes.size === 1 ? [...modes][0] : null;
+  edChecklist.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
+    c.classList.toggle('active', c.dataset.mode === m));
+}
+
 function openEditor(n: MindNode | undefined): void {
   if (!n) return;
   editor.classList.remove('multi');
@@ -437,6 +478,7 @@ function openEditor(n: MindNode | undefined): void {
   edTags.value = n.tags.join(', ');
   markActiveSwatch(n.color);
   markLayoutChips();
+  markChecklistChip();
   editor.classList.add('has-selection');   // show fields instead of the empty hint
 }
 // many nodes selected → show just the colour picker + a count; swatches recolour all of them
@@ -447,6 +489,7 @@ function openMultiEditor(): void {
   const colors = new Set(ids.map(id => state.nodes.get(id)?.color || ''));
   markActiveSwatch(colors.size === 1 ? [...colors][0] : '');  // none active when mixed
   markLayoutChips();
+  markChecklistChip();
   editor.classList.add('has-selection', 'multi');
 }
 // no node selected → keep the sidebar open but show the empty hint
