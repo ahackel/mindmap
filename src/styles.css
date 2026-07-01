@@ -314,6 +314,8 @@ body.readonly #ghostCard { opacity:.35; pointer-events:none; }
 #marquee { position:absolute; display:none; z-index:5; pointer-events:none;
   border:1px dotted var(--accent); background:color-mix(in srgb, var(--accent) 15%, transparent); }
 #editor label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+#editor label.checkbox-label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+#editor label.checkbox-label input[type="checkbox"] { width:14px; height:14px; margin:0; cursor:pointer; }
 #editor input, #editor textarea, #editor select {
   background:var(--bg); color:var(--text); border:none;
   border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; width:100%;
@@ -349,7 +351,6 @@ body.readonly #ghostCard { opacity:.35; pointer-events:none; }
 .layoutchip.active { color:#fff; background:var(--accent); }
 .layoutchip.disabled { opacity:.35; cursor:default; }
 .layoutchip.disabled:hover { color:var(--muted); background:transparent; }
-.layoutchip.text { width:auto; padding:0 10px; font-size:11px; font-weight:600; text-transform:capitalize; white-space:nowrap; }
 
 kbd { background:var(--node); border:1px solid var(--node-border); border-radius:4px;
   padding:0 5px; font-size:11px; }

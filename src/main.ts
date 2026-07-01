@@ -354,7 +354,7 @@ const edTags  = byId<HTMLInputElement>('edTags');
 const edLayoutTypes = byId('edLayoutTypes');
 const edLayoutDirs  = byId('edLayoutDirs');
 const edColors = byId('edColors');
-const edChecklist = byId('edChecklist');
+const edChecklist = byId<HTMLInputElement>('edChecklist');
 
 // colour palette (keys match the .c-* CSS classes); 'grey' is the old neutral "none" look
 const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey'];
@@ -447,31 +447,22 @@ function markLayoutChips(): void {
   });
 }
 
-// ---------- checklist picker: off (default) / on — Trello-style, set on the PARENT. Turning it on
-// gives each of its direct children a done checkbox and shows their "n/m" progress on this card;
-// it does not cascade further down (see showsDoneCheckbox).
-const CHECKLIST_MODES = [
-  { key:'off', label:'Off — children are plain cards (default)' },
-  { key:'on',  label:'On — children get a done checkbox; this card shows their progress' },
-];
-(function buildChecklistChips(){
-  edChecklist.innerHTML = CHECKLIST_MODES.map(m =>
-    `<div class="layoutchip text" data-mode="${m.key}" title="${m.label}">${m.key}</div>`).join('');
-  edChecklist.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-    c.addEventListener('click', () => setChecklist(c.dataset.mode === 'on')));
-})();
+// ---------- checklist toggle: off (default) / on — Trello-style, set on the PARENT. Turning it
+// on gives each of its direct children a done checkbox and shows their "n/m" progress on this
+// card; it does not cascade further down (see showsDoneCheckbox).
+edChecklist.addEventListener('change', () => setChecklist(edChecklist.checked));
 function setChecklist(on: boolean): void {
   const ids = selectedIds(); if (!ids.length) return;
   for (const id of ids){ const n = state.nodes.get(id); if (n){ n.checklist = on; n.dirty = true; } }
-  markChecklistChip();
+  markChecklistBox();
   paintAll(); scheduleSave();
 }
-function markChecklistChip(): void {
+// mixed selection (some on, some off) shows as indeterminate rather than picking a side
+function markChecklistBox(): void {
   const ids = selectedIds();
   const vals = new Set(ids.map(id => !!state.nodes.get(id)?.checklist));
-  const v = vals.size === 1 ? [...vals][0] : null;
-  edChecklist.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-    c.classList.toggle('active', v !== null && c.dataset.mode === (v ? 'on' : 'off')));
+  edChecklist.indeterminate = vals.size > 1;
+  edChecklist.checked = vals.size === 1 && [...vals][0];
 }
 
 function openEditor(n: MindNode | undefined): void {
@@ -481,7 +472,7 @@ function openEditor(n: MindNode | undefined): void {
   edTags.value = n.tags.join(', ');
   markActiveSwatch(n.color);
   markLayoutChips();
-  markChecklistChip();
+  markChecklistBox();
   editor.classList.add('has-selection');   // show fields instead of the empty hint
 }
 // many nodes selected → show just the colour picker + a count; swatches recolour all of them
@@ -492,7 +483,7 @@ function openMultiEditor(): void {
   const colors = new Set(ids.map(id => state.nodes.get(id)?.color || ''));
   markActiveSwatch(colors.size === 1 ? [...colors][0] : '');  // none active when mixed
   markLayoutChips();
-  markChecklistChip();
+  markChecklistBox();
   editor.classList.add('has-selection', 'multi');
 }
 // no node selected → keep the sidebar open but show the empty hint
