@@ -117,7 +117,8 @@ export function foldNodeOrGroup(n: MindNode): void {
 // A card's colour is its own, or — if unset — inherited from the nearest coloured ancestor. While
 // dragging, preview what that inherited colour is ABOUT TO become, so it doesn't wait for the
 // drop to update:
-//  - Alt-dragging to detach: treat the dragged node as a root (stop the ancestor walk there).
+//  - Alt-dragging, or pulled past the rip threshold, to detach: treat the dragged node as a root
+//    (stop the ancestor walk there) — mirrors the actual detach condition in dragPointerUp.
 //  - Poised over a valid reparent target: continue the walk from the NEW parent instead of the
 //    real (about-to-change) one — a sibling-mode drop adopts the target's own parent.
 // Either way this only redirects the walk once it reaches the actively dragged node, so the whole
@@ -129,7 +130,7 @@ export function effectiveColor(n: MindNode): string {
   const drag = ui.drag;
   let previewId: string | null = null;
   let previewParent: MindNode | null | undefined;
-  if (drag && drag.alt && !drag.shift) { previewId = drag.active.id; previewParent = null; }
+  if (drag && !drag.shift && (drag.alt || drag.rip)) { previewId = drag.active.id; previewParent = null; }
   else if (drag && drag.dropTarget) {
     previewId = drag.active.id;
     const tgt = state.nodes.get(drag.dropTarget);

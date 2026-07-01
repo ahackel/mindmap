@@ -57,23 +57,32 @@ function hideLandingGhost(draggedIds?: Iterable<string> | null): void {
   if (draggedIds) setSubtreeVisibility(draggedIds, true);
 }
 
-const RIP_THRESHOLD = 400; // screen-space px dragged from THIS gesture's start before edge dashes/detaches on drop
+const RIP_THRESHOLD = 400; // screen-space px dragged from THIS gesture's start before edge hides/detaches on drop
 
 // Recompute whether the dragged card has been pulled past the rip threshold DURING THIS DRAG —
 // measured from where the gesture started (drag.start), not from the parent's position. Using the
 // parent as the reference meant a child already sitting far from its parent (a common layout,
 // e.g. after a previous free-form drag) would read as "ripped" the instant you touched it, with
-// no actual pull yet. Must be called before paintEdges() so the dashed-edge rendering reads the
+// no actual pull yet. Must be called before paintEdges() so the hidden-edge rendering reads the
 // latest state.
 function updateRip(drag: Drag): void {
   if (drag.multi || drag.cloned || !drag.moved) return;
   const act = drag.active;
-  if (!act.parent) { drag.rip = false; return; }
-  const origin = drag.start.get(act.id);
-  if (!origin) { drag.rip = false; return; }
-  const dx = (act.x - origin.x) * state.view.k;
-  const dy = (act.y - origin.y) * state.view.k;
-  drag.rip = Math.hypot(dx, dy) > RIP_THRESHOLD;
+  let rip = false;
+  if (act.parent) {
+    const origin = drag.start.get(act.id);
+    if (origin) {
+      const dx = (act.x - origin.x) * state.view.k;
+      const dy = (act.y - origin.y) * state.view.k;
+      rip = Math.hypot(dx, dy) > RIP_THRESHOLD;
+    }
+  }
+  if (rip === drag.rip) return;
+  drag.rip = rip;
+  // Ripping past threshold previews the same "about to become a root" outcome as Alt-detach (see
+  // effectiveColor) — repaint the dragged subtree so an inheriting card's colour updates the
+  // instant it crosses the threshold, not just once the drop actually commits.
+  for (const id of subtreeIds(act.id)) { const m = state.nodes.get(id); if (m) paintNode(m); }
 }
 
 // Move every dragged card to start + (dx,dy) in world space, mirroring it with a compositor-only
