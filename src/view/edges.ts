@@ -9,6 +9,18 @@ import { ui, type Pt } from '../core/ui-state.js';
 import { NODE_W, nodeH, effectiveColor, SWATCH_BG } from '../main.js';
 
 const EDGE_R = 12;   // corner radius on orthogonal elbows
+// Longer parent→child edges read as more "distant" if they're softened — full opacity up close,
+// fading toward EDGE_MIN_OPACITY past EDGE_FADE_FAR. Distances are in world/canvas px (zoom-
+// independent since both ends live in the same #world coordinate space).
+const EDGE_FADE_NEAR = 320;
+const EDGE_FADE_FAR = 1400;
+const EDGE_MIN_OPACITY = 0.35;
+function edgeOpacity(dist: number): number {
+  if (dist <= EDGE_FADE_NEAR) return 1;
+  if (dist >= EDGE_FADE_FAR) return EDGE_MIN_OPACITY;
+  const t = (dist - EDGE_FADE_NEAR) / (EDGE_FADE_FAR - EDGE_FADE_NEAR);
+  return 1 - t * (1 - EDGE_MIN_OPACITY);
+}
 
 // The branch tint for a node's effective colour — the same --card fill used by the card itself
 // (SWATCH_BG), so an edge always reads as "the same colour as the card it connects to". Shared by
@@ -111,8 +123,10 @@ export function paintEdges(): void {
   // While filtering, hide ALL lines — dimmed cards are semi-transparent, so faint lines would
   // show through them and read as clutter. Cleaner to drop the lines entirely until search ends.
   if (state.searchMatch){ edgesSvg.innerHTML = ''; togglesSvg.innerHTML = ''; dragEdgesSvg.innerHTML = ''; return; }
-  let svg = '';    // normal edges, behind the cards
-  let top = '';    // drag-time edges (dragged subtree + reparent preview), in the top overlay
+  // Collect edges first so they can be painted furthest-first: softened (faint) long edges go
+  // down before crisp short ones, so a close, opaque connector never gets dulled by a faint one
+  // crossing over it.
+  const entries: { dist: number; path: string; top: boolean }[] = [];
   // Draw a connector for every parent→child edge where BOTH ends are visible.
   // A collapsed node hides its children, so those edges simply don't appear.
   for (const n of state.nodes.values()) {
@@ -134,13 +148,18 @@ export function paintEdges(): void {
     // Rip threshold reached: it's about to detach, so drop its parent edge entirely — same
     // treatment as the Alt-detach preview above, not a dashed line.
     if (ui.drag && ui.drag.rip && ui.drag.active.id === n.id) continue;
-    // tint by the child's branch colour
+    // tint by the child's branch colour; soften by how far the child sits from its parent
     const tint = SWATCH_BG[effectiveColor(n)];
-    const style = tint ? ` style="stroke:${tint}"` : '';
-    const path = `<path${style} d="${edgePath(parent, n)}"/>`;
+    const dist = Math.hypot(n.x - parent.x, n.y - parent.y);
+    const style = `stroke:${tint ?? 'var(--edge)'};opacity:${edgeOpacity(dist).toFixed(2)}`;
+    const path = `<path style="${style}" d="${edgePath(parent, n)}"/>`;
     // edges of the dragged subtree ride in the top overlay so they're never hidden behind cards
-    if (ui.drag && ui.drag.targets.has(n.id)) top += path; else svg += path;
+    entries.push({ dist, path, top: !!(ui.drag && ui.drag.targets.has(n.id)) });
   }
+  entries.sort((a, b) => b.dist - a.dist);   // furthest (faintest) first, crispest on top
+  let svg = '';    // normal edges, behind the cards
+  let top = '';    // drag-time edges (dragged subtree + reparent preview), in the top overlay
+  for (const e of entries) { if (e.top) top += e.path; else svg += e.path; }
   // Dashed preview: while poised over a valid reparent target, draw the would-be new
   // parent→landing-spot connection so the result is clear before you let go. Tinted to match
   // the dragged card, and drawn in the top overlay so it sits above every other card/edge.
