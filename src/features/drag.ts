@@ -57,18 +57,22 @@ function hideLandingGhost(draggedIds?: Iterable<string> | null): void {
   if (draggedIds) setSubtreeVisibility(draggedIds, true);
 }
 
-const RIP_THRESHOLD = 400; // screen-space px before edge snaps and drag detaches on drop
+const RIP_THRESHOLD = 400; // screen-space px dragged from THIS gesture's start before edge dashes/detaches on drop
 
-// Recompute whether the dragged card has been pulled past the rip threshold from its parent.
-// Must be called before paintEdges() so the dashed-edge rendering reads the latest state.
+// Recompute whether the dragged card has been pulled past the rip threshold DURING THIS DRAG —
+// measured from where the gesture started (drag.start), not from the parent's position. Using the
+// parent as the reference meant a child already sitting far from its parent (a common layout,
+// e.g. after a previous free-form drag) would read as "ripped" the instant you touched it, with
+// no actual pull yet. Must be called before paintEdges() so the dashed-edge rendering reads the
+// latest state.
 function updateRip(drag: Drag): void {
   if (drag.multi || drag.cloned || !drag.moved) return;
   const act = drag.active;
   if (!act.parent) { drag.rip = false; return; }
-  const parent = state.nodes.get(act.parent);
-  if (!parent) { drag.rip = false; return; }
-  const dx = (act.x + NODE_W/2 - parent.x - NODE_W/2) * state.view.k;
-  const dy = (act.y - parent.y) * state.view.k;
+  const origin = drag.start.get(act.id);
+  if (!origin) { drag.rip = false; return; }
+  const dx = (act.x - origin.x) * state.view.k;
+  const dy = (act.y - origin.y) * state.view.k;
   drag.rip = Math.hypot(dx, dy) > RIP_THRESHOLD;
 }
 
