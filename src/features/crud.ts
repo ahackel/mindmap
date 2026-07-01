@@ -76,7 +76,7 @@ function cloneNodeAt(s: MindNode, x: number, y: number): MindNode {
     title: uniqueTitle(s.title, { copy: true }),
     color: s.color,
     tags: [...s.tags], body: s.body, done: s.done, checklist: s.checklist,
-    layoutType: s.layoutType || 'none',
+    layoutType: s.layoutType || 'none', side: s.side,
   });
   state.nodes.set(copy.id, copy);
   return copy;

@@ -6,13 +6,13 @@
 // auto-pan keeps the dragged subtree glued under the cursor while the view scrolls. All transient
 // drag state lives in `ui.drag`. Importing this module registers the global Alt/Shift modifier
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
-import { state, stage, world, setStatus, type MindNode } from '../core/state.js';
+import { state, stage, world, setStatus, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
-import { applyLayouts, reorderDraggedParents, dropLanding, effectiveLayout, insertedKidOrder } from '../view/layout.js';
+import { applyLayouts, reorderDraggedParents, dropLanding, effectiveLayout, insertedKidOrder, sideOf, deriveSide } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
 import { ui, type Pt, type Drag } from '../core/ui-state.js';
-import { paintEdges, branchTint } from '../view/edges.js';
+import { paintEdges } from '../view/edges.js';
 import { NODE_W, nodeH, paintAll, paintNode, selectNode, setSelectionSet, toggleSel,
          subtreeIds, foldNodeOrGroup } from '../main.js';
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit } from './inline-edit.js';
@@ -43,14 +43,14 @@ function setSubtreeVisibility(ids: Iterable<string>, visible: boolean): void {
     if (el) el.style.visibility = visible ? '' : 'hidden';
   }
 }
-function showLandingGhost(x: number, y: number, h: number, draggedIds: Iterable<string>, color: string): void {
+function showLandingGhost(x: number, y: number, h: number, draggedIds: Iterable<string>): void {
   const el = landingGhostEl();
   el.style.left = x + 'px'; el.style.top = y + 'px';
   el.style.width = NODE_W + 'px'; el.style.height = h + 'px';
   // .node has a 64px min-height (for bodied cards); without this the ghost for a shorter
   // title-only card would get clamped taller than the real card it's previewing.
   el.style.minHeight = h + 'px';
-  el.style.borderColor = color;   // match the dragged card's branch colour
+  el.style.borderColor = 'white';   // matches the highlighted anchor dot/ghost edge
   el.style.display = '';
   setSubtreeVisibility(draggedIds, false);
 }
@@ -200,7 +200,7 @@ export function bindNodeDrag(n: MindNode): void {
     // origins = the left/top CSS values frozen at drag start; transforms are relative to these
     const origins = new Map(ids.map(id => { const m2 = state.nodes.get(id)!; return [id, { x:m2.x, y:m2.y }] as [string, Pt]; }));
     ui.drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets, origins, selRoots,
-             moved:false, dropTarget:null as string | null, dropMode:'child', alt:e.altKey, shift:e.shiftKey, cloned:false, rip:false,
+             moved:false, dropTarget:null as string | null, dropMode:'child', dropSide:null, alt:e.altKey, shift:e.shiftKey, cloned:false, rip:false,
              downTarget:e.target,              // where the press landed -> slow-click edits title or body
              meta: e.metaKey || e.ctrlKey,     // ⌘/Ctrl-click toggles this card in the selection
              touch: e.pointerType === 'touch' }; // higher move threshold for finger taps
@@ -286,7 +286,7 @@ function dragPointerUp(): void {
         // dropped onto a node? re-parent (the whole multi-selection, if that's what's dragging).
         // Alt+drop on empty canvas? detach to root. Otherwise it's just a move.
         const tgt = drag.dropTarget;
-        const { cloned, targets, alt, shift, clones, rip, dropMode, selRoots } = drag;
+        const { cloned, targets, alt, shift, clones, rip, dropMode, dropSide, selRoots } = drag;
         clearDropTarget();
         hideLandingGhost(targets.keys());
         // Null drag NOW so every paintAll/paintEdges in the commit phase sees no active drag
@@ -298,14 +298,14 @@ function dragPointerUp(): void {
         const effectiveParent = tgtNode
           ? (dropMode === 'sibling' ? tgtNode.parent! : tgt!)
           : null;
-        if (effectiveParent && tgtNode) {
+        if (effectiveParent && tgtNode && dropSide) {
           // land exactly where the drop preview showed (see view/layout.ts dropLanding), and
           // shift the rest of the dragged subtree(s) by the same delta so their relative
           // formation is preserved (a clone keeps where you dropped it, since that's a fresh
           // placement). `act` anchors the snap even for a multi-drag — everyone else keeps
           // their offset from it.
           if (!cloned){
-            const land = dropLanding(act, tgtNode, dropMode);
+            const land = dropLanding(act, tgtNode, dropMode, dropSide);
             const startAct = targets.get(act.id)!;
             const ddx = land.x - startAct.x, ddy = land.y - startAct.y;
             for (const [id, s] of targets){
@@ -315,11 +315,18 @@ function dragPointerUp(): void {
           // Re-parent every ROOT of the drag, chaining each one in right after the last so the
           // group lands as one contiguous, ordered block — sibling mode anchors on the drop
           // target, child mode appends onto the new parent. `act` goes first (it's the one the
-          // landing snap above was computed for) when it's actually one of the roots.
+          // landing snap above was computed for) when it's actually one of the roots. EVERY
+          // root gets the SAME resolved side — a multi-drop moves the whole group to one side,
+          // not each member wherever its own offset happens to derive to.
           const roots = selRoots.includes(act.id) ? [act.id, ...selRoots.filter(id => id !== act.id)] : selRoots;
           let afterId = dropMode === 'sibling' ? tgtNode.id : undefined;
           let moved = 0;
-          for (const rootId of roots){ if (reparentOnly(rootId, effectiveParent, afterId)){ afterId = rootId; moved++; } }
+          for (const rootId of roots){
+            if (reparentOnly(rootId, effectiveParent, afterId)){
+              afterId = rootId; moved++;
+              state.nodes.get(rootId)!.side = dropSide;
+            }
+          }
           const parentTitle = state.nodes.get(effectiveParent)?.title ?? 'that card';
           setStatus(moved > 1
             ? `Re-parented ${moved} cards -> "${parentTitle}"`
@@ -336,7 +343,16 @@ function dragPointerUp(): void {
           }
           if ((alt || rip) && !shift && act.parent) {
             act.parent = null;
+            act.side = undefined;   // a root has no side
             setStatus(`"${act.title}" is now a root`);
+          } else {
+            // No drop target and no detach — a plain reposition. Refresh each root's stored
+            // side from its new position (same rule as the load backfill) so its edge still
+            // tracks visually, even though nothing was explicitly dropped onto anything.
+            for (const rootId of selRoots){
+              const r = state.nodes.get(rootId);
+              if (r?.parent) { const p = state.nodes.get(r.parent); if (p) r.side = deriveSide(p, r); }
+            }
           }
         }
         // Paint first so freshly-created clone cards have real DOM heights before applyLayouts
@@ -363,7 +379,7 @@ export function startNodeDrag(n: MindNode, clientX: number, clientY: number): vo
   const targets = new Map<string, Pt>([[n.id, { x:n.x, y:n.y }]]);
   const origins = new Map<string, Pt>([[n.id, { x:n.x, y:n.y }]]);
   ui.drag = { n, active:n, multi:false, sx:clientX, sy:clientY, cx:clientX, cy:clientY,
-    start, targets, origins, selRoots:[n.id], moved:true, dropTarget:null, dropMode:'child',
+    start, targets, origins, selRoots:[n.id], moved:true, dropTarget:null, dropMode:'child', dropSide:null,
     alt:false, shift:false, cloned:false, rip:false, downTarget:null, meta:false, touch:false };
   if (n.el){ n.el.style.willChange = 'transform'; n.el.classList.add('dragging'); }
   document.body.classList.add('grabbing');
@@ -458,10 +474,15 @@ window.addEventListener('keyup',   (e) => {
 // ---------- reconnect (re-parent by drag-and-drop) ----------
 // Half-width/half-height fraction (normalized, so a wide short card doesn't skew toward
 // "always horizontal") that counts as "dropped near the centre" -> sibling-insert mode.
-// Outside that square it's a child-of-this-side drop; WHICH side is never decided here — it
-// falls out of the dragged card's actual landing position (see view/layout.ts sideOf), so the
-// ghost preview and the committed result can never disagree.
+// Outside that square it's a child-of-this-side drop, attaching on whichever edge the drop
+// point is closest to (edgeFromUV below); the resolved side is stored on ui.drag.dropSide and
+// used for both the ghost preview and the commit, so they can never disagree.
 const CENTER_FRAC = 0.45;
+
+// Dominant axis + sign of a box-relative offset -> which edge it's closest to.
+function edgeFromUV(u: number, v: number): LayoutSide {
+  return Math.abs(u) >= Math.abs(v) ? (u >= 0 ? 'right' : 'left') : (v >= 0 ? 'down' : 'up');
+}
 
 function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: number }): void {
   // Everything currently being dragged — dragged's own subtree for a single drag, or the whole
@@ -473,6 +494,7 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   const wy = (e.clientY - state.view.y) / state.view.k;
   let hovered: string | null = null;
   let hoveredCenter = false;
+  let hoveredEdge: LayoutSide = 'right';
   for (const [id, m] of state.nodes) {
     if (isHidden(m) || sub.has(id)) continue;
     const h = nodeH(m);
@@ -481,46 +503,49 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
       const u = (wx - (m.x + NODE_W/2)) / (NODE_W/2);
       const v = (wy - (m.y + h/2)) / (h/2);
       hoveredCenter = Math.max(Math.abs(u), Math.abs(v)) <= CENTER_FRAC;
+      hoveredEdge = edgeFromUV(u, v);
       break;
     }
   }
   clearDropTarget();
   let target: string | null = null;
   let mode: 'child' | 'sibling' = 'child';
+  let side: LayoutSide | null = null;
   if (hovered && sub.has(hovered)){
     setStatus(`Can't parent "${dragged.title}" onto its own child/descendant`);
   } else if (hovered) {
     const hoveredNode = state.nodes.get(hovered)!;
     // Centre zone + hovered card has a parent -> sibling drop (adopt hovered's parent, landing
-    // on the same side hovered already occupies).
+    // on the same side hovered already occupies — copy ITS stored side, not the drop point).
     if (hoveredCenter && hoveredNode.parent) {
       const sibParent = hoveredNode.parent;
       // Valid as long as it wouldn't re-parent onto self or create a cycle
       if (sibParent !== dragged.id && !sub.has(sibParent)) {
         target = hovered;
         mode = 'sibling';
+        side = sideOf(state.nodes.get(sibParent)!, hoveredNode);
       }
     }
     // Edge zone (or no valid sibling target) -> child-of-hovered, attaching on whichever side
     // the drop point sits near. Allowed even when hovered is already this node's parent — that
     // re-sides the child instead of being a no-op, since the drop point may be near a
     // different edge than the one it currently occupies.
-    if (!target) target = hovered;
+    if (!target) { target = hovered; side = hoveredEdge; }
   }
   // An inheriting card's colour depends on its parent chain (effectiveColor), and while poised
   // over a valid target that chain is about to change — repaint the dragged subtree so an
   // inheriting card previews the NEW parent's colour live, instead of only updating on drop.
   const changed = !!ui.drag && (ui.drag.dropTarget !== target || ui.drag.dropMode !== mode);
-  if (ui.drag) { ui.drag.dropTarget = target; ui.drag.dropMode = mode; }
+  if (ui.drag) { ui.drag.dropTarget = target; ui.drag.dropMode = mode; ui.drag.dropSide = side; }
   if (changed) for (const id of sub) { const m = state.nodes.get(id); if (m) paintNode(m); }
-  if (target) {
+  if (target && side) {
     const targetNode = state.nodes.get(target)!;
     targetNode.el?.classList.add(mode === 'sibling' ? 'drop-sibling' : 'drop-target');
     // poised over a valid target -> preview the LANDING spot (where it'll actually be once
     // dropped, depending on which zone is hovered), hiding the real dragged card so only
     // the landing preview shows.
-    const land = dropLanding(dragged, targetNode, mode);
-    showLandingGhost(land.x, land.y, nodeH(dragged), sub, branchTint(dragged));
+    const land = dropLanding(dragged, targetNode, mode, side);
+    showLandingGhost(land.x, land.y, nodeH(dragged), sub);
   } else {
     hideLandingGhost(sub);
   }

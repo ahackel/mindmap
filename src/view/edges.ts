@@ -2,9 +2,9 @@
 // Edges are DERIVED from each node's parent (no stored edge list). This module owns the parent→child
 // connector geometry for the three edge styles and paints them into the #edges SVG. It reads the
 // render core's live card heights (nodeH) and branch colour (effectiveColor) from main.
-import { state, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode } from '../core/state.js';
+import { state, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode, type LayoutSide } from '../core/state.js';
 import { isRoot, isHidden } from '../utils/model.js';
-import { dropLanding } from './layout.js';
+import { dropLanding, sideOf } from './layout.js';
 import { ui, type Pt } from '../core/ui-state.js';
 import { NODE_W, nodeH, effectiveColor, SWATCH_BG } from '../main.js';
 
@@ -30,6 +30,16 @@ export function branchTint(n: MindNode): string { return SWATCH_BG[effectiveColo
 
 function nodeCenter(n: MindNode): Pt { return { x: n.x + NODE_W/2, y: n.y + nodeH(n)/2 }; }
 function boxCenter(box: { x: number; y: number; h: number }): Pt { return { x: box.x + NODE_W/2, y: box.y + box.h/2 }; }
+// The point on `node`'s OWN border where every child edge on `side` converges — shared by every
+// child on that side (a fan bundles them from one spot), and by the socket disk drawn there.
+function anchorPoint(node: MindNode, side: LayoutSide): Pt {
+  const pc = nodeCenter(node);
+  if (side === 'down')  return { x: pc.x, y: node.y + nodeH(node) };
+  if (side === 'up')    return { x: pc.x, y: node.y };
+  if (side === 'right') return { x: node.x + NODE_W, y: pc.y };
+  return { x: node.x, y: pc.y };   // left
+}
+const DOT_R = 5;   // radius of the socket disk marking where a side's child edges converge
 
 // polyline → path with rounded corners (quadratic at each interior vertex, clamped to leg length)
 function roundedPath(pts: Pt[], r: number): string {
@@ -47,31 +57,23 @@ function roundedPath(pts: Pt[], r: number): string {
   const last = pts[pts.length-1];
   return d + ` L ${last.x} ${last.y}`;
 }
-// Which border a parent→child edge leaves from — the nearest dominant-axis border, derived
-// from the child's position relative to the parent (same rule every parent type uses to
-// decide which of its 4 sides a child sits on; see view/layout.ts sideOf). A child dragged
-// left connects on the left, one dragged above connects on top, etc.
-function edgeSideToCenter(parent: MindNode, cc: Pt): string {
-  const pc = nodeCenter(parent);
-  const dx = cc.x - pc.x, dy = cc.y - pc.y;
-  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'right' : 'left';
-  return dy >= 0 ? 'down' : 'up';
-}
 // Build an SVG path `d` for a parent→box edge in the current style:
 //   straight    — one diagonal segment between the facing borders
 //   orthogonal  — right-angle elbow with rounded corners (H & V only)
 //   bezier      — smooth curve with tangents along the dominant axis
 // Takes a plain box (x/y/h) rather than a MindNode so it can also draw the dashed
-// parent→landing-spot preview edge while a card is poised to reparent on drop.
-function edgePathBox(parent: MindNode, box: { x: number; y: number; h: number }): string {
-  const pc = nodeCenter(parent), cc = boxCenter(box);
-  const side = edgeSideToCenter(parent, cc);
+// parent→landing-spot preview edge while a card is poised to reparent on drop — `side` is
+// the STORED side for a real child (sideOf) or the drop's resolved side for the preview
+// (ui.drag.dropSide), never recomputed from the box position here.
+function edgePathBox(parent: MindNode, box: { x: number; y: number; h: number }, side: LayoutSide): string {
+  const cc = boxCenter(box);
   const horizontal = side === 'left' || side === 'right';
-  let a: Pt, b: Pt;
-  if (side === 'down')      { a = { x:pc.x, y:parent.y + nodeH(parent) }; b = { x:cc.x, y:box.y }; }
-  else if (side === 'up')   { a = { x:pc.x, y:parent.y };                 b = { x:cc.x, y:box.y + box.h }; }
-  else if (side === 'right'){ a = { x:parent.x + NODE_W, y:pc.y };        b = { x:box.x, y:cc.y }; }
-  else                      { a = { x:parent.x, y:pc.y };                 b = { x:box.x + NODE_W, y:cc.y }; }
+  const a = anchorPoint(parent, side);
+  let b: Pt;
+  if (side === 'down')      b = { x:cc.x, y:box.y };
+  else if (side === 'up')   b = { x:cc.x, y:box.y + box.h };
+  else if (side === 'right')b = { x:box.x, y:cc.y };
+  else                      b = { x:box.x + NODE_W, y:cc.y };
   if (state.edgeStyle === 'straight') return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
   if (state.edgeStyle === 'bezier'){
     if (horizontal){ const k = (b.x - a.x)/2; return `M ${a.x} ${a.y} C ${a.x+k} ${a.y} ${b.x-k} ${b.y} ${b.x} ${b.y}`; }
@@ -84,15 +86,16 @@ function edgePathBox(parent: MindNode, box: { x: number; y: number; h: number })
   return roundedPath(pts, EDGE_R);
 }
 function edgePath(parent: MindNode, child: MindNode): string {
-  return edgePathBox(parent, { x: child.x, y: child.y, h: nodeH(child) });
+  return edgePathBox(parent, { x: child.x, y: child.y, h: nodeH(child) }, sideOf(parent, child));
 }
 // While poised over a valid reparent target, the box the dragged card will land in once
-// dropped (see features/drag.ts landing-ghost) plus the new parent it'll connect to —
-// or null if there's no active/valid drop target. The landing spot depends on which zone
-// of the hovered card is poised (child: nested below, offset right; sibling: aligned below).
-function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: number } } | null {
+// dropped (see features/drag.ts landing-ghost) plus the new parent it'll connect to and the
+// side it'll land on — or null if there's no active/valid drop target. The landing spot depends
+// on which zone of the hovered card is poised (child: nested below, offset right; sibling:
+// aligned below).
+function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: number }; side: LayoutSide } | null {
   const drag = ui.drag;
-  if (!drag || !drag.dropTarget) return null;
+  if (!drag || !drag.dropTarget || !drag.dropSide) return null;
   const tgtNode = state.nodes.get(drag.dropTarget);
   if (!tgtNode) return null;
   const parent = drag.dropMode === 'sibling'
@@ -100,8 +103,8 @@ function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: 
     : tgtNode;
   if (!parent) return null;
   const h = nodeH(drag.active);
-  const land = dropLanding(drag.active, tgtNode, drag.dropMode);
-  return { parent, box: { x: land.x, y: land.y, h } };
+  const land = dropLanding(drag.active, tgtNode, drag.dropMode, drag.dropSide);
+  return { parent, box: { x: land.x, y: land.y, h }, side: drag.dropSide };
 }
 export function paintEdges(): void {
   // While filtering, hide ALL lines — dimmed cards are semi-transparent, so faint lines would
@@ -111,6 +114,9 @@ export function paintEdges(): void {
   // down before crisp short ones, so a close, opaque connector never gets dulled by a faint one
   // crossing over it.
   const entries: { dist: number; path: string; top: boolean }[] = [];
+  // Every parent's occupied sides — a socket disk marks each one, at the point its children's
+  // edges converge (see anchorPoint), tinted to match the PARENT card (its own socket).
+  const occupiedSides = new Map<string, Set<LayoutSide>>();
   // Draw a connector for every parent→child edge where BOTH ends are visible.
   // A collapsed node hides its children, so those edges simply don't appear.
   for (const n of state.nodes.values()) {
@@ -136,20 +142,34 @@ export function paintEdges(): void {
     const tint = SWATCH_BG[effectiveColor(n)];
     const dist = Math.hypot(n.x - parent.x, n.y - parent.y);
     const style = `stroke:${tint ?? 'var(--edge)'};opacity:${edgeOpacity(dist).toFixed(2)}`;
-    const path = `<path style="${style}" d="${edgePath(parent, n)}"/>`;
+    const side = sideOf(parent, n);
+    const path = `<path style="${style}" d="${edgePathBox(parent, { x:n.x, y:n.y, h:nodeH(n) }, side)}"/>`;
     // edges of the dragged subtree ride in the top overlay so they're never hidden behind cards
     entries.push({ dist, path, top: !!(ui.drag && ui.drag.targets.has(n.id)) });
+    let sides = occupiedSides.get(parent.id); if (!sides) occupiedSides.set(parent.id, sides = new Set());
+    sides.add(side);
   }
   entries.sort((a, b) => b.dist - a.dist);   // furthest (faintest) first, crispest on top
   let svg = '';    // normal edges, behind the cards
   let top = '';    // drag-time edges (dragged subtree + reparent preview), in the top overlay
   for (const e of entries) { if (e.top) top += e.path; else svg += e.path; }
+  for (const [pid, sides] of occupiedSides) {
+    const p = state.nodes.get(pid); if (!p) continue;
+    const tint = branchTint(p);
+    for (const side of sides) {
+      const pt = anchorPoint(p, side);
+      svg += `<circle class="edge-dot" cx="${pt.x}" cy="${pt.y}" r="${DOT_R}" fill="${tint}"/>`;
+    }
+  }
   // Dashed preview: while poised over a valid reparent target, draw the would-be new
-  // parent→landing-spot connection so the result is clear before you let go. Tinted to match
-  // the dragged card, and drawn in the top overlay so it sits above every other card/edge.
+  // parent→landing-spot connection so the result is clear before you let go — white, like the
+  // anchor dot it leads to, not tinted to the dragged card, and drawn in the top overlay so it
+  // sits above every other card/edge.
   const preview = previewReparent();
   if (preview) {
-    top += `<path class="ghost-edge" style="stroke:${branchTint(ui.drag!.active)}" stroke-dasharray="6 5" d="${edgePathBox(preview.parent, preview.box)}"/>`;
+    top += `<path class="ghost-edge" style="stroke:white" stroke-dasharray="6 5" d="${edgePathBox(preview.parent, preview.box, preview.side)}"/>`;
+    const pt = anchorPoint(preview.parent, preview.side);
+    top += `<circle class="edge-dot edge-dot-preview" cx="${pt.x}" cy="${pt.y}" r="${DOT_R + 1}" fill="white"/>`;
   }
   edgesSvg.innerHTML = svg;
   dragEdgesSvg.innerHTML = top;

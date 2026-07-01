@@ -6,6 +6,7 @@
 // ============================================================
 
 export type LayoutType = 'none' | 'free' | 'line' | 'fan';
+export type LayoutSide = 'left' | 'right' | 'up' | 'down';
 export type EdgeStyle = 'straight' | 'orthogonal' | 'bezier';
 
 // One ordered frontmatter entry: a top-level `key:` line plus its continuation lines.
@@ -31,6 +32,10 @@ export interface MindNode {
                                     // gets a done checkbox and I show their `n/m` progress. Doesn't
                                     // cascade further down; a child can run its own checklist too.
   layoutType: LayoutType;
+  // Which of the PARENT's 4 sides this node attaches on. Stored, not derived — set explicitly
+  // by a drop (or copied onto a clone), and backfilled once from position on load/creation if
+  // absent (see view/layout.ts sideOf/deriveSide). Meaningless (and omitted) for a root.
+  side?: LayoutSide;
   title: string;
   color: string;                   // palette key, e.g. 'blue', or '' for none
   keepStatus: string;              // preserved `status:` frontmatter value

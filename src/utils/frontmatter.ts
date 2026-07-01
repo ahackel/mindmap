@@ -24,6 +24,7 @@ export interface ParsedNote {
     done: boolean;
     checklist: boolean;
     layout: string;
+    side: string;
   };
 }
 
@@ -80,10 +81,13 @@ export function parseMd(text: string, fileName: string): ParsedNote {
       collapsed: fmValue(entries, 'mm_collapsed') === 'true',
       done: fmValue(entries, 'mm_done') === 'true',
       checklist: fmValue(entries, 'mm_checklist') === 'true',
-      // none(inherit) | free | line | fan — a child's SIDE is derived from its position, never
-      // stored, so `mm_dir` is gone; a legacy `two-sided` map already has valid mm_x/mm_y that
-      // per-side `fan` reproduces, so fold it in rather than treating it as unknown.
+      // none(inherit) | free | line | fan — `mm_dir` (a parent-wide direction) is gone; a legacy
+      // `two-sided` map already has valid mm_x/mm_y that per-side `fan` reproduces, so fold it
+      // in rather than treating it as unknown.
       layout: (v => v === 'two-sided' ? 'fan' : v || 'none')(fmValue(entries, 'mm_layout')),
+      // left | right | up | down | '' (unset — backfilled from position once loaded, see
+      // data/persistence.ts). This is the CHILD's own attachment side, not the parent's.
+      side: fmValue(entries, 'mm_side'),
     },
   };
 }
@@ -100,6 +104,7 @@ export function serializeMd(n: MindNode): string {
   if (!fmEntry(entries, 'date')) entries.unshift({ key:'date', lines:[`date: ${todayISO()}`] });
   const parentNode = n.parent ? state.nodes.get(n.parent) : null;
   if (parentNode) entries.push({ key:'mm_parent', lines:[`mm_parent: ${parentNode.file}`] });
+  if (parentNode && n.side) entries.push({ key:'mm_side', lines:[`mm_side: ${n.side}`] });
   entries.push({ key:'mm_x', lines:[`mm_x: ${Math.round(n.x)}`] });
   entries.push({ key:'mm_y', lines:[`mm_y: ${Math.round(n.y)}`] });
   if (n.collapsed) entries.push({ key:'mm_collapsed', lines:['mm_collapsed: true'] });

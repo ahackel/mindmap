@@ -1,11 +1,13 @@
 // ---------- node layout: radial seeding + per-node free/line/fan ----------
 // Computes node x/y. radialLayout seeds a fresh map; applyLayouts re-flows every node per
 // its own layoutType after any change. The node itself stays put — only its children (and
-// their subtrees) move. A child's SIDE (left/right/up/down) is never stored — it's derived
-// from its position relative to its parent (see sideOf below), the same way edges are derived
-// from `parent` rather than stored. layoutH/NODE_W/subtreeIds come from main (render + tree
+// their subtrees) move. A child's SIDE (left/right/up/down) is STORED (MindNode.side, mm_side
+// in frontmatter) — set explicitly by a drop, or backfilled once from position (see sideOf/
+// deriveSide below) on load or first use, but never re-derived afterward. That avoids a fan's
+// own placement (spreading same-side siblings wide) ever flipping a child's side purely as a
+// side effect of laying it out. layoutH/NODE_W/subtreeIds come from main (render + tree
 // helpers) — a runtime-only cycle.
-import { state, type MindNode } from '../core/state.js';
+import { state, type MindNode, type LayoutSide } from '../core/state.js';
 import { childrenOf, isHidden, isRoot } from '../utils/model.js';
 import { subtreeIds, layoutH, nodeH, NODE_W } from '../main.js';
 
@@ -25,21 +27,20 @@ const LANDING_GAP = 40;   // gap below/beside the hovered card a drag-reparented
 // For a managed layout (line/fan) the only way to know the EXACT final spot is to run the real
 // layout: applying it would also reflow target's other children (a fan re-centers, a chain
 // re-packs), so a simple "just outside target's border" estimate drifts once there's more than
-// one sibling on that side. So we temporarily re-parent `dragged` onto the governor at the
-// anchored order position, run the same layoutSubtree() the commit path uses, read off where it
-// placed `dragged`, then revert every position/order/parent change — a dry run, no visible side
-// effect. Which SIDE `dragged` lands on falls out of this dry run too (from its own current,
-// cursor-following position relative to the governor) — nothing extra to compute or pass in.
-// A free/unset governing layout never reflows on drop, so the cheap geometric estimate is exact
-// there and a simulation would be wasted work.
-export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' | 'sibling'): { x: number; y: number } {
+// one sibling on that side. So we temporarily re-parent `dragged` onto the governor (with `side`
+// set — the drop resolved it, see drag.ts updateDropTarget) at the anchored order position, run
+// the same layoutSubtree() the commit path uses, read off where it placed `dragged`, then revert
+// every position/order/parent/side change — a dry run, no visible side effect. A free/unset
+// governing layout never reflows on drop, so the cheap geometric estimate is exact there and a
+// simulation would be wasted work (though `side` is still what the caller stores on commit).
+export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' | 'sibling', side: LayoutSide): { x: number; y: number } {
   const governor = mode === 'child' ? target : (target.parent ? state.nodes.get(target.parent) : null) ?? target;
   const eff = effectiveLayout(governor);
   if (eff.type !== 'line' && eff.type !== 'fan') {
     const y = target.y + nodeH(target) + LANDING_GAP;
     return mode === 'child' ? { x: target.x + LANDING_GAP, y } : { x: target.x, y };
   }
-  return simulateLanding(dragged, governor, mode === 'sibling' ? target.id : undefined);
+  return simulateLanding(dragged, governor, side, mode === 'sibling' ? target.id : undefined);
 }
 
 // The order `governor`'s children would have if `draggedId` were inserted right after `afterId`
@@ -55,11 +56,13 @@ export function insertedKidOrder(governor: MindNode, draggedId: string, afterId?
   return order;
 }
 
-// Dry-run a reparent of `dragged` onto `governor` (inserted right after `afterId`, if given): re-
+// Dry-run a reparent of `dragged` onto `governor` (inserted right after `afterId`, if given) with
+// `side` set (so bucketing sees the drop's resolved side, not whatever `dragged` had before): re-
 // parent, run the real layoutSubtree(), capture dragged's resulting position, then put every
 // touched node/field back exactly as found.
-function simulateLanding(dragged: MindNode, governor: MindNode, afterId?: string): { x: number; y: number } {
+function simulateLanding(dragged: MindNode, governor: MindNode, side: LayoutSide, afterId?: string): { x: number; y: number } {
   const prevParent = dragged.parent;
+  const prevSide = dragged.side;
   const prevKidOrder = governor.kidOrder ? [...governor.kidOrder] : undefined;
   const snapIds = new Set<string>();
   for (const k of childrenOf(governor.id)) if (k.id !== dragged.id) for (const id of subtreeIds(k.id)) snapIds.add(id);
@@ -70,10 +73,12 @@ function simulateLanding(dragged: MindNode, governor: MindNode, afterId?: string
 
   governor.kidOrder = insertedKidOrder(governor, dragged.id, afterId);
   dragged.parent = governor.id;
+  dragged.side = side;
   layoutSubtree(governor);
   const land = { x: dragged.x, y: dragged.y };
 
   dragged.parent = prevParent;
+  dragged.side = prevSide;
   governor.kidOrder = prevKidOrder;
   for (const [id, p] of snap) { const n = state.nodes.get(id); if (n) { n.x = p.x; n.y = p.y; } }
   return land;
@@ -159,22 +164,30 @@ export function effectiveLayout(node: MindNode): { type: string } {
   }
   return { type: 'free' };   // unset root → free
 }
-// Which of the parent's 4 sides a child sits on — derived from its CURRENT position, never
-// stored. Dominant axis of the offset between the two centers, SCALED by the parent's own
-// aspect ratio (a card is wide and short) rather than compared as raw pixels: a `fan` spreads
-// same-side siblings wide across the cross axis, so a couple of siblings alone would put more
-// raw pixels between a "down" child and its parent horizontally than vertically, misreading
-// it as "left"/"right" the moment it's laid out. Scaling each axis by the parent's own
-// width/height first (comparing fractions of the parent's own size, not absolute px) gives a
-// lot more headroom before a wide fan spuriously flips side. Shared by layout grouping/
-// ordering and edge-exit-border selection (edges.ts).
-export function sideOf(parent: MindNode, child: MindNode): string {
+// Which of the parent's 4 sides a child sits on, computed FRESH from its current position —
+// dominant axis of the offset between the two centers, SCALED by the parent's own aspect ratio
+// (a card is wide and short) rather than compared as raw pixels: a `fan` spreads same-side
+// siblings wide across the cross axis, so a couple of siblings alone would put more raw pixels
+// between a "down" child and its parent horizontally than vertically, misreading it as
+// "left"/"right" purely from being laid out. Scaling each axis by the parent's own width/height
+// first (comparing fractions of the parent's own size, not absolute px) gives a lot more
+// headroom before a wide fan spuriously flips side. Used to BACKFILL `child.side` when it's
+// unset (see sideOf) and to refresh it after a plain reposition with no explicit drop target.
+export function deriveSide(parent: MindNode, child: MindNode): LayoutSide {
   const dx = (child.x + NODE_W/2) - (parent.x + NODE_W/2);
   const dy = (child.y + nodeH(child)/2) - (parent.y + nodeH(parent)/2);
   const h = nodeH(parent) || 1;
   return Math.abs(dx) / NODE_W >= Math.abs(dy) / h ? (dx >= 0 ? 'right' : 'left') : (dy >= 0 ? 'down' : 'up');
 }
-const SIDE_RANK: Record<string, number> = { right: 0, down: 1, left: 2, up: 3 };
+// A child's side, from the STORED field — backfilling (and caching) it via deriveSide the
+// first time it's asked for a child that doesn't have one yet (a legacy note with no mm_side,
+// or a freshly created child). Once set, a plain relayout never changes it — only an explicit
+// drop (or a reposition with no drop target — see drag.ts) does. Shared by layout grouping/
+// ordering and edge-exit-border selection (edges.ts).
+export function sideOf(parent: MindNode, child: MindNode): LayoutSide {
+  return child.side ?? (child.side = deriveSide(parent, child));
+}
+const SIDE_RANK: Record<LayoutSide, number> = { right: 0, down: 1, left: 2, up: 3 };
 // Sibling order: group by each child's own derived side, then by the coordinate that side's
 // layout treats as "along" (fan → cross axis, line → the growth axis). Ties break by filename
 // so the seeded order is deterministic across reloads (folder iteration order is not stable).
@@ -276,13 +289,13 @@ function layoutSubtree(node: MindNode): void {
     });
   };
 
-  // Each child sits on whichever of the parent's 4 sides its CURRENT position derives to —
-  // never stored. Group the stored order into up to 4 side-buckets, then lay out each
-  // occupied bucket independently (generalizes the old two-sided balance to up to 4 sides).
-  const buckets: Record<string, MindNode[]> = { right: [], left: [], down: [], up: [] };
+  // Each child sits on whichever of the parent's 4 sides is STORED on it (see sideOf). Group
+  // the stored order into up to 4 side-buckets, then lay out each occupied bucket independently
+  // (generalizes the old two-sided balance to up to 4 sides).
+  const buckets: Record<LayoutSide, MindNode[]> = { right: [], left: [], down: [], up: [] };
   for (const k of sorted) buckets[sideOf(node, k)].push(k);
   const place = type === 'fan' ? fanSide : lineSide;
-  for (const side of ['right', 'left', 'down', 'up']) {
+  for (const side of ['right', 'left', 'down', 'up'] as const) {
     if (buckets[side].length) place(buckets[side], side);
   }
 }

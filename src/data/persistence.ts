@@ -4,11 +4,11 @@
 // elsewhere calls scheduleSave(); a burst coalesces into one write ~400ms later.
 // `store` is the active backend (reassigned by useStore); main holds the open() flows.
 // ============================================================
-import { state, world, setStatus, type MindNode, type LayoutType } from '../core/state.js';
+import { state, world, setStatus, type MindNode, type LayoutType, type LayoutSide } from '../core/state.js';
 import { parseMd, serializeMd } from '../utils/frontmatter.js';
 import { zipBlob, unzip } from '../utils/zip.js';
 import { childrenOf } from '../utils/model.js';
-import { applyLayouts, radialLayout, collapseAtDepth } from '../view/layout.js';
+import { applyLayouts, radialLayout, collapseAtDepth, deriveSide } from '../view/layout.js';
 import { fit } from '../view/camera.js';
 import { resetImageCache } from '../features/images.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, seenFolders, markFolderSeen, type Store } from '../store/index.js';
@@ -122,6 +122,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
       done: !!mm.done,
       checklist: !!mm.checklist,
       layoutType: (mm.layout || 'none') as LayoutType,
+      side: (mm.side || undefined) as LayoutSide | undefined,
       ...rest, dirty:false, dirtyLayout: !hasPos,   // notes lacking a position get one persisted
     };
     if (!hasPos) placed++;                         // new note with no saved position
@@ -132,6 +133,14 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   for (const n of state.nodes.values()) {
     n.parent = n._parentPath ? (byPath.get(n._parentPath) || null) : null;
     delete n._parentPath;
+  }
+  // A note with no `mm_side` yet (never dropped, or from before this field existed) gets one
+  // backfilled from its saved position, once, right here — not re-derived on every relayout.
+  for (const n of state.nodes.values()) {
+    if (n.parent && !n.side) {
+      const p = state.nodes.get(n.parent);
+      if (p) n.side = deriveSide(p, n);
+    }
   }
   // advance the runtime id counter past everything we just loaded so new nodes don't collide
   state.idSeq = seq + 1;
