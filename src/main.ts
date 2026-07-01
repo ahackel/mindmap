@@ -26,6 +26,7 @@ import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInp
 import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
 import { searchBox } from './features/search.js';
+import { touch, commitStep, record, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
 import { showStart, openHelpTab, boot } from './boot.js';
@@ -138,7 +139,8 @@ export function effectiveColor(n: MindNode): string {
   }
   for (let c: MindNode | null | undefined = n; c; c = (c.id === previewId) ? previewParent : (c.parent ? state.nodes.get(c.parent) : null))
     if (c.color) return c.color;
-  return 'grey';
+  // light theme: the neutral fallback card reads better as white than as the dark-grey card
+  return document.body.classList.contains('light') ? 'white' : 'grey';
 }
 // A card shows a done checkbox only if its PARENT has `checklist` on — Trello-style: the
 // setting lives on the parent ("treat my children as a checklist"), not on the item itself, and
@@ -287,7 +289,7 @@ export function toggleCollapse(id: string): void {
   const hasBody = !!(n.body && n.body.trim());
   if (!hasKids && !hasBody) return;   // nothing to fold: no children and no body
   // animate the reflow; withLayoutAnimation paints, measures heights, and lays out the children
-  withLayoutAnimation(() => { n.collapsed = !n.collapsed; n.dirtyLayout = true; });
+  record([id], () => withLayoutAnimation(() => { n.collapsed = !n.collapsed; n.dirtyLayout = true; }));
   scheduleSave();
   setStatus(n.collapsed ? `Collapsed “${n.title}”` : `Expanded “${n.title}”`);
 }
@@ -299,7 +301,8 @@ export function toggleCollapseSelection(ids: Iterable<string>): void {
     .filter(n => childrenOf(n.id).length > 0 || !!(n.body && n.body.trim()));
   if (!cards.length) return;
   const target = !cards.every(n => n.collapsed);   // all collapsed → expand; otherwise collapse all
-  withLayoutAnimation(() => { for (const n of cards){ n.collapsed = target; n.dirtyLayout = true; } });
+  record(cards.map(n => n.id),
+    () => withLayoutAnimation(() => { for (const n of cards){ n.collapsed = target; n.dirtyLayout = true; } }));
   scheduleSave();
   setStatus(`${target ? 'Collapsed' : 'Expanded'} ${cards.length} card${cards.length > 1 ? 's' : ''}`);
 }
@@ -307,8 +310,7 @@ export function toggleCollapseSelection(ids: Iterable<string>): void {
 // Also repaints the parent so its "n/m" checklist progress readout stays in sync.
 function toggleDone(n: MindNode): void {
   if (state.readOnly) return;
-  n.done = !n.done;
-  n.dirty = true;
+  record([n.id], () => { n.done = !n.done; n.dirty = true; });
   paintNode(n);
   if (n.parent){ const p = state.nodes.get(n.parent); if (p) paintNode(p); }
   scheduleSave();
@@ -317,9 +319,11 @@ function toggleDone(n: MindNode): void {
 function toggleTask(n: MindNode, idx: number): void {
   if (state.readOnly) return;
   let i = 0;
-  n.body = n.body.replace(/^(\s*[-*+]\s+)\[([ xX])\]/gm, (m, pre, mark) =>
-    i++ === idx ? pre + (mark === ' ' ? '[x]' : '[ ]') : m);
-  n.dirty = true;
+  record([n.id], () => {
+    n.body = n.body.replace(/^(\s*[-*+]\s+)\[([ xX])\]/gm, (m, pre, mark) =>
+      i++ === idx ? pre + (mark === ' ' ? '[x]' : '[ ]') : m);
+    n.dirty = true;
+  });
   if (ui.bodyEdit && ui.bodyEdit.id === n.id) ui.bodyEdit.ta.value = n.body;   // keep an open in-card editor in sync
   paintNode(n); scheduleSave();
 }
@@ -338,9 +342,15 @@ export function subtreeIds(id: string): string[] {
 export function focusNode(target: MindNode | undefined): void {
   if (!target) return;
   let revealed = false;
-  for (let p = target.parent ? state.nodes.get(target.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null){
-    if (p.collapsed){ p.collapsed = false; p.dirtyLayout = true; revealed = true; }
-  }
+  const chain: string[] = [];
+  for (let p = target.parent ? state.nodes.get(target.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null)
+    chain.push(p.id);
+  record(chain, () => {
+    for (const id of chain){
+      const p = state.nodes.get(id)!;
+      if (p.collapsed){ p.collapsed = false; p.dirtyLayout = true; revealed = true; }
+    }
+  });
   selectNode(target.id);                       // paint first so heights are known / editor opens
   frameBox(subtreeIds(target.id).map(id => state.nodes.get(id)));
   if (revealed && store.isOpen) scheduleSave();
@@ -372,15 +382,22 @@ const edBg = byId<HTMLInputElement>('edBg');
 
 // colour palette (keys match the .c-* CSS classes); 'grey' is the old neutral "none" look.
 // The hexes themselves live in ONE place — the --pal-* custom properties in styles.css's
-// :root — so CSS (.c-*, #ghostCard) and JS (edges/backgrounds fills, swatch dots below) can
-// never drift apart. Read once at load; palette colours don't change with the theme.
+// :root/body.light — so CSS (.c-*, #ghostCard) and JS (edges/backgrounds fills, swatch dots
+// below) can never drift apart. Read from document.body (not documentElement) so the
+// body.light overrides are picked up; re-read on every theme toggle (see refreshPalette).
 const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey','white'];
-const rootStyle = getComputedStyle(document.documentElement);
-const pal = (name: string): string => rootStyle.getPropertyValue(`--pal-${name}`).trim();
+const pal = (name: string): string => getComputedStyle(document.body).getPropertyValue(`--pal-${name}`).trim();
 export const SWATCH_BG: Record<string, string> = Object.fromEntries(PALETTE.map(c => [c, pal(c)]));
-// build the swatch row once: inherit (default) + the palette colours + explicit "none".
+// re-derive the palette hexes after a theme switch (light/dark have different --pal-* values)
+// and repaint everything that bakes them in as literal hex (edges, group backgrounds, swatches).
+export function refreshPalette(): void {
+  for (const c of PALETTE) SWATCH_BG[c] = pal(c);
+  buildSwatches();
+  paintAll();
+}
+// build the swatch row: inherit (default) + the palette colours + explicit "none".
 // '' = inherit the nearest coloured ancestor (effectiveColor walks up); 'none' = no colour, terminal.
-(function buildSwatches(){
+function buildSwatches(){
   let html = `<div class="swatch inherit" data-color="" title="inherit colour from parent (default)"></div>`;
   for (const c of PALETTE)
     html += `<div class="swatch" data-color="${c}" title="${c}" style="--sw:${SWATCH_BG[c]}"></div>`;
@@ -390,12 +407,15 @@ export const SWATCH_BG: Record<string, string> = Object.fromEntries(PALETTE.map(
     sw.addEventListener('click', () => {
       const ids = selectedIds();
       if (!ids.length) return;
-      for (const id of ids){ const n = state.nodes.get(id); if (n){ n.color = sw.dataset.color ?? ''; n.dirty = true; } }
+      record(ids, () => {
+        for (const id of ids){ const n = state.nodes.get(id); if (n){ n.color = sw.dataset.color ?? ''; n.dirty = true; } }
+      });
       markActiveSwatch(sw.dataset.color);
       paintAll(); scheduleSave();
     });
   });
-})();
+}
+buildSwatches();
 function markActiveSwatch(color: string | undefined): void {
   edColors.querySelectorAll<HTMLElement>('.swatch').forEach(sw =>
     sw.classList.toggle('active', sw.dataset.color === (color || '')));
@@ -426,11 +446,13 @@ export function selectedIds(): string[] { return state.sel.size ? [...state.sel]
 // apply a type to every selected card, then re-snap their children
 function setLayout({ type }: { type?: LayoutType }): void {
   const ids = selectedIds(); if (!ids.length) return;
-  for (const id of ids){
-    const n = state.nodes.get(id); if (!n) continue;
-    if (type != null) n.layoutType = type;
-    n.dirty = true;
-  }
+  record(ids, () => {
+    for (const id of ids){
+      const n = state.nodes.get(id); if (!n) continue;
+      if (type != null) n.layoutType = type;
+      n.dirty = true;
+    }
+  });
   markLayoutChips();
   applyLayouts(); paintAll(); scheduleSave();
 }
@@ -450,7 +472,9 @@ function markLayoutChips(): void {
 edChecklist.addEventListener('change', () => setChecklist(edChecklist.checked));
 function setChecklist(on: boolean): void {
   const ids = selectedIds(); if (!ids.length) return;
-  for (const id of ids){ const n = state.nodes.get(id); if (n){ n.checklist = on; n.dirty = true; } }
+  record(ids, () => {
+    for (const id of ids){ const n = state.nodes.get(id); if (n){ n.checklist = on; n.dirty = true; } }
+  });
   markChecklistBox();
   paintAll(); scheduleSave();
 }
@@ -467,7 +491,9 @@ function markChecklistBox(): void {
 edBg.addEventListener('change', () => setBg(edBg.checked));
 function setBg(on: boolean): void {
   const ids = selectedIds(); if (!ids.length) return;
-  for (const id of ids){ const n = state.nodes.get(id); if (n){ n.bg = on; n.dirty = true; } }
+  record(ids, () => {
+    for (const id of ids){ const n = state.nodes.get(id); if (n){ n.bg = on; n.dirty = true; } }
+  });
   markBgBox();
   paintAll(); scheduleSave();
 }
@@ -563,6 +589,7 @@ export function applyReadOnly(): void {
   roBtn.innerHTML = ro ? ICON_LOCK_CLOSED : ICON_LOCK_OPEN;
   roBtn.title = ro ? 'Read-only — click to unlock & edit (R)' : 'Lock to read-only (R) — view & collapse only';
   // ghost card visibility is driven by body.readonly CSS rule
+  updateUndoButtons();
   applySidebar();
   setStatus(ro ? 'Read-only — nothing is saved' : 'Editing enabled');
 }
@@ -598,6 +625,10 @@ function applyRest(): void {
   paintAll(); applyLayouts(); paintAll(); scheduleSave();
 }
 edTags.addEventListener('input', applyRest);
+// Tags edit live per keystroke (applyRest), but the undo step spans the whole focus→blur
+// session — mirroring the one-step-per-session rule of the inline title/body editors.
+edTags.addEventListener('focus', () => touch(...selectedIds()));
+edTags.addEventListener('blur', () => commitStep());
 // (layout is set via the icon chips above — see setLayout / buildLayoutChips)
 
 // ---------- image attachments live in features/attachments.ts ----------
@@ -683,13 +714,13 @@ window.addEventListener('keyup', (e) => {
     const r = ghost.getBoundingClientRect();
     const onGhost = e.clientX >= r.left && e.clientX <= r.right &&
                     e.clientY >= r.top  && e.clientY <= r.bottom;
-    if (onGhost) { abortDrag(); deleteNode(n.id); return; }
+    if (onGhost) { abortDrag(); deleteNode(n.id); commitStep(); return; }   // nets null→null, discarded
     commitDrag();                          // land / reparent exactly where the preview showed
     startInlineEdit(n, { isNew: true });   // drop straight into renaming; Esc cancels creation
   }
   function onCancel(): void {
     const n = endGhostDrag();
-    if (n) { abortDrag(); deleteNode(n.id); }
+    if (n) { abortDrag(); deleteNode(n.id); commitStep(); }   // nets null→null, discarded
   }
 
   ghost.addEventListener('pointerdown', (e: PointerEvent) => {
@@ -720,12 +751,15 @@ byId('edDuplicate').onclick = () => duplicateSelection();
 byId('edDelete').onclick = () => { if (state.sel.size) deleteSelection(); };
 
 
-// keyboard shortcuts: ⌘S force-save  (duplicate = D, new node = Space — see plain-key handler)
+// keyboard shortcuts: ⌘S force-save, ⌘Z/⇧⌘Z/⌘Y undo-redo  (duplicate = D, new node = Space)
 window.addEventListener('keydown', (e) => {
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
   const k = e.key.toLowerCase();
-  if (k === 's') { e.preventDefault(); flushSave(); }
+  if (k === 's') { e.preventDefault(); flushSave(); return; }
+  // While typing in a field, leave ⌘Z to the browser's native undo inside that editor.
+  if (k === 'z' && !isTypingInField()) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+  if (k === 'y' && !isTypingInField()) { e.preventDefault(); redo(); }
 });
 
 

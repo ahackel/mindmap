@@ -11,6 +11,7 @@ import { childrenOf } from '../utils/model.js';
 import { applyLayouts, radialLayout, collapseAtDepth, deriveSide } from '../view/layout.js';
 import { fit } from '../view/camera.js';
 import { resetImageCache } from '../features/images.js';
+import { clearHistory } from '../features/history.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, seenFolders, markFolderSeen, type Store } from '../store/index.js';
 import { paintAll, selectNode } from '../main.js';
 import { ui, isTypingInField } from '../core/ui-state.js';
@@ -95,6 +96,7 @@ export async function exportZip(): Promise<void> {
 }
 
 export async function loadFromDir({ keepView = false }: { keepView?: boolean } = {}): Promise<void> {
+  clearHistory();   // ids are minted fresh per load, so no snapshot survives a (re)load / map switch
   state.nodes.clear(); state.toDelete = []; world.querySelectorAll('[data-id]').forEach(e=>e.remove());
   resetImageCache();   // blob URLs from the previous map (or store) are stale now
 

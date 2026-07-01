@@ -10,13 +10,16 @@ import { screenToWorld } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
 import { paintAll, selectNode, setSelectionSet, applySelection, selectedIds, nodeH, subtreeIds } from '../main.js';
 import { startInlineEdit } from './inline-edit.js';
+import { touch, commitStep, record } from './history.js';
 
 // Mint a fresh node with the standard shape; callers override only the fields they care about.
 // Keeps the node schema (and its defaults) in ONE place so every create/duplicate path stays in
 // sync — the id is always minted here (ids are ephemeral, see below).
 function mkNode(fields: Partial<MindNode> = {}): MindNode {
+  const id = 'n' + (state.idSeq++);
+  touch(id);   // not in state.nodes yet → before-image is null (undo of a create = remove it)
   return {
-    id: 'n' + (state.idSeq++), file:null,
+    id, file:null,
     x:0, y:0, parent:null, collapsed:false, done:false, checklist:false, bg:false,
     title:'', color:'', keepStatus:'', tags:[], body:'',
     layoutType:'none',
@@ -102,6 +105,7 @@ export function duplicateSelection(): MindNode[] | undefined {
   } else {
     setSelectionSet(copies.map(c => c.id));
     setStatus(`Duplicated ${copies.length} cards`);
+    commitStep();   // multi-copy: no rename opens, so the step ends here
   }
   scheduleSave();
   return copies;
@@ -118,6 +122,7 @@ export function leaveClone(s: MindNode, pos: Pt): MindNode {
 export function addChild(parentId: string): void {
   if (state.readOnly) return;
   const parent = state.nodes.get(parentId); if (!parent) return;
+  touch(parentId);   // the reveal below (and a line/fan kidOrder change) belong to the create step
   if (parent.collapsed){ parent.collapsed = false; } // reveal so the new child is visible
   const sibs = childrenOf(parentId);
   const n = mkNode({
@@ -153,6 +158,7 @@ export function extractToChild(): void {
   const ta = ui.bodyEdit.ta;
   const s = ta.selectionStart, e = ta.selectionEnd;
   if (s === e){ setStatus('Select some body text to extract'); return; }
+  touch(n.id);   // usually already touched by startBodyEdit — idempotent
   const sel = ta.value.slice(s, e);
   const lines = sel.split('\n');
   let ti = lines.findIndex((l: string) => l.trim()); if (ti < 0) ti = 0;
@@ -173,6 +179,7 @@ export function extractToChild(): void {
   const id = child.id;
   state.nodes.set(id, child);
   applyLayouts(); paintAll(); selectNode(id); scheduleSave();
+  commitStep();   // extract bypasses endBodyEdit (ui.bodyEdit nulled above), so close the step here
   setStatus(`Extracted “${title}” as a child`);
 }
 
@@ -180,6 +187,7 @@ export function extractToChild(): void {
 // Forget a set of node ids: drop them from state, remove their DOM cards, and queue
 // their files for deletion on the next save. Callers pass the full subtree(s) to remove.
 function deleteNodes(ids: Iterable<string>): void {
+  touch(...ids);   // single choke point: every removal's before-image lands in the step
   for (const id of ids){
     const n = state.nodes.get(id); if (!n) continue;
     state.nodes.delete(id); n.el?.remove();
@@ -189,17 +197,21 @@ function deleteNodes(ids: Iterable<string>): void {
 export function deleteNode(id: string): void {
   if (state.readOnly) return;
   if (!state.nodes.has(id)) return;
-  deleteNodes(subtreeIds(id));
-  applyLayouts(); selectNode(null); paintAll();
-  scheduleSave();
+  record([], () => {                 // ids are touched inside deleteNodes
+    deleteNodes(subtreeIds(id));
+    applyLayouts(); selectNode(null); paintAll();
+    scheduleSave();
+  });
 }
 // Delete every selected card and their entire subtrees.
 export function deleteSelection(): void {
   if (state.readOnly) return;
   const ids = [...state.sel];
   if (!ids.length) return;
-  state.sel.clear(); state.selId = null;
-  deleteNodes(new Set(ids.flatMap(id => subtreeIds(id))));   // dedup overlapping subtrees
-  applyLayouts(); applySelection(); scheduleSave();
+  record([], () => {                 // ids are touched inside deleteNodes
+    state.sel.clear(); state.selId = null;
+    deleteNodes(new Set(ids.flatMap(id => subtreeIds(id))));   // dedup overlapping subtrees
+    applyLayouts(); applySelection(); scheduleSave();
+  });
   setStatus(`Deleted ${ids.length} card${ids.length===1?'':'s'}`);
 }

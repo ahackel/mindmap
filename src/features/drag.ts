@@ -17,6 +17,7 @@ import { NODE_W, nodeH, paintAll, paintNode, selectNode, setSelectionSet, toggle
          subtreeIds, foldNodeOrGroup } from '../main.js';
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit } from './inline-edit.js';
 import { leaveClone } from './crud.js';
+import { touch, commitStep } from './history.js';
 
 // The #editor panel is a fixed element in the shell; cache the handle so the per-frame
 // auto-pan loop doesn't re-query it on every rAF tick.
@@ -197,6 +198,9 @@ export function bindNodeDrag(n: MindNode): void {
     // targets gets its OWN {x,y} objects (not new Map(start), which shares the value refs) so the
     // edge auto-pan can shift the dragged anchors without also moving the pinned `start` positions.
     const targets = new Map([...start].map(([id, s]) => [id, { x:s.x, y:s.y }] as [string, Pt]));
+    // Positions mutate live during the drag, so the undo pre-images must be captured NOW;
+    // dragPointerUp commits the step (a no-move click nets out and is discarded).
+    touch(...ids);
     // origins = the left/top CSS values frozen at drag start; transforms are relative to these
     const origins = new Map(ids.map(id => { const m2 = state.nodes.get(id)!; return [id, { x:m2.x, y:m2.y }] as [string, Pt]; }));
     ui.drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets, origins, selRoots,
@@ -363,16 +367,19 @@ function dragPointerUp(): void {
         // measures them — otherwise a chain/fan of clones lays out on the 64px height fallback
         // (only the first lands right). Mirrors the duplicate path: paint -> layout -> paint.
         paintAll();
+        for (const id of targets.keys()) touch(state.nodes.get(id)?.parent);   // kidOrder pre-images
         reorderDraggedParents(targets.keys());   // a drag is the ONLY thing that reorders siblings
         applyLayouts(); paintAll();   // re-snap any dragged child back into its parent's layout
         // select the new clone(s) you just dragged out
         if (cloned){ if (clones && clones.length > 1) setSelectionSet(clones.map(c => c.id)); else selectNode(act.id); }
         scheduleSave();
+        commitStep();   // the whole gesture (move/reparent/clone) = ONE undo step
         return;   // drag/grabbing already cleared above
       }
     }
     ui.drag = null;
     document.body.classList.remove('grabbing');
+    commitStep();   // plain click / unmoved drag: nothing changed → step is discarded
 }
 // Begin a programmatic drag of an already-created node from a screen point, as if the user had
 // pressed down on it there. Used by the ghost-card "drag a new note" flow so a freshly-made card
@@ -568,6 +575,7 @@ function reparentOnly(childId: string, newParentId: string, afterId?: string): b
   const child = state.nodes.get(childId);
   if (!child || childId === newParentId) return false;
   if (isAncestor(childId, newParentId)) return false; // would create a cycle
+  touch(childId, child.parent, newParentId);          // pre-images incl. both parents' kidOrder
   child.parent = newParentId;
   child.dirtyLayout = true;
   const newParent = state.nodes.get(newParentId)!;

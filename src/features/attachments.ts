@@ -8,6 +8,7 @@ import { store, scheduleSave } from '../data/persistence.js';
 import { applyLayouts } from '../view/layout.js';
 import { paintAll, selectNode } from '../main.js';
 import { autosizeBody } from './inline-edit.js';
+import { touch, record } from './history.js';
 
 const IMG_EXT: Record<string, string> = { 'image/png':'.png', 'image/jpeg':'.jpg', 'image/gif':'.gif', 'image/webp':'.webp',
                   'image/svg+xml':'.svg', 'image/avif':'.avif', 'image/bmp':'.bmp' };
@@ -50,8 +51,10 @@ async function appendImagesToNode(id: string, files: FileList | File[]): Promise
   const n = state.nodes.get(id); if (!n) return;
   setStatus('Adding image…');
   const md = await markdownForImages(imgs);
-  n.body = (n.body && n.body.trim()) ? n.body.replace(/\s*$/, '') + '\n\n' + md : md;
-  n.dirty = true;
+  record([id], () => {
+    n.body = (n.body && n.body.trim()) ? n.body.replace(/\s*$/, '') + '\n\n' + md : md;
+    n.dirty = true;
+  });
   if (ui.bodyEdit && ui.bodyEdit.id === id) ui.bodyEdit.ta.value = n.body;   // sync an open in-card editor
   paintAll(); applyLayouts(); paintAll(); scheduleSave();
   setStatus(addedMsg(imgs.length));
@@ -63,6 +66,7 @@ async function insertImagesAtCursor(files: FileList | File[]): Promise<void> {
   if (!ui.bodyEdit){ return; }                          // only meaningful while editing a body in place
   const n = state.nodes.get(ui.bodyEdit.id); if (!n) return;
   const ta = ui.bodyEdit.ta;
+  touch(n.id);   // inside an open body-edit session — merges into (and commits with) that step
   setStatus('Adding image…');
   const md = await markdownForImages(imgs);
   const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;

@@ -39,6 +39,16 @@ body.light {
   --muted: #5d6b7e;
   --accent: #2f6fe0;
   --panel: #ffffff;
+
+  /* light theme only: brighter/more vibrant card colours (grey & white stay as-is) */
+  --pal-slate: #8b9bff;
+  --pal-red: #ff8a97;
+  --pal-amber: #ffcb66;
+  --pal-green: #6ef0ae;
+  --pal-teal: #6de9f5;
+  --pal-blue: #7cbcff;
+  --pal-violet: #cd9bff;
+  --pal-pink: #ff9bd6;
 }
 
 /* card colours are identical in both themes; text on a card is always white */
@@ -169,6 +179,9 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 .node.c-none { color: var(--text); }
 /* white is the one palette colour too light for white text — dark grey instead, both themes */
 .node.c-white { color: #2b3645; }
+/* light theme: coloured cards get black text instead of white, except the dark-grey card
+   (still needs white text to stay readable on its dark background) */
+body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
 .node.sel { box-shadow:0 0 0 2px var(--node-sel); }
 /* while editing a title/body in place, drop the card's selection ring so only the editor's
    own outline shows */
@@ -230,7 +243,7 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 .node .body blockquote { border-left:2px solid rgba(255,255,255,.4); padding-left:8px;
   margin-left:0; opacity:.85; }
 .node .body hr { border:none; border-top:1px solid rgba(255,255,255,.3); margin:.4em 0; }
-.node .body .lk { color:#fff; text-decoration:underline; text-underline-offset:2px;
+.node .body .lk { color:inherit; text-decoration:underline; text-underline-offset:2px;
   cursor:pointer; font-weight:600; opacity:1; }
 .node .body .lk:hover { text-decoration-thickness:2px; }
 /* inline images: always full card width, aspect ratio kept; never intercept card drag */
@@ -291,6 +304,8 @@ body.light .swatch.inherit { background:repeating-linear-gradient(45deg,#fff,#ff
   cursor:grab; user-select:none; touch-action:none;
   transition:box-shadow .15s, opacity .15s;
 }
+/* light theme: new cards default to white (see effectiveColor's fallback in main.ts) */
+body.light #ghostCard { background:var(--pal-white); color:#2b3645; }
 #ghostCard:hover { box-shadow:0 0 0 2px var(--accent); }
 body.readonly #ghostCard { opacity:.35; pointer-events:none; }
 

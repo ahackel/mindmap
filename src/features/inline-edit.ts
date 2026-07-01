@@ -12,6 +12,7 @@ import { scheduleSave } from '../data/persistence.js';
 import { onBodyPaste } from './attachments.js';
 import { paintAll, selectNode, edName } from '../main.js';
 import { extractToChild, deleteNode } from './crud.js';
+import { touch, commitStep } from './history.js';
 
 // Why a title is invalid (empty or already used by another node), else '' (ok).
 // Filenames collide case-insensitively on macOS/Windows, so compare lowercased.
@@ -30,6 +31,7 @@ function titleProblem(title: string, selfId: string): string {
 export function startInlineEdit(n: MindNode | undefined, { isNew = false }: { isNew?: boolean } = {}): void {
   if (state.readOnly || !n || !n.el) return;
   if (ui.inlineEdit) endInlineEdit();                              // close any other open editor first
+  touch(n.id);   // the whole edit session becomes ONE undo step (for a fresh card, incl. its creation)
   if (state.selId !== n.id || state.sel.size !== 1) selectNode(n.id);
   const titleEl = n.el.querySelector('.title') as HTMLElement;
   // `isNew` marks a just-created card: Escape then cancels the whole creation (deletes it),
@@ -68,9 +70,13 @@ export function endInlineEdit({ cancel = false }: { cancel?: boolean } = {}): vo
   ie.el.removeAttribute('contenteditable');
   ie.el.classList.remove('editing', 'invalid');
   ie.el.blur();                                       // ensure keyboard closes on iOS when ended by keypress
-  if (!n) return;
+  if (!n) { commitStep(); return; }
   if (cancel && ie.isNew){                            // Esc on a freshly-created card = cancel creation
+    // The pending step still holds this card's before-image (null, from mkNode); deleteNode rides
+    // it as a non-owner, so committing here nets null→null and the step is discarded — no create
+    // OR delete ends up in the history.
     deleteNode(n.id);
+    commitStep();
     setStatus('Cancelled new card');
     return;
   }
@@ -81,6 +87,7 @@ export function endInlineEdit({ cancel = false }: { cancel?: boolean } = {}): vo
   edName.textContent = n.title;                       // keep the sidebar header in sync
   paintAll(); applyLayouts(); paintAll();             // title may have changed height → reflow
   scheduleSave();
+  commitStep();                                       // one undo step per rename session
 }
 
 // ---------- inline body edit (edit a card's note on the card itself) ----------
@@ -93,6 +100,7 @@ export function startBodyEdit(n: MindNode, { atStart = false }: { atStart?: bool
   if (ui.bodyEdit && ui.bodyEdit.id === n.id) return;          // already editing this body
   if (ui.inlineEdit) endInlineEdit();                          // close a title editor first
   if (ui.bodyEdit) endBodyEdit();                              // close any other open body editor
+  touch(n.id);   // the whole body-edit session becomes ONE undo step
   if (state.selId !== n.id || state.sel.size !== 1) selectNode(n.id);
   const bodyEl = n.el.querySelector('.body') as HTMLElement;
   const ta = document.createElement('textarea');
@@ -139,4 +147,5 @@ export function endBodyEdit({ cancel = false }: { cancel?: boolean } = {}): void
   if (changed){ n.body = be.ta.value; n.dirty = true; }
   paintAll(); applyLayouts(); paintAll();               // re-render the body and reflow the height change
   if (changed) scheduleSave();
+  commitStep();                                         // no-op sessions (cancel/unchanged) are discarded
 }
