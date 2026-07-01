@@ -120,6 +120,10 @@ svg#toggles { z-index:3; pointer-events:none; }    /* toggles on top; group re-e
 svg#dragEdges { z-index:4; pointer-events:none; }
 svg#edges path, svg#dragEdges path { fill:none; stroke:var(--edge); stroke-width:4;
   stroke-linejoin:round; stroke-linecap:round; }
+/* ghost edges (rip-about-to-detach / reparent-preview, both dashed) always match the 2px dashed
+   border on .node.reparent-ghost — same coordinate space (both live inside #world), so the two
+   stay pixel-for-pixel identical at any zoom level. */
+svg#dragEdges path.ghost-edge { stroke-width:2; }
 
 .node {
   position:absolute; width:200px; min-height:64px;

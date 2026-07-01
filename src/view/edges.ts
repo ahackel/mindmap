@@ -137,7 +137,7 @@ export function paintEdges(): void {
     // tint by the child's branch colour
     const tint = EDGE_TINT[effectiveColor(n)];
     const style = tint ? ` style="stroke:${tint}"` : '';
-    const dash = ripping ? ' stroke-dasharray="6 5" opacity="0.5"' : '';
+    const dash = ripping ? ' class="ghost-edge" stroke-dasharray="6 5" opacity="0.5"' : '';
     const path = `<path${style}${dash} d="${edgePath(parent, n)}"/>`;
     // edges of the dragged subtree ride in the top overlay so they're never hidden behind cards
     if (ui.drag && ui.drag.targets.has(n.id)) top += path; else svg += path;
@@ -147,7 +147,7 @@ export function paintEdges(): void {
   // the dragged card, and drawn in the top overlay so it sits above every other card/edge.
   const preview = previewReparent();
   if (preview) {
-    top += `<path style="stroke:${branchTint(ui.drag!.active)}" stroke-dasharray="6 5" d="${edgePathBox(preview.parent, preview.box)}"/>`;
+    top += `<path class="ghost-edge" style="stroke:${branchTint(ui.drag!.active)}" stroke-dasharray="6 5" d="${edgePathBox(preview.parent, preview.box)}"/>`;
   }
   edgesSvg.innerHTML = svg;
   dragEdgesSvg.innerHTML = top;
