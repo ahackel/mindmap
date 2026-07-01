@@ -468,7 +468,12 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
       }
     }
   }
+  // An inheriting card's colour depends on its parent chain (effectiveColor), and while poised
+  // over a valid target that chain is about to change — repaint the dragged subtree so an
+  // inheriting card previews the NEW parent's colour live, instead of only updating on drop.
+  const changed = !!ui.drag && (ui.drag.dropTarget !== target || ui.drag.dropMode !== mode);
   if (ui.drag) { ui.drag.dropTarget = target; ui.drag.dropMode = mode; }
+  if (changed) for (const id of sub) { const m = state.nodes.get(id); if (m) paintNode(m); }
   if (target) {
     const targetNode = state.nodes.get(target)!;
     targetNode.el?.classList.add(mode === 'sibling' ? 'drop-sibling' : 'drop-target');

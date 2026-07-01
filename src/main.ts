@@ -114,15 +114,28 @@ export function foldNodeOrGroup(n: MindNode): void {
     toggleCollapse(n.id);
   }
 }
-// A card's colour is its own, or — if unset — inherited from the nearest coloured ancestor.
-// While Alt-dragging to detach, preview the result: treat the dragged node as a root (stop the
-// ancestor walk there), so it — and its descendants — show the colour they'd have once cut loose.
+// A card's colour is its own, or — if unset — inherited from the nearest coloured ancestor. While
+// dragging, preview what that inherited colour is ABOUT TO become, so it doesn't wait for the
+// drop to update:
+//  - Alt-dragging to detach: treat the dragged node as a root (stop the ancestor walk there).
+//  - Poised over a valid reparent target: continue the walk from the NEW parent instead of the
+//    real (about-to-change) one — a sibling-mode drop adopts the target's own parent.
+// Either way this only redirects the walk once it reaches the actively dragged node, so the whole
+// dragged subtree's inheriting descendants preview correctly too (their own walk passes through it).
 // An inheriting card with no coloured ancestor (a root left on the default "inherit") falls back
 // to grey, so it gets the same neutral card bg as an explicit grey rather than going transparent.
 // Explicit 'none' still short-circuits below (it's truthy), so "no colour" stays transparent.
 export function effectiveColor(n: MindNode): string {
-  const detachId = (ui.drag && ui.drag.alt && !ui.drag.shift) ? ui.drag.active.id : null;
-  for (let c: MindNode | null | undefined = n; c; c = (c.id === detachId) ? null : (c.parent ? state.nodes.get(c.parent) : null))
+  const drag = ui.drag;
+  let previewId: string | null = null;
+  let previewParent: MindNode | null | undefined;
+  if (drag && drag.alt && !drag.shift) { previewId = drag.active.id; previewParent = null; }
+  else if (drag && drag.dropTarget) {
+    previewId = drag.active.id;
+    const tgt = state.nodes.get(drag.dropTarget);
+    previewParent = drag.dropMode === 'sibling' ? (tgt?.parent ? state.nodes.get(tgt.parent) : null) : tgt;
+  }
+  for (let c: MindNode | null | undefined = n; c; c = (c.id === previewId) ? previewParent : (c.parent ? state.nodes.get(c.parent) : null))
     if (c.color) return c.color;
   return 'grey';
 }
