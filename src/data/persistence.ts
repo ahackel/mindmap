@@ -119,6 +119,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
       _parentPath: mm.parent || '',                // resolved to an id once all notes are loaded
       parent: null,
       collapsed: !!mm.collapsed,
+      done: !!mm.done,
       layoutType: (mm.layout || 'none') as LayoutType,
       layoutDir: (mm.dir || 'right') as LayoutDir,
       ...rest, dirty:false, dirtyLayout: !hasPos,   // notes lacking a position get one persisted

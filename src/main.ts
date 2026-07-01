@@ -52,7 +52,7 @@ function nodeEl(n: MindNode): HTMLElement {
   if (n.el) return n.el;
   const el = document.createElement('div');
   el.dataset.id = n.id;
-  el.innerHTML = `<div class="title"></div><div class="body"></div>
+  el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><div class="title"></div></div><div class="body"></div>
     <span class="hidden-count"></span>
     <div class="addnote" title="Add note">Add note…</div>`;
   world.appendChild(el);
@@ -78,6 +78,11 @@ function nodeEl(n: MindNode): HTMLElement {
     e.stopPropagation();
     toggleTask(n, +(cb.dataset.ti ?? 0));
   });
+  // done checkbox (title-only cards): toggle the card-level done mark, independent of drag/select
+  const doneEl = el.querySelector('.donebox') as HTMLInputElement;
+  doneEl.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); });
+  doneEl.addEventListener('click', (e)=>{ e.stopPropagation(); });
+  doneEl.addEventListener('change', (e)=>{ e.stopPropagation(); toggleDone(n); });
   // inline title rename: typing reflows + validates; Enter/Tab commit, Escape cancels, blur commits
   const titleEl = el.querySelector('.title') as HTMLElement;
   titleEl.addEventListener('input',   ()  => onInlineInput(n));
@@ -135,8 +140,10 @@ export function paintNode(n: MindNode): void {
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
     + (collapsed ? ' collapsed' : '')
     + (hasBody ? '' : ' no-body')
+    + (n.done ? ' done' : '')
     + (ui.drag?.targets?.has(n.id) ? ' dragging' : '')   // float the dragged subtree above all cards
     + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '');
+  (el.querySelector('.donebox') as HTMLInputElement).checked = n.done;
   // During drag: keep left/top frozen at the pre-drag origin and move via transform (compositor-only).
   // Outside drag: commit position normally and clear any leftover transform.
   const dragOrig = ui.drag?.origins?.get(n.id);
@@ -268,6 +275,13 @@ export function toggleCollapseSelection(ids: Iterable<string>): void {
   withLayoutAnimation(() => { for (const n of cards){ n.collapsed = target; n.dirtyLayout = true; } });
   scheduleSave();
   setStatus(`${target ? 'Collapsed' : 'Expanded'} ${cards.length} card${cards.length > 1 ? 's' : ''}`);
+}
+// Flip a title-only card's done mark (mm_done) and persist. Independent of any body task list.
+function toggleDone(n: MindNode): void {
+  if (state.readOnly) return;
+  n.done = !n.done;
+  n.dirty = true;
+  paintNode(n); scheduleSave();
 }
 // Flip the idx-th task checkbox in a node's body and write the change back to disk.
 function toggleTask(n: MindNode, idx: number): void {

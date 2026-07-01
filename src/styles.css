@@ -135,6 +135,13 @@ svg#edges path, svg#dragEdges path { fill:none; stroke:var(--edge); stroke-width
 /* bodyless cards shrink to just fit the title (no reserved body height) */
 .node.no-body { min-height:0; }
 .node.no-body .title { margin-bottom:0; }
+/* card-level "done" mark: a checkbox next to the title, only shown on title-only cards
+   (a body's own task list carries per-line state instead — see .taskbox below) */
+.node .title-row { display:flex; align-items:flex-start; gap:.5em; }
+.node .title-row .title { flex:1 1 auto; min-width:0; }
+.node .donebox { display:none; margin-top:.2em; }
+.node.no-body .donebox { display:block; }
+.node.done .title { text-decoration:line-through; opacity:.65; }
 /* an uncoloured card sits on the page background, so its text follows the theme, not white */
 .node.c-none { color: var(--text); }
 .node.sel { border-color: var(--node-sel); box-shadow:0 0 0 2px var(--node-sel); }
@@ -185,9 +192,13 @@ svg#edges path, svg#dragEdges path { fill:none; stroke:var(--edge); stroke-width
 .node .body ul,.node .body ol { padding-left:1.1em; }
 .node .body li { margin:.1em 0; }
 .node .body li.task { list-style:none; margin-left:-1.0em; display:flex; align-items:flex-start; gap:.4em; }
-.node .body li.task .taskbox { -webkit-appearance:none; appearance:none; width:14px; height:14px; margin:.15em 0 0; border:none; outline:none; border-radius:3px; background:#fff; cursor:pointer; flex:none; position:relative; }
-.node .body li.task .taskbox:checked { background:var(--accent); }
-.node .body li.task .taskbox:checked::after { content:""; position:absolute; left:4px; top:1px; width:4px; height:8px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
+.node .body li.task .taskbox,
+.node .donebox { -webkit-appearance:none; appearance:none; width:14px; height:14px; border:none; outline:none; border-radius:3px; background:#fff; cursor:pointer; flex:none; position:relative; }
+.node .body li.task .taskbox { margin:.15em 0 0; }
+.node .body li.task .taskbox:checked,
+.node .donebox:checked { background:var(--accent); }
+.node .body li.task .taskbox:checked::after,
+.node .donebox:checked::after { content:""; position:absolute; left:4px; top:1px; width:4px; height:8px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
 .node .body strong { font-weight:700; }
 .node .body em { font-style:italic; }
 .node .body del { opacity:.7; }

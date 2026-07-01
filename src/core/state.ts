@@ -26,6 +26,7 @@ export interface MindNode {
   parent: string | null;           // parent node id (resolved from mm_parent path at load)
   _parentPath?: string;            // transient: the mm_parent path, resolved to `parent` post-load
   collapsed: boolean;
+  done: boolean;                   // card-level "done" mark, shown as a checkbox on title-only cards
   layoutType: LayoutType;
   layoutDir: LayoutDir;
   title: string;
