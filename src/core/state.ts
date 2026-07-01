@@ -5,8 +5,7 @@
 // #stage; edges in the #edges SVG, collapse toggles in #toggles.
 // ============================================================
 
-export type LayoutType = 'none' | 'free' | 'line' | 'fan' | 'two-sided';
-export type LayoutDir = 'left' | 'right' | 'top' | 'bottom';
+export type LayoutType = 'none' | 'free' | 'line' | 'fan';
 export type EdgeStyle = 'straight' | 'orthogonal' | 'bezier';
 
 // One ordered frontmatter entry: a top-level `key:` line plus its continuation lines.
@@ -32,7 +31,6 @@ export interface MindNode {
                                     // gets a done checkbox and I show their `n/m` progress. Doesn't
                                     // cascade further down; a child can run its own checklist too.
   layoutType: LayoutType;
-  layoutDir: LayoutDir;
   title: string;
   color: string;                   // palette key, e.g. 'blue', or '' for none
   keepStatus: string;              // preserved `status:` frontmatter value

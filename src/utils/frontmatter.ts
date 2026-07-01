@@ -24,7 +24,6 @@ export interface ParsedNote {
     done: boolean;
     checklist: boolean;
     layout: string;
-    dir: string;
   };
 }
 
@@ -81,8 +80,10 @@ export function parseMd(text: string, fileName: string): ParsedNote {
       collapsed: fmValue(entries, 'mm_collapsed') === 'true',
       done: fmValue(entries, 'mm_done') === 'true',
       checklist: fmValue(entries, 'mm_checklist') === 'true',
-      layout: fmValue(entries, 'mm_layout') || 'none',   // none(inherit) | free | line | fan | two-sided
-      dir: fmValue(entries, 'mm_dir') || 'right',         // left | right | top | bottom
+      // none(inherit) | free | line | fan — a child's SIDE is derived from its position, never
+      // stored, so `mm_dir` is gone; a legacy `two-sided` map already has valid mm_x/mm_y that
+      // per-side `fan` reproduces, so fold it in rather than treating it as unknown.
+      layout: (v => v === 'two-sided' ? 'fan' : v || 'none')(fmValue(entries, 'mm_layout')),
     },
   };
 }
@@ -104,10 +105,8 @@ export function serializeMd(n: MindNode): string {
   if (n.collapsed) entries.push({ key:'mm_collapsed', lines:['mm_collapsed: true'] });
   if (n.done) entries.push({ key:'mm_done', lines:['mm_done: true'] });
   if (n.checklist) entries.push({ key:'mm_checklist', lines:['mm_checklist: true'] });
-  if (n.layoutType && n.layoutType !== 'none'){   // none (inherit) is the default — omit from file
+  if (n.layoutType && n.layoutType !== 'none')   // none (inherit) is the default — omit from file
     entries.push({ key:'mm_layout', lines:[`mm_layout: ${n.layoutType}`] });
-    entries.push({ key:'mm_dir',    lines:[`mm_dir: ${n.layoutDir || 'right'}`] });
-  }
   const fm = entries.flatMap(e => e.lines).join('\n');
   const body = n.body.trim();
   return `---\n${fm}\n---\n` + (body ? '\n' + body + '\n' : '\n');

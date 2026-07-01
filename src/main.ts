@@ -29,7 +29,7 @@ import { searchBox } from './features/search.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
 import { showStart, openHelpTab, boot } from './boot.js';
-import type { MindNode, LayoutType, LayoutDir, EdgeStyle } from './core/state.js';
+import type { MindNode, LayoutType, EdgeStyle } from './core/state.js';
 import { ui, isTypingInField, type Pt, type Drag } from './core/ui-state.js';
 
 declare global {
@@ -366,7 +366,6 @@ const editor = byId('editor');
 export const edName = byId('edName');   // read-only node name at the top of the sidebar
 const edTags  = byId<HTMLInputElement>('edTags');
 const edLayoutTypes = byId('edLayoutTypes');
-const edLayoutDirs  = byId('edLayoutDirs');
 const edColors = byId('edColors');
 const edChecklist = byId<HTMLInputElement>('edChecklist');
 
@@ -401,64 +400,43 @@ function markActiveSwatch(color: string | undefined): void {
 const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
 const DOT = (cx: number, cy: number, r = 2.2) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="currentColor" stroke="none"/>`;
 const LAYOUT_TYPES = [
-  { key:'none', label:'None — inherit layout & direction from the parent (default)',
+  { key:'none', label:'None — inherit layout from the parent (default)',
     icon: SVG_OPEN + '<rect x="5" y="7" width="14" height="10" rx="2" stroke-dasharray="3 2.5"/></svg>' },
   { key:'free', label:'Free — children stay where you drag them',
     icon: SVG_OPEN + DOT(6,7) + DOT(17,8) + DOT(11,17) + '</svg>' },
-  { key:'line', label:'Line — children chained along the direction',
+  { key:'line', label:'Line — children chained one after another, each on whichever side it sits on',
     icon: SVG_OPEN + DOT(4,12) + '<path d="M6.5 12h3"/>' + DOT(12,12) + '<path d="M14.5 12h3"/>' + DOT(20,12) + '</svg>' },
-  { key:'fan', label:'Fan — children spread out to one side',
+  { key:'fan', label:'Fan — children spread out, each to whichever side it’s placed on',
     icon: SVG_OPEN + DOT(4,12) + '<path d="M6 12l6-6M6 12h6M6 12l6 6"/>' + DOT(14,6,1.8) + DOT(14,12,1.8) + DOT(14,18,1.8) + '</svg>' },
-  { key:'two-sided', label:'Two-sided — children split to both ends of the direction’s axis, balanced (classic mind-map; best on a root)',
-    icon: SVG_OPEN + DOT(12,12) + '<path d="M12 12l6-5M12 12l6 5M12 12l-6-5M12 12l-6 5"/>' + DOT(18,7,1.8) + DOT(18,17,1.8) + DOT(6,7,1.8) + DOT(6,17,1.8) + '</svg>' },
-];
-const LAYOUT_DIRS = [
-  { key:'left',   label:'Left',   icon: SVG_OPEN + '<path d="M15 5l-7 7 7 7"/></svg>' },
-  { key:'right',  label:'Right',  icon: SVG_OPEN + '<path d="M9 5l7 7-7 7"/></svg>' },
-  { key:'top',    label:'Top',    icon: SVG_OPEN + '<path d="M5 15l7-7 7 7"/></svg>' },
-  { key:'bottom', label:'Bottom', icon: SVG_OPEN + '<path d="M5 9l7 7 7-7"/></svg>' },
 ];
 // the ids currently being edited (one or many) — layout applies to all of them
 export function selectedIds(): string[] { return state.sel.size ? [...state.sel] : (state.selId ? [state.selId] : []); }
-// build the two chip rows once
+// build the chip row once
 (function buildLayoutChips(){
   edLayoutTypes.innerHTML = LAYOUT_TYPES.map(t =>
     `<div class="layoutchip" data-type="${t.key}" title="${t.label}">${t.icon}</div>`).join('');
-  edLayoutDirs.innerHTML = LAYOUT_DIRS.map(d =>
-    `<div class="layoutchip" data-dir="${d.key}" title="${d.label}">${d.icon}</div>`).join('');
   edLayoutTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
     c.addEventListener('click', () => setLayout({ type: c.dataset.type as LayoutType })));
-  edLayoutDirs.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-    c.addEventListener('click', () => { if (!c.classList.contains('disabled')) setLayout({ dir: c.dataset.dir as LayoutDir }); }));
 })();
-// apply a type and/or direction to every selected card, then re-snap their children
-function setLayout({ type, dir }: { type?: LayoutType; dir?: LayoutDir }): void {
+// apply a type to every selected card, then re-snap their children
+function setLayout({ type }: { type?: LayoutType }): void {
   const ids = selectedIds(); if (!ids.length) return;
   for (const id of ids){
     const n = state.nodes.get(id); if (!n) continue;
     if (type != null) n.layoutType = type;
-    if (dir  != null) n.layoutDir  = dir;
     n.dirty = true;
   }
   markLayoutChips();
   applyLayouts(); paintAll(); scheduleSave();
 }
 // reflect the selection's current layout: a chip is active when ALL selected share that value
-// (mixed → none active). Direction greys out when every selected card is Free or None (None
-// inherits its direction from the parent, Free ignores it).
+// (mixed → none active).
 function markLayoutChips(): void {
   const ids = selectedIds();
   const types = new Set(ids.map(id => state.nodes.get(id)?.layoutType || 'none'));
-  const dirs  = new Set(ids.map(id => state.nodes.get(id)?.layoutDir  || 'right'));
   const t = types.size === 1 ? [...types][0] : null;
-  const d = dirs.size  === 1 ? [...dirs][0]  : null;
-  const dirDisabled = t === 'free' || t === 'none';   // two-sided keeps dir: it picks the axis
   edLayoutTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
     c.classList.toggle('active', c.dataset.type === t));
-  edLayoutDirs.querySelectorAll<HTMLElement>('.layoutchip').forEach(c => {
-    c.classList.toggle('disabled', dirDisabled);
-    c.classList.toggle('active', !dirDisabled && c.dataset.dir === d);
-  });
 }
 
 // ---------- checklist toggle: off (default) / on — Trello-style, set on the PARENT. Turning it

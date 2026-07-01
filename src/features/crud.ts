@@ -2,7 +2,7 @@
 // Every node is one .md file; ids are ephemeral (minted in mkNode). All create/duplicate paths go
 // through mkNode so the node schema stays in one place. Each mutation schedules a save. Re-parenting
 // by drag lives in features/drag.ts; this is the keyboard/toolbar-driven lifecycle.
-import { state, setStatus, type MindNode, type LayoutType, type LayoutDir } from '../core/state.js';
+import { state, setStatus, type MindNode, type LayoutType } from '../core/state.js';
 import { ui, type Pt } from '../core/ui-state.js';
 import { childrenOf, takenTitles } from '../utils/model.js';
 import { applyLayouts } from '../view/layout.js';
@@ -19,7 +19,7 @@ function mkNode(fields: Partial<MindNode> = {}): MindNode {
     id: 'n' + (state.idSeq++), file:null,
     x:0, y:0, parent:null, collapsed:false, done:false, checklist:false,
     title:'', color:'', keepStatus:'', tags:[], body:'',
-    layoutType:'none', layoutDir:'right',
+    layoutType:'none',
     dirty:true, dirtyLayout:true,
     ...fields,
   };
@@ -27,7 +27,7 @@ function mkNode(fields: Partial<MindNode> = {}): MindNode {
 // Make a new UNCONNECTED node (parent:null) at the viewport centre (or a given spot).
 interface CreateOpts {
   x?: number; y?: number; parent?: string | null; title?: string; color?: string;
-  tags?: string[]; body?: string; layoutType?: LayoutType; layoutDir?: LayoutDir; isNew?: boolean;
+  tags?: string[]; body?: string; layoutType?: LayoutType; isNew?: boolean;
 }
 export function createNode(opts: CreateOpts = {}): MindNode | undefined {
   if (state.readOnly) return;
@@ -38,7 +38,7 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
     title: opts.title ?? uniqueTitle('New Node'),  // avoid colliding with an existing "New Node"
     color: opts.color ?? '',
     tags: opts.tags ? [...opts.tags] : [], body: opts.body ?? '',
-    layoutType: opts.layoutType ?? 'none', layoutDir: opts.layoutDir ?? 'right',
+    layoutType: opts.layoutType ?? 'none',
   });
   const id = n.id;
   state.nodes.set(id, n);
@@ -76,7 +76,7 @@ function cloneNodeAt(s: MindNode, x: number, y: number): MindNode {
     title: uniqueTitle(s.title, { copy: true }),
     color: s.color,
     tags: [...s.tags], body: s.body, done: s.done, checklist: s.checklist,
-    layoutType: s.layoutType || 'none', layoutDir: s.layoutDir || 'right',
+    layoutType: s.layoutType || 'none',
   });
   state.nodes.set(copy.id, copy);
   return copy;

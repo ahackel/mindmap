@@ -4,7 +4,7 @@
 // render core's live card heights (nodeH) and branch colour (effectiveColor) from main.
 import { state, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode } from '../core/state.js';
 import { isRoot, isHidden } from '../utils/model.js';
-import { effectiveLayout, dirSide, dropLanding } from './layout.js';
+import { dropLanding } from './layout.js';
 import { ui, type Pt } from '../core/ui-state.js';
 import { NODE_W, nodeH, effectiveColor, SWATCH_BG } from '../main.js';
 
@@ -47,32 +47,16 @@ function roundedPath(pts: Pt[], r: number): string {
   const last = pts[pts.length-1];
   return d + ` L ${last.x} ${last.y}`;
 }
-// Which border a parent→child edge leaves from. A line/fan parent owns its children's side,
-// so every edge leaves from its layoutDir border; a free parent connects each child from the
-// nearest dominant-axis border (so a child dragged left connects on the left, etc.).
+// Which border a parent→child edge leaves from — the nearest dominant-axis border, derived
+// from the child's position relative to the parent (same rule every parent type uses to
+// decide which of its 4 sides a child sits on; see view/layout.ts sideOf). A child dragged
+// left connects on the left, one dragged above connects on top, etc.
 function edgeSideToCenter(parent: MindNode, cc: Pt): string {
-  // Use the EFFECTIVE layout, not the raw field: a node with type `none` that inherits
-  // line/fan from an ancestor owns its children's side too, so its edges must leave from
-  // the inherited direction's border — otherwise an inherited-fan node draws free-style
-  // edges and looks different from an explicit-fan node with the same placement.
-  const eff = effectiveLayout(parent);
-  if (eff.type === 'line' || eff.type === 'fan') return dirSide(eff.dir);
   const pc = nodeCenter(parent);
-  // two-sided splits along the direction's AXIS, so the edge must leave from the axis end that
-  // matches the child's wing — never the cross axis (outer children spread wide on the cross
-  // axis would otherwise pick left/right on an up/down split).
-  if (eff.type === 'two-sided'){
-    const horizAxis = dirSide(eff.dir) === 'left' || dirSide(eff.dir) === 'right';
-    return horizAxis ? (cc.x >= pc.x ? 'right' : 'left') : (cc.y >= pc.y ? 'down' : 'up');
-  }
   const dx = cc.x - pc.x, dy = cc.y - pc.y;
   if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'right' : 'left';
   return dy >= 0 ? 'down' : 'up';
 }
-// Which border a parent→child edge leaves from. A line/fan parent owns its children's side,
-// so every edge leaves from its layoutDir border; a free parent connects each child from the
-// nearest dominant-axis border (so a child dragged left connects on the left, etc.).
-function edgeSide(parent: MindNode, child: MindNode): string { return edgeSideToCenter(parent, nodeCenter(child)); }
 // Build an SVG path `d` for a parent→box edge in the current style:
 //   straight    — one diagonal segment between the facing borders
 //   orthogonal  — right-angle elbow with rounded corners (H & V only)

@@ -4,7 +4,7 @@
 // elsewhere calls scheduleSave(); a burst coalesces into one write ~400ms later.
 // `store` is the active backend (reassigned by useStore); main holds the open() flows.
 // ============================================================
-import { state, world, setStatus, type MindNode, type LayoutType, type LayoutDir } from '../core/state.js';
+import { state, world, setStatus, type MindNode, type LayoutType } from '../core/state.js';
 import { parseMd, serializeMd } from '../utils/frontmatter.js';
 import { zipBlob, unzip } from '../utils/zip.js';
 import { childrenOf } from '../utils/model.js';
@@ -122,7 +122,6 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
       done: !!mm.done,
       checklist: !!mm.checklist,
       layoutType: (mm.layout || 'none') as LayoutType,
-      layoutDir: (mm.dir || 'right') as LayoutDir,
       ...rest, dirty:false, dirtyLayout: !hasPos,   // notes lacking a position get one persisted
     };
     if (!hasPos) placed++;                         // new note with no saved position

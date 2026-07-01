@@ -1,36 +1,41 @@
-// ---------- node layout: radial seeding + per-node free/line/fan/two-sided ----------
+// ---------- node layout: radial seeding + per-node free/line/fan ----------
 // Computes node x/y. radialLayout seeds a fresh map; applyLayouts re-flows every node per
-// its own layoutType/layoutDir after any change. The node itself stays put — only its
-// children (and their subtrees) move. layoutH/NODE_W/subtreeIds come from main (render +
-// tree helpers) — a runtime-only cycle.
+// its own layoutType after any change. The node itself stays put — only its children (and
+// their subtrees) move. A child's SIDE (left/right/up/down) is never stored — it's derived
+// from its position relative to its parent (see sideOf below), the same way edges are derived
+// from `parent` rather than stored. layoutH/NODE_W/subtreeIds come from main (render + tree
+// helpers) — a runtime-only cycle.
 import { state, type MindNode } from '../core/state.js';
 import { childrenOf, isHidden, isRoot } from '../utils/model.js';
 import { subtreeIds, layoutH, nodeH, NODE_W } from '../main.js';
 
 const LANDING_GAP = 40;   // gap below/beside the hovered card a drag-reparented child/sibling snaps to
-// Where `dragged` will land if dropped onto `target` in the given mode — CHILD (top zone of the
-// card) or SIBLING (bottom zone, adopts target's parent). Shared by the drop-target ghost preview
+// Where `dragged` will land if dropped onto `target` in the given mode — CHILD (edge zone of the
+// card, attaching on whichever side the drop point is near) or SIBLING (centre zone, adopts
+// target's parent and lands on target's side). Shared by the drop-target ghost preview
 // (features/drag.ts) and the actual reparent commit, so what you see while dragging is exactly
 // where the card ends up.
 //
 // The governing layout is TARGET's own (child mode) or TARGET's PARENT's (sibling mode) — note
 // both cases resolve to the same node `dragged` would actually be re-parented onto. SIBLING mode
 // also anchors the insertion: the dragged card slots in right after `target` in the governor's
-// child order (not at the end), so dropping on the lower part of a middle card inserts it there,
-// matching the bottom-zone hover that triggered sibling mode in the first place.
+// child order (not at the end), so dropping near the middle of a card among several siblings
+// inserts it there, matching the centre-zone hover that triggered sibling mode in the first place.
 //
-// For a managed layout (line/fan/two-sided) the only way to know the EXACT final spot is to run
-// the real layout: applying it would also reflow target's other children (a fan re-centers, a
-// chain re-packs), so a simple "just outside target's border" estimate drifts once there's more
-// than one sibling. So we temporarily re-parent `dragged` onto the governor at the anchored
-// order position, run the same layoutSubtree() the commit path uses, read off where it placed
-// `dragged`, then revert every position/order/parent change — a dry run, no visible side effect.
+// For a managed layout (line/fan) the only way to know the EXACT final spot is to run the real
+// layout: applying it would also reflow target's other children (a fan re-centers, a chain
+// re-packs), so a simple "just outside target's border" estimate drifts once there's more than
+// one sibling on that side. So we temporarily re-parent `dragged` onto the governor at the
+// anchored order position, run the same layoutSubtree() the commit path uses, read off where it
+// placed `dragged`, then revert every position/order/parent change — a dry run, no visible side
+// effect. Which SIDE `dragged` lands on falls out of this dry run too (from its own current,
+// cursor-following position relative to the governor) — nothing extra to compute or pass in.
 // A free/unset governing layout never reflows on drop, so the cheap geometric estimate is exact
 // there and a simulation would be wasted work.
 export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' | 'sibling'): { x: number; y: number } {
   const governor = mode === 'child' ? target : (target.parent ? state.nodes.get(target.parent) : null) ?? target;
   const eff = effectiveLayout(governor);
-  if (eff.type !== 'line' && eff.type !== 'fan' && eff.type !== 'two-sided') {
+  if (eff.type !== 'line' && eff.type !== 'fan') {
     const y = target.y + nodeH(target) + LANDING_GAP;
     return mode === 'child' ? { x: target.x + LANDING_GAP, y } : { x: target.x, y };
   }
@@ -123,9 +128,6 @@ const LAYOUT_MAIN  = 60;   // gap between a card and its children along the grow
 const LAYOUT_CROSS = 22;   // gap between FANNED sibling subtrees (spread across the side)
 const LAYOUT_CHAIN = 12;   // gap between CHAINED sibling subtrees (a line along the direction)
 
-// top/bottom are the user-facing names; internally the side axis uses up/down.
-export function dirSide(dir: string | undefined): string { return dir === 'top' ? 'up' : dir === 'bottom' ? 'down' : (dir || 'right'); }
-
 // Bounding box over a node + its VISIBLE descendants (what the layout actually placed).
 function subtreeBox(node: MindNode){
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -145,29 +147,47 @@ function shiftSubtree(node: MindNode, dx: number, dy: number): void {
     n.x += dx; n.y += dy; n.dirtyLayout = true;
   }
 }
-// A node's EFFECTIVE layout. `none` (the default) inherits its parent's effective type AND
-// direction, walking up until an explicit free/line/fan is found; a root with no explicit layout
-// resolves to free (children stay where dragged).
-export function effectiveLayout(node: MindNode): { type: string; dir: string } {
+// A node's EFFECTIVE layout TYPE. `none` (the default) inherits its parent's effective type,
+// walking up until an explicit free/line/fan is found; a root with no explicit layout resolves
+// to free (children stay where dragged).
+export function effectiveLayout(node: MindNode): { type: string } {
   let n: MindNode | null | undefined = node, guard = 0;
   while (n && guard++ < 4096){
     const t = n.layoutType || 'none';
-    if (t !== 'none') return { type: t, dir: n.layoutDir || 'right' };
+    if (t !== 'none') return { type: t };
     n = n.parent ? state.nodes.get(n.parent) : null;
   }
-  return { type: 'free', dir: 'right' };   // unset root → free
+  return { type: 'free' };   // unset root → free
 }
-// Sibling order along the axis a parent stacks its children on (fan → cross axis, line → main).
-// Ties break by filename so the seeded order is deterministic across reloads (folder iteration
-// order is not stable, so we must never depend on it).
+// Which of the parent's 4 sides a child sits on — derived from its CURRENT position, never
+// stored. Dominant axis of the offset between the two centers, SCALED by the parent's own
+// aspect ratio (a card is wide and short) rather than compared as raw pixels: a `fan` spreads
+// same-side siblings wide across the cross axis, so a couple of siblings alone would put more
+// raw pixels between a "down" child and its parent horizontally than vertically, misreading
+// it as "left"/"right" the moment it's laid out. Scaling each axis by the parent's own
+// width/height first (comparing fractions of the parent's own size, not absolute px) gives a
+// lot more headroom before a wide fan spuriously flips side. Shared by layout grouping/
+// ordering and edge-exit-border selection (edges.ts).
+export function sideOf(parent: MindNode, child: MindNode): string {
+  const dx = (child.x + NODE_W/2) - (parent.x + NODE_W/2);
+  const dy = (child.y + nodeH(child)/2) - (parent.y + nodeH(parent)/2);
+  const h = nodeH(parent) || 1;
+  return Math.abs(dx) / NODE_W >= Math.abs(dy) / h ? (dx >= 0 ? 'right' : 'left') : (dy >= 0 ? 'down' : 'up');
+}
+const SIDE_RANK: Record<string, number> = { right: 0, down: 1, left: 2, up: 3 };
+// Sibling order: group by each child's own derived side, then by the coordinate that side's
+// layout treats as "along" (fan → cross axis, line → the growth axis). Ties break by filename
+// so the seeded order is deterministic across reloads (folder iteration order is not stable).
 function kidsByPosition(node: MindNode, kids: MindNode[]): string[] {
   const eff = effectiveLayout(node);
-  const side = dirSide(eff.dir), horiz = side === 'left' || side === 'right';
-  const useX = (eff.type === 'fan' || eff.type === 'two-sided') ? !horiz : horiz;
-  const pos = useX ? ((n: MindNode)=>n.x) : ((n: MindNode)=>n.y);
+  const coord = (k: MindNode): number => {
+    const side = sideOf(node, k), horiz = side === 'left' || side === 'right';
+    const useX = eff.type === 'fan' ? !horiz : horiz;
+    return useX ? k.x : k.y;
+  };
   const tie = (n: MindNode) => n.file || n.title || n.id;
   return kids.slice()
-    .sort((a,b) => (pos(a)-pos(b)) || (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0))
+    .sort((a,b) => (SIDE_RANK[sideOf(node,a)] - SIDE_RANK[sideOf(node,b)]) || (coord(a)-coord(b)) || (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0))
     .map(k => k.id);
 }
 // A parent's child order is STORED (in memory) and only changes when a child is directly
@@ -191,7 +211,7 @@ export function reorderDraggedParents(movedIds: Iterable<string>): void {
   for (const pid of parents){
     const p = state.nodes.get(pid); if (!p) continue;
     const t = effectiveLayout(p).type;
-    if (t === 'line' || t === 'fan' || t === 'two-sided')
+    if (t === 'line' || t === 'fan')
       p.kidOrder = kidsByPosition(p, childrenOf(p.id).filter(k => !isHidden(k)));
   }
 }
@@ -208,18 +228,15 @@ function layoutSubtree(node: MindNode): void {
 
   const eff  = effectiveLayout(node);                 // `none` inherits the parent's layout
   const type = eff.type;
-  if (type !== 'line' && type !== 'fan' && type !== 'two-sided') return;  // free (or unset root): children stay manual
+  if (type !== 'line' && type !== 'fan') return;  // free (or unset root): children stay manual
 
-  const side  = dirSide(eff.dir);
-  const horiz = side === 'left' || side === 'right';  // direction axis is x
   const boxOf = new Map(kids.map(k => [k.id, subtreeBox(k)]));
   const ax = node.x, ay = node.y;
 
   const sorted = orderedKids(node, kids);   // stored order — only a direct child-drag changes it
 
-  // FAN of a given set of children to ONE side: every child the same distance out, spread
-  // along the cross axis and centred on the parent. Used by `fan` (one call) and by
-  // `two-sided` (two calls, left + right).
+  // FAN a set of children to ONE side: every child the same distance out, spread along the
+  // cross axis and centred on the parent. Called once per occupied side (up to 4).
   const fanSide = (ids: MindNode[], sd: string) => {
     const hz = sd === 'left' || sd === 'right';
     const cross = ids.map(k => { const b=boxOf.get(k.id)!; return hz ? (b.y1-b.y0) : (b.x1-b.x0); });
@@ -232,45 +249,41 @@ function layoutSubtree(node: MindNode): void {
       shiftSubtree(k, dx, dy); cur += cross[i] + LAYOUT_CROSS;
     });
   };
-
-  if (type === 'fan'){
-    fanSide(sorted, side);
-  } else if (type === 'two-sided'){
-    // TWO-SIDED: spread children to BOTH ends of the direction's axis, greedily balancing the
-    // two wings by cross-axis extent. dir picks the axis — left/right → a horizontal split (the
-    // classic mind-map shape), up/down → a vertical split. Best on a root.
-    const horizAxis = side === 'left' || side === 'right';
-    const sideA = horizAxis ? 'right' : 'down', sideB = horizAxis ? 'left' : 'up';
-    let a = 0, b = 0; const A: MindNode[] = [], B: MindNode[] = [];
-    for (const k of sorted){
-      const box = boxOf.get(k.id)!;
-      const ext = horizAxis ? (box.y1 - box.y0) : (box.x1 - box.x0);
-      if (a <= b){ A.push(k); a += ext + LAYOUT_CROSS; } else { B.push(k); b += ext + LAYOUT_CROSS; }
-    }
-    fanSide(A, sideA); fanSide(B, sideB);
-  } else {
-    // LINE: children chained one after another ALONG the direction, centred on the cross axis.
-    // The chain grows in the direction's sign, so for left/up we walk the order in REVERSE — that
-    // way the first child in stored (top-to-bottom / left-to-right) order ends up at the visual
-    // top/left, not nearest the parent. (Otherwise dragging a child to the top snaps it to the bottom.)
-    let cur = horiz ? (side==='right' ? ax+NODE_W+LAYOUT_MAIN : ax-LAYOUT_MAIN)
-                    : (side==='down'  ? ay+layoutH(node)+LAYOUT_MAIN : ay-LAYOUT_MAIN);
-    const seq = (side==='left' || side==='up') ? sorted.slice().reverse() : sorted;
+  // LINE a set of children to ONE side: chained one after another ALONG the side, centred on
+  // the cross axis. Called once per occupied side (up to 4). The chain grows in the side's
+  // sign, so for left/up we walk the order in REVERSE — that way the first child in stored
+  // order ends up at the visual top/left, not nearest the parent. (Otherwise dragging a child
+  // to the top snaps it to the bottom.)
+  const lineSide = (ids: MindNode[], sd: string) => {
+    const hz = sd === 'left' || sd === 'right';
+    let cur = hz ? (sd==='right' ? ax+NODE_W+LAYOUT_MAIN : ax-LAYOUT_MAIN)
+                 : (sd==='down'  ? ay+layoutH(node)+LAYOUT_MAIN : ay-LAYOUT_MAIN);
+    const seq = (sd==='left' || sd==='up') ? ids.slice().reverse() : ids;
     seq.forEach((k)=>{
       const b = boxOf.get(k.id)!; let dx=0, dy=0;
-      if (horiz){
+      if (hz){
         const w = b.x1 - b.x0;
-        dx = side==='right' ? (cur - b.x0) : (cur - b.x1);
+        dx = sd==='right' ? (cur - b.x0) : (cur - b.x1);
         dy = (ay + layoutH(node)/2) - (k.y + layoutH(k)/2);   // centre child on the parent's y
-        cur += side==='right' ? (w+LAYOUT_CHAIN) : -(w+LAYOUT_CHAIN);
+        cur += sd==='right' ? (w+LAYOUT_CHAIN) : -(w+LAYOUT_CHAIN);
       } else {
         const h = b.y1 - b.y0;
-        dy = side==='down' ? (cur - b.y0) : (cur - b.y1);
+        dy = sd==='down' ? (cur - b.y0) : (cur - b.y1);
         dx = (ax + NODE_W/2) - (k.x + NODE_W/2);          // centre child on the parent's x
-        cur += side==='down' ? (h+LAYOUT_CHAIN) : -(h+LAYOUT_CHAIN);
+        cur += sd==='down' ? (h+LAYOUT_CHAIN) : -(h+LAYOUT_CHAIN);
       }
       shiftSubtree(k, dx, dy);
     });
+  };
+
+  // Each child sits on whichever of the parent's 4 sides its CURRENT position derives to —
+  // never stored. Group the stored order into up to 4 side-buckets, then lay out each
+  // occupied bucket independently (generalizes the old two-sided balance to up to 4 sides).
+  const buckets: Record<string, MindNode[]> = { right: [], left: [], down: [], up: [] };
+  for (const k of sorted) buckets[sideOf(node, k)].push(k);
+  const place = type === 'fan' ? fanSide : lineSide;
+  for (const side of ['right', 'left', 'down', 'up']) {
+    if (buckets[side].length) place(buckets[side], side);
   }
 }
 

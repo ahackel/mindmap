@@ -5,7 +5,7 @@
 // render core (main.ts) and the feature modules split out of it (drag / inline-edit / gestures
 // / attachments). Imported `let` bindings are read-only, hence the holder-object pattern.
 // ============================================================
-import type { MindNode, LayoutType, LayoutDir } from './state.js';
+import type { MindNode, LayoutType } from './state.js';
 
 export type Pt = { x: number; y: number };
 
@@ -15,6 +15,10 @@ export interface Drag {
   n: MindNode; active: MindNode; multi: boolean;
   sx: number; sy: number; cx: number; cy: number;
   start: Map<string, Pt>; targets: Map<string, Pt>; origins: Map<string, Pt>;
+  // Top-level roots of the drag (a single-node drag's [n.id], or a multi-selection's members
+  // whose own parent isn't ALSO selected — descendants ride along with their selected ancestor
+  // rather than getting re-parented independently). Reparented as a group on drop.
+  selRoots: string[];
   moved: boolean; dropTarget: string | null; dropMode: 'child' | 'sibling';
   alt: boolean; shift: boolean; cloned: boolean; rip: boolean;
   downTarget: EventTarget | null; meta: boolean; touch: boolean;
