@@ -6,16 +6,15 @@ import { state, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode } from '../cor
 import { isRoot, isHidden } from '../utils/model.js';
 import { effectiveLayout, dirSide, dropLanding } from './layout.js';
 import { ui, type Pt } from '../core/ui-state.js';
-import { NODE_W, nodeH, effectiveColor } from '../main.js';
+import { NODE_W, nodeH, effectiveColor, SWATCH_BG } from '../main.js';
 
-// Bright per-branch line colours (match the .c-*-cardline borders); 'none' falls back to --edge.
-const EDGE_TINT: Record<string, string> = { slate:'#7088e0', red:'#f25c72', amber:'#f2ab44', green:'#3fcf81',
-  teal:'#33c5d8', blue:'#5fa3f5', violet:'#9d70f0', pink:'#f262ad', grey:'#4a5a6e' };
 const EDGE_R = 12;   // corner radius on orthogonal elbows
 
-// The bright branch tint for a node's effective colour — shared by the dragged card's edges, the
-// reparent-preview edge and the landing-ghost border so the whole "ghost" matches the dragged card.
-export function branchTint(n: MindNode): string { return EDGE_TINT[effectiveColor(n)] ?? EDGE_TINT.grey; }
+// The branch tint for a node's effective colour — the same --card fill used by the card itself
+// (SWATCH_BG), so an edge always reads as "the same colour as the card it connects to". Shared by
+// the dragged card's edges, the reparent-preview edge and the landing-ghost border; 'none' falls
+// back to --edge (see the inline `tint` lookup in paintEdges below).
+export function branchTint(n: MindNode): string { return SWATCH_BG[effectiveColor(n)] ?? SWATCH_BG.grey; }
 
 function nodeCenter(n: MindNode): Pt { return { x: n.x + NODE_W/2, y: n.y + nodeH(n)/2 }; }
 function boxCenter(box: { x: number; y: number; h: number }): Pt { return { x: box.x + NODE_W/2, y: box.y + box.h/2 }; }
@@ -135,7 +134,7 @@ export function paintEdges(): void {
     // Rip threshold reached: draw the edge dashed as a "about to snap" signal.
     const ripping = !!(ui.drag && ui.drag.rip && ui.drag.active.id === n.id);
     // tint by the child's branch colour
-    const tint = EDGE_TINT[effectiveColor(n)];
+    const tint = SWATCH_BG[effectiveColor(n)];
     const style = tint ? ` style="stroke:${tint}"` : '';
     const dash = ripping ? ' class="ghost-edge" stroke-dasharray="6 5" opacity="0.5"' : '';
     const path = `<path${style}${dash} d="${edgePath(parent, n)}"/>`;

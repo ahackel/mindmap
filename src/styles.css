@@ -28,17 +28,17 @@ body.light {
 
 /* 8-colour muted palette — fills the whole card background (dark theme) */
 /* card colours are identical in both themes; text on a card is always white */
-.c-slate  { --card:#4860c0; --cardline:#7088e0; }
-.c-red    { --card:#d62f48; --cardline:#f25c72; }
-.c-amber  { --card:#d18a1d; --cardline:#f2ab44; }
-.c-green  { --card:#1ba85a; --cardline:#3fcf81; }
-.c-teal   { --card:#129fb3; --cardline:#33c5d8; }
-.c-blue   { --card:#2f7fe8; --cardline:#5fa3f5; }
-.c-violet { --card:#7a42da; --cardline:#9d70f0; }
-.c-pink   { --card:#d6368e; --cardline:#f262ad; }
-.c-grey   { --card:#2b3645; --cardline:#4a5a6e; }
-/* "none" = no colour at all: blend into the canvas, no border (border returns when selected) */
-.c-none   { --card:var(--bg); --cardline:transparent; }
+.c-slate  { --card:#4860c0; }
+.c-red    { --card:#d62f48; }
+.c-amber  { --card:#d18a1d; }
+.c-green  { --card:#1ba85a; }
+.c-teal   { --card:#129fb3; }
+.c-blue   { --card:#2f7fe8; }
+.c-violet { --card:#7a42da; }
+.c-pink   { --card:#d6368e; }
+.c-grey   { --card:#2b3645; }
+/* "none" = no colour at all: blend into the canvas (border returns when selected) */
+.c-none   { --card:var(--bg); }
 
 * { box-sizing: border-box; }
 html, body { margin:0; height:100%; overflow:hidden;
@@ -127,7 +127,7 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 
 .node {
   position:absolute; width:200px; min-height:64px;
-  background: var(--card, var(--node)); border:1px solid var(--cardline, var(--node-border));
+  background: var(--card, var(--node)); border:none;
   border-radius:2px; padding:10px 12px; cursor:default; color:#ffffff;
   user-select:none; -webkit-touch-callout:none; touch-action:none;
   /* fade opacity (search dim) & selection ring smoothly; NOT left/top — keeps dragging crisp */
@@ -151,11 +151,10 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 .node .progress { flex:none; margin-left:auto; padding-left:.5em; font-size:11px; font-weight:600; opacity:.7; }
 /* an uncoloured card sits on the page background, so its text follows the theme, not white */
 .node.c-none { color: var(--text); }
-.node.sel { border-color: var(--node-sel); box-shadow:0 0 0 2px var(--node-sel); }
+.node.sel { box-shadow:0 0 0 2px var(--node-sel); }
 /* while editing a title/body in place, drop the card's selection ring so only the editor's
    own outline shows */
-.node.sel:has(.title.editing), .node.sel:has(.body.editing) {
-  border-color: var(--cardline, var(--node-border)); box-shadow:none; }
+.node.sel:has(.title.editing), .node.sel:has(.body.editing) { box-shadow:none; }
 .node.drop-target { outline:2px dashed #5ac978; outline-offset:3px;
   box-shadow:0 0 0 2px #5ac978; }
 .node.drop-sibling { box-shadow:0 4px 0 0 #5ac978; }

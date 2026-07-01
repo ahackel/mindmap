@@ -358,7 +358,7 @@ const edChecklist = byId<HTMLInputElement>('edChecklist');
 
 // colour palette (keys match the .c-* CSS classes); 'grey' is the old neutral "none" look
 const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey'];
-const SWATCH_BG: Record<string, string> = { slate:'#4860c0', red:'#d62f48', amber:'#d18a1d', green:'#1ba85a',
+export const SWATCH_BG: Record<string, string> = { slate:'#4860c0', red:'#d62f48', amber:'#d18a1d', green:'#1ba85a',
   teal:'#129fb3', blue:'#2f7fe8', violet:'#7a42da', pink:'#d6368e', grey:'#2b3645' };
 // build the swatch row once: inherit (default) + the palette colours + explicit "none".
 // '' = inherit the nearest coloured ancestor (effectiveColor walks up); 'none' = no colour, terminal.
