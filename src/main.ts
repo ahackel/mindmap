@@ -22,6 +22,7 @@ import { applyLayouts } from './view/layout.js';
 import { paintEdges } from './view/edges.js';
 import './features/gestures.js';   // registers the canvas pan/zoom/marquee gesture listeners
 import './features/attachments.js';   // registers the OS image drag/drop listeners
+import './features/context-menu.js';   // registers the custom right-click menu on the canvas
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInput, onInlineKeydown } from './features/inline-edit.js';
 import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
@@ -637,10 +638,12 @@ edTags.addEventListener('blur', () => commitStep());
 // (so the folder isn't littered with M.md, Ma.md, Mag.md…) — it keys off `ui.inlineEdit` directly.
 
 // keyboard:
-//  · Space          → new node (only when nothing is selected)
+//  · Space          → new node at the pointer (only when nothing is selected)
 //  · Enter          → add a sibling of the selected node
 //  · Tab            → add a child of the selected node
 //  · F2             → rename the selected node in place (also: slow-click its title)
+//  · X              → collapse/eXpand the selected node(s) (also: double-click)
+//  · E              → edit the selected node's note/body in place (also: slow-click the body)
 //  · Delete/Backspace → delete the selected node (only when the edit panel is closed)
 // A focused title editor (the sidebar field OR an in-card inline rename) counts as "typing",
 // so these card shortcuts stay out of the way while you're naming something.
@@ -672,18 +675,32 @@ window.addEventListener('keydown', (e) => {
   if (e.key === ' '){ e.preventDefault(); if (!e.repeat){ ui.spaceHeld = true; ui.spaceUsedForPan = false; } return; }
   if (e.key === 'f' || e.key === 'F'){ e.preventDefault(); focusOrFit(); return; }
   if ((e.key === 'd' || e.key === 'D') && state.sel.size){ e.preventDefault(); duplicateSelection(); return; }
+  if ((e.key === 'x' || e.key === 'X') && state.sel.size && !e.metaKey && !e.ctrlKey){   // don't shadow cut
+    e.preventDefault(); toggleCollapseSelection(state.sel); return;
+  }
   if (e.key === 'F2' && state.selId){ e.preventDefault(); startInlineEdit(state.nodes.get(state.selId)); return; }   // selId guards non-null
+  if ((e.key === 'e' || e.key === 'E') && state.selId && !e.metaKey && !e.ctrlKey){
+    e.preventDefault(); const n = state.nodes.get(state.selId); if (n) startBodyEdit(n); return;
+  }
   if (e.key === 'Enter' && state.selId){ e.preventDefault(); createSibling(state.selId); return; }
   if (e.key === 'Tab' && state.selId){ e.preventDefault(); addChild(state.selId); return; }
   if ((e.key === 'Delete' || e.key === 'Backspace') && state.sel.size){
     e.preventDefault(); deleteSelection();
   }
 });
+// Track the mouse so keyboard/clipboard actions (Space-tap, paste) land AT the pointer.
+window.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'mouse') ui.lastMouse = { x: e.clientX, y: e.clientY };
+});
 window.addEventListener('keyup', (e) => {
   if (e.key !== ' ') return;
   const wasPan = ui.spaceUsedForPan;
   ui.spaceHeld = false; ui.spaceUsedForPan = false;
-  if (!isTypingInField() && !wasPan && !ui.pan && state.sel.size === 0) createNode();   // tap = new node
+  if (isTypingInField() || wasPan || ui.pan || state.sel.size !== 0) return;
+  if (ui.lastMouse){         // tap = new card under the cursor (centre when the mouse hasn't moved yet)
+    const p = screenToWorld(ui.lastMouse.x, ui.lastMouse.y);
+    createNode({ x: p.x - 100, y: p.y - 32 });
+  } else createNode();
 });
 
 // Ghost-card drag: grab the corner card to spawn a new note that rides the cursor through the same

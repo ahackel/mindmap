@@ -43,8 +43,10 @@ function mdLinks(text: string): string {
 // An <img> for inline markdown. The real src is resolved after insertion (hydrateImages): vault
 // paths are read from the store as blob URLs, remote/data URLs pass through — so rendering stays
 // synchronous while disk reads happen lazily.
+// data-img-src is consumed (removed) by hydrateImages; data-path stays on the element so the
+// context menu can map a rendered <img> back to its markdown reference / vault file.
 function imgTag(src: string, alt: string): string {
-  return `<img class="md-img" data-img-src="${esc(src.trim())}" alt="${esc(alt || '')}">`;
+  return `<img class="md-img" data-img-src="${esc(src.trim())}" data-path="${esc(src.trim())}" alt="${esc(alt || '')}">`;
 }
 // Full inline pass: protect `code` spans first (no formatting inside), then links + emphasis.
 function mdInline(text: string): string {

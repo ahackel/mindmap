@@ -3,10 +3,12 @@
 // Added by pasting into the in-card body editor, dropping a file on a card (or the editor), or by
 // typing the markdown. Importing this module registers the document-level drag/drop listeners.
 import { state, setStatus } from '../core/state.js';
-import { ui } from '../core/ui-state.js';
+import { ui, isTypingInField } from '../core/ui-state.js';
 import { store, scheduleSave } from '../data/persistence.js';
 import { applyLayouts } from '../view/layout.js';
+import { screenToWorld } from '../view/camera.js';
 import { paintAll, selectNode } from '../main.js';
+import { createNode, uniqueTitle, newCardTitle } from './crud.js';
 import { autosizeBody } from './inline-edit.js';
 import { touch, record } from './history.js';
 
@@ -79,10 +81,114 @@ async function insertImagesAtCursor(files: FileList | File[]): Promise<void> {
   setStatus(addedMsg(imgs.length));
 }
 
+// Drop on empty canvas: make a fresh card AT the drop point with the image(s) as its body.
+// createNode opens the rename right away (like any new card); Esc still cancels the card, but the
+// image files themselves stay stored — same as removing a card whose body references images.
+async function createImageNode(sx: number, sy: number, files: File[]): Promise<void> {
+  const imgs = imageFiles(files);
+  if (!imgs.length || !canAttach()) return;
+  setStatus('Adding image…');
+  const md = await markdownForImages(imgs);
+  const p = screenToWorld(sx, sy);
+  createNode({ x: p.x - 100, y: p.y - 32, body: md });   // same drop-point offsets as the context menu
+  setStatus(addedMsg(imgs.length));
+}
+
 // Paste an image straight into the in-card body editor (bound per-textarea in startBodyEdit).
 export function onBodyPaste(e: ClipboardEvent): void {
   const imgs = imageFiles(e.clipboardData?.files);
   if (imgs.length){ e.preventDefault(); insertImagesAtCursor(imgs); }
+}
+
+// ---------- global paste = new card ----------
+// ⌘V outside any text field (or the context menu's Paste) makes a card from the clipboard — text
+// (first non-empty line becomes the title, the rest the body) or image files. It lands at the
+// given screen point (⌘V: the mouse position, viewport centre before the mouse ever moved); with
+// a parent it becomes that card's CHILD. Created as-is — no rename editor opens.
+function cardOptsAt(sx: number | null, sy: number | null, parent: string | null):
+    { x?: number; y?: number; parent: string | null; edit: false } {
+  if (parent){
+    const pn = state.nodes.get(parent);
+    if (pn?.collapsed){ touch(parent); pn.collapsed = false; }   // reveal so the new child is visible
+  }
+  const p = sx != null && sy != null ? screenToWorld(sx, sy) : null;
+  return { ...(p ? { x: p.x - 100, y: p.y - 32 } : {}), parent, edit: false };
+}
+// Does this URL load as an image? <img> load/error fires cross-origin without CORS headers.
+function probeImage(url: string): Promise<boolean> {
+  return new Promise(res => {
+    const im = new Image();
+    const done = (ok: boolean) => { clearTimeout(t); res(ok); };
+    const t = setTimeout(() => done(false), 8000);   // offline/hanging host → stay a link
+    im.onload = () => done(true);
+    im.onerror = () => done(false);
+    im.src = url;
+  });
+}
+// Make the card from whatever the clipboard held. Titles are filenames: no slashes, kept short, unique.
+function createCardFromClipboard(imgs: File[], text: string, opts: ReturnType<typeof cardOptsAt>): void {
+  if (imgs.length){
+    if (!canAttach()) return;
+    setStatus('Adding image…');
+    void markdownForImages(imgs).then(md => {
+      createNode({ ...opts, body: md });
+      setStatus(addedMsg(imgs.length));
+    });
+    return;
+  }
+  // A lone URL isn't a name — it goes into the BODY (image URLs as an inline image, others as a
+  // link, both handled by the markdown renderer) and the card gets a standard fresh-card title.
+  // Many image URLs carry no file extension (CDNs), so those are pasted as a link first and
+  // probed in the background: if the URL actually loads as an image, the link upgrades to ![](…).
+  if (/^https?:\/\/\S+$/i.test(text)){
+    const isImg = /\.(png|jpe?g|gif|webp|svg|avif|bmp)(\?\S*)?$/i.test(text);
+    const n = createNode({ ...opts, title: newCardTitle(), body: isImg ? `![](${text})` : text });
+    if (n) setStatus(isImg ? 'Pasted image link' : 'Pasted link');
+    if (n && !isImg) void probeImage(text).then(ok => {
+      const cur = state.nodes.get(n.id);
+      if (!ok || !cur || cur.body !== text) return;   // gone or edited meanwhile → leave it alone
+      record([cur.id], () => { cur.body = `![](${text})`; cur.dirty = true; });
+      applyLayouts(); paintAll(); scheduleSave();
+      setStatus('Pasted image link');
+    });
+    return;
+  }
+  const lines = text.split('\n');
+  let ti = lines.findIndex(l => l.trim()); if (ti < 0) ti = 0;
+  const title = lines[ti].replace(/^\s*(#{1,6}|[-*+]|>|\d+\.)\s*/, '').replace(/[/\\]/g, '-').trim().slice(0, 80);
+  const body = lines.slice(ti + 1).join('\n').trim();
+  const n = createNode({ ...opts, title: title ? uniqueTitle(title) : newCardTitle(), body });
+  if (n) setStatus(`Pasted “${n.title}”`);
+}
+document.addEventListener('paste', (e) => {
+  if (isTypingInField()) return;                 // field/editor pastes keep their native behaviour
+  if (state.readOnly){ setStatus('Read-only — can’t paste'); return; }
+  const cd = e.clipboardData; if (!cd) return;
+  const imgs = imageFiles(cd.files);
+  const text = cd.getData('text/plain').trim();
+  if (!imgs.length && !text) return;
+  e.preventDefault();
+  createCardFromClipboard(imgs, text, cardOptsAt(ui.lastMouse?.x ?? null, ui.lastMouse?.y ?? null, state.selId));
+});
+// Context-menu Paste: no ClipboardEvent to read from, so ask the async clipboard API (may prompt
+// for permission; Safari requires it be called directly in the user gesture — a menu click is one).
+export async function pasteFromClipboard(sx: number, sy: number, parent: string | null): Promise<void> {
+  if (state.readOnly){ setStatus('Read-only — can’t paste'); return; }
+  const imgs: File[] = []; let text = '';
+  try {
+    const items = await navigator.clipboard.read();
+    for (const it of items){
+      const imgType = it.types.find(t => t.startsWith('image/'));
+      if (imgType) imgs.push(new File([await it.getType(imgType)], 'pasted' + (IMG_EXT[imgType] || '.png'), { type: imgType }));
+      else if (it.types.includes('text/plain')) text = await (await it.getType('text/plain')).text();
+    }
+  } catch {
+    try { text = await navigator.clipboard.readText(); }        // read() unsupported → text-only fallback
+    catch { setStatus('Clipboard not available'); return; }
+  }
+  text = text.trim();
+  if (!imgs.length && !text){ setStatus('Clipboard is empty'); return; }
+  createCardFromClipboard(imgs, text, cardOptsAt(sx, sy, parent));
 }
 
 // Drag an image file from the OS onto a card (or the body editor). We handle this at the document
@@ -113,6 +219,5 @@ document.addEventListener('drop', async (e) => {
   if (!imgs.length) return;
   if (onEditor && ui.bodyEdit){ await insertImagesAtCursor(imgs); }   // drop on the open editor → at the caret
   else if (cardEl){ selectNode(cardEl.dataset.id ?? null); await appendImagesToNode(cardEl.dataset.id!, imgs); }
-  else if (state.selId){ await appendImagesToNode(state.selId, imgs); }
-  else setStatus('Drop an image onto a card to attach it');
+  else await createImageNode(e.clientX, e.clientY, imgs);   // empty canvas → new card at the drop point
 });

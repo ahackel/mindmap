@@ -96,27 +96,34 @@ button:disabled { opacity:.45; cursor:default; }
   display:inline-flex; align-items:center; justify-content:center;
   width:28px; height:28px; padding:0; border-radius:7px;
   background:transparent; border:none; color:var(--muted);
+  flex:none;   /* icons never squash — a narrow window shrinks the search box / folder name instead */
 }
 #toolbar button:hover { background:var(--node); color:var(--text); }
 #toolbar button.primary { color:var(--accent); }
 #toolbar button.active { color:var(--accent); }
 #toolbar button#roBtn.locked { color:#e0564f; }   /* red while read-only is locked */
 #toolbar button#roBtn.locked:hover { color:#e0564f; background:var(--node); }
-#toolbar button svg { width:15px; height:15px; display:block; }
+/* .ic is display:contents, so the svg itself is the flex item — flex:none keeps icons from
+   squashing when a shrinking neighbour (folder name / search box) fights for space */
+#toolbar button svg { width:15px; height:15px; display:block; flex:none; }
 #status { display:none; }   /* transient log messages are not shown in the toolbar */
 /* home button = folder icon + loaded-folder name as one clickable element */
-#toolbar button#homeBtn { width:auto; gap:5px; padding:0 7px; }
+#toolbar button#homeBtn { width:auto; gap:5px; padding:0 7px; flex:0 1 auto; min-width:36px; }
 #homeBtn #folderName { font-size:12px; font-weight:600; color:var(--text);
   max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #homeBtn #folderName:empty { display:none; }   /* icon-only until a folder is loaded */
+@media (max-width:480px){ #homeBtn #folderName { display:none; } }   /* icon-only on narrow screens */
 #toolbar button#homeBtn:hover #folderName { color:var(--text); }
 /* find / jump-to-card */
-#searchWrap { position:relative; display:flex; align-items:center; }
+/* the search field yields first when the toolbar runs out of room (down to min-width),
+   so it can never stick out of the bar; focus widens the wrap, not the input */
+#searchWrap { position:relative; display:flex; align-items:center; flex:0 1 auto; width:130px; min-width:78px; }
+#searchWrap:focus-within { width:180px; }
 #searchIcon { position:absolute; left:7px; width:13px; height:13px; display:block;
   color:var(--muted); pointer-events:none; flex:none; }
-#searchBox { width:130px; height:26px; padding:0 8px 0 24px; border-radius:7px; font-size:12px;
-  background:var(--bg); border:none; color:var(--text); }
-#searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); width:180px; }
+#searchBox { width:100%; min-width:0; box-sizing:border-box; height:26px; padding:0 8px 0 24px;
+  border-radius:7px; font-size:12px; background:var(--bg); border:none; color:var(--text); }
+#searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); }
 #searchBox.has-value { padding-right:22px; }
 #toolbar button#searchClear { display:none; position:absolute; right:5px; width:18px; height:18px; padding:0;
   border:none; background:transparent; color:var(--muted); cursor:pointer; }
@@ -134,6 +141,22 @@ input::placeholder { color:var(--panel); opacity:1; }
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 #searchResults .sr-item:hover, #searchResults .sr-item.active { background:var(--node); }
 #searchResults .sr-none { padding:6px 9px; font-size:12px; color:var(--muted); }
+
+/* custom right-click context menu — same surface language as the search dropdown */
+#ctxMenu { position:fixed; min-width:180px; padding:4px; display:none; z-index:40;
+  background:var(--panel); border:1px solid var(--node-border); border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.25); }
+#ctxMenu.open { display:block; }
+#ctxMenu .cm-item { display:flex; width:100%; align-items:center; justify-content:space-between;
+  gap:18px; padding:6px 9px; border-radius:6px; font-size:13px; color:var(--text);
+  background:transparent; border:none; cursor:pointer; white-space:nowrap; text-align:left;
+  touch-action:manipulation; }
+#ctxMenu .cm-item:hover:not(:disabled) { background:var(--accent); color:#fff; }
+#ctxMenu .cm-item:hover:not(:disabled) kbd {
+  color:#fff; background:rgba(255,255,255,.16); border-color:rgba(255,255,255,.35); }
+#ctxMenu .cm-item:disabled { color:var(--muted); cursor:default; }
+#ctxMenu .cm-item kbd { font-family:inherit; font-size:11px; color:var(--muted); }
+#ctxMenu .cm-sep { height:1px; margin:4px 6px; background:var(--node-border); }
 
 /* touch-action:none → the browser never steals pan/zoom gestures; we drive them ourselves */
 #stage { position:fixed; inset:0; overflow:hidden; cursor:default; touch-action:none; }

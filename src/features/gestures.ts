@@ -24,6 +24,7 @@ function startPinch(): void {
 // Empty-canvas drag = rubber-band SELECT (mouse and single-finger touch). Hold Space / middle-button to PAN.
 stage.addEventListener('pointerdown', (e) => {
   if ((e.target as HTMLElement).closest('.node')) return;            // node drags capture their own pointer
+  if (e.button === 2) return;         // right-click = context menu only: no marquee, keep editors/selection
   cancelViewAnim();
   // Tapping the canvas background closes any open in-place text editor (important on touch)
   if (ui.inlineEdit) { endInlineEdit(); return; }

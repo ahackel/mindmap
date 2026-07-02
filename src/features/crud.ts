@@ -5,7 +5,7 @@
 import { state, setStatus, type MindNode, type LayoutType } from '../core/state.js';
 import { ui, type Pt } from '../core/ui-state.js';
 import { childrenOf, takenTitles } from '../utils/model.js';
-import { applyLayouts } from '../view/layout.js';
+import { applyLayouts, insertedKidOrder, sideOf } from '../view/layout.js';
 import { screenToWorld } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
 import { paintAll, selectNode, setSelectionSet, applySelection, selectedIds, nodeH, subtreeIds } from '../main.js';
@@ -31,6 +31,7 @@ function mkNode(fields: Partial<MindNode> = {}): MindNode {
 interface CreateOpts {
   x?: number; y?: number; parent?: string | null; title?: string; color?: string;
   tags?: string[]; body?: string; layoutType?: LayoutType; isNew?: boolean;
+  edit?: boolean;   // false = don't open the inline rename (e.g. paste — the content is final)
 }
 export function createNode(opts: CreateOpts = {}): MindNode | undefined {
   if (state.readOnly) return;
@@ -38,14 +39,16 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
   const n = mkNode({
     x: opts.x ?? (c.x - 100), y: opts.y ?? (c.y - 40),
     parent: opts.parent ?? null,
-    title: opts.title ?? uniqueTitle('New Node'),  // avoid colliding with an existing "New Node"
+    title: opts.title ?? newCardTitle(),
     color: opts.color ?? '',
     tags: opts.tags ? [...opts.tags] : [], body: opts.body ?? '',
     layoutType: opts.layoutType ?? 'none',
   });
   const id = n.id;
   state.nodes.set(id, n);
-  applyLayouts(); paintAll(); selectNode(id); startInlineEdit(n, { isNew: opts.isNew ?? true });
+  applyLayouts(); paintAll(); selectNode(id);
+  if (opts.edit !== false) startInlineEdit(n, { isNew: opts.isNew ?? true });
+  else commitStep();   // no rename session follows, so the create step ends here
   scheduleSave();
   return n;
 }
@@ -54,29 +57,45 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
 // deletes it on cancel). Kept save-free so an abandoned drag never writes a file.
 export function createDetachedNode(x: number, y: number): MindNode | undefined {
   if (state.readOnly) return;
-  const n = mkNode({ x, y, parent:null, title: uniqueTitle('New Node') });
+  const n = mkNode({ x, y, parent:null, title: newCardTitle() });
   state.nodes.set(n.id, n);
   paintAll();   // give the card a DOM element so it can be dragged
   return n;
 }
-// Pick a title not already in use. "Tether Gun" -> "Tether Gun copy" -> "Tether Gun copy 2"…
-// For brand-new nodes, "New Node" -> "New Node 2" -> "New Node 3"…
-function uniqueTitle(base: string, { copy = false }: { copy?: boolean } = {}): string {
+// Pick a title not already in use: "Some heading" -> "Some heading 2" -> "Some heading 3"…
+export function uniqueTitle(base: string): string {
   const taken = takenTitles();
-  let cand = copy ? `${base} copy` : base;
-  if (!taken.has(cand.toLowerCase())) return cand;
+  if (!taken.has(base.toLowerCase())) return base;
   let i = 2;
-  while (taken.has((copy ? `${base} copy ${i}` : `${base} ${i}`).toLowerCase())) i++;
-  return copy ? `${base} copy ${i}` : `${base} ${i}`;
+  while (taken.has(`${base} ${i}`.toLowerCase())) i++;
+  return `${base} ${i}`;
 }
+// Titles are numbered: fresh cards are "New Card 1", "New Card 2", …; a copy of "Idea 3" tries
+// "Idea 4" next (or the first free number after it), and a copy of an unnumbered "Idea" starts
+// a new suffix at "Idea 2".
+function splitNumbered(title: string): { base: string; num: number | null } {
+  const m = title.match(/^(.*\S) (\d+)$/);
+  return m ? { base: m[1], num: parseInt(m[2], 10) } : { base: title, num: null };
+}
+function nextNumberedTitle(base: string, from = 1): string {
+  const taken = takenTitles();
+  let i = from;
+  while (taken.has(`${base} ${i}`.toLowerCase())) i++;
+  return `${base} ${i}`;
+}
+export const newCardTitle = (): string => nextNumberedTitle('New Card');
+const copyTitle = (title: string): string => {
+  const { base, num } = splitNumbered(title);
+  return nextNumberedTitle(base, (num ?? 1) + 1);   // numbered → next free number; plain → "… 2"
+};
 // Clone one card (not its subtree) at (x,y): same content/colour, keeping its parent so the copy
-// stays attached as a sibling. Gets a unique "… copy" title so its file is valid. Shared by the
-// duplicate (sidebar/keyboard) and Shift-drag clone paths; doesn't touch selection/layout.
+// stays attached as a sibling. Gets the next free numbered title (copyTitle) so its file is valid.
+// Shared by the duplicate (sidebar/keyboard) and Shift-drag clone paths; doesn't touch selection/layout.
 function cloneNodeAt(s: MindNode, x: number, y: number): MindNode {
   const copy = mkNode({
     x, y,
     parent: s.parent,
-    title: uniqueTitle(s.title, { copy: true }),
+    title: copyTitle(s.title),
     color: s.color,
     tags: [...s.tags], body: s.body, done: s.done, checklist: s.checklist, bg: s.bg,
     layoutType: s.layoutType || 'none', side: s.side,
@@ -129,7 +148,7 @@ export function addChild(parentId: string): void {
     x: parent.x + 40 + sibs.length * 30,
     y: parent.y + 150 + sibs.length * 10,
     parent: parentId,
-    title: uniqueTitle('New Node'),
+    title: newCardTitle(),
   });
   const id = n.id;
   state.nodes.set(id, n);
@@ -139,14 +158,29 @@ export function addChild(parentId: string): void {
   startInlineEdit(n, { isNew: true });   // drop straight into renaming the fresh card; Esc cancels creation
   scheduleSave();
 }
-// Add a SIBLING of `refId` — a new node sharing its parent. For a parented node we delegate
-// to addChild so the parent's order/layout handling stays in one place; a root-level node has
-// no parent, so its "sibling" is a fresh unconnected node placed just below it.
+// Add a SIBLING of `refId` — a new node sharing its parent, on the SAME side as the reference
+// card and slotted into the child order DIRECTLY AFTER it (not appended at the end). A root-level
+// node has no parent, so its "sibling" is a fresh unconnected node placed just below it.
 export function createSibling(refId: string){
   if (state.readOnly) return;
   const ref = state.nodes.get(refId); if (!ref) return;
-  if (ref.parent != null) return addChild(ref.parent);
-  return createNode({ x: ref.x, y: ref.y + nodeH(ref) + 40 });
+  if (ref.parent == null) return createNode({ x: ref.x, y: ref.y + nodeH(ref) + 40 });
+  const parent = state.nodes.get(ref.parent); if (!parent) return;
+  touch(parent.id);   // the kidOrder change (and a possible reveal) belong to the create step
+  if (parent.collapsed) parent.collapsed = false;
+  const n = mkNode({
+    // seed just below the reference; a managed layout re-places it, a free layout keeps it here
+    x: ref.x, y: ref.y + nodeH(ref) + 24,
+    parent: ref.parent,
+    side: sideOf(parent, ref),                             // same direction as the reference card
+    title: newCardTitle(),
+  });
+  state.nodes.set(n.id, n);
+  parent.kidOrder = insertedKidOrder(parent, n.id, ref.id);   // directly after the reference
+  applyLayouts(); paintAll();
+  selectNode(n.id);
+  startInlineEdit(n, { isNew: true });   // drop straight into renaming the fresh card; Esc cancels creation
+  scheduleSave();
 }
 
 // ---------- extract selected body text into a new child card ----------
@@ -163,7 +197,7 @@ export function extractToChild(): void {
   const lines = sel.split('\n');
   let ti = lines.findIndex((l: string) => l.trim()); if (ti < 0) ti = 0;
   const title = uniqueTitle(
-    lines[ti].replace(/^\s*(#{1,6}|[-*+]|>|\d+\.)\s*/, '').trim() || 'New Node');
+    lines[ti].replace(/^\s*(#{1,6}|[-*+]|>|\d+\.)\s*/, '').trim() || newCardTitle());
   const childBody = lines.slice(ti+1).join('\n').trim();
   // cut the selection out of the parent (tidy up the blank lines it leaves) and close its editor
   n.body = (ta.value.slice(0, s) + ta.value.slice(e)).replace(/\n{3,}/g, '\n\n').trim();

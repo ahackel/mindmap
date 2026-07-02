@@ -70,6 +70,10 @@ export const ui = {
   bodyEdit: null as BodyEdit | null,
   // ---- animated relayout (main) ----
   animToken: 0,
+  // ---- last known mouse position (window pointermove, main) ----
+  // Lets keyboard/clipboard actions (Space-tap new card, paste) land AT the cursor; null until
+  // the mouse first moves (touch never sets it) → callers fall back to the viewport centre.
+  lastMouse: null as Pt | null,
 };
 
 // pointerId -> position, for the multi-touch gesture layer (a const Map, mutated in place).

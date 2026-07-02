@@ -205,6 +205,7 @@ export function bindNodeDrag(n: MindNode): void {
     lastTouchTapTarget = e.target;
   }, { passive: false });
   el.addEventListener('pointerdown', (e) => {
+    if (e.button === 2) { e.stopPropagation(); return; }   // right-click = context menu only: no drag/select/rename
     const tgt = e.target as HTMLElement;
     if (tgt.classList.contains('addnote')) return;
     if (tgt.closest('a.lk, input.taskbox')) { e.stopPropagation(); return; }  // let links/checkboxes click, not drag
