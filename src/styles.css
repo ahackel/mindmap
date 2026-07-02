@@ -117,6 +117,12 @@ button:disabled { opacity:.45; cursor:default; }
 #searchBox { width:130px; height:26px; padding:0 8px 0 24px; border-radius:7px; font-size:12px;
   background:var(--bg); border:none; color:var(--text); }
 #searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); width:180px; }
+#searchBox.has-value { padding-right:22px; }
+#toolbar button#searchClear { display:none; position:absolute; right:5px; width:18px; height:18px; padding:0;
+  border:none; background:transparent; color:var(--muted); cursor:pointer; }
+#toolbar button#searchClear:hover { color:var(--text); }
+#searchClear svg { width:11px; height:11px; display:block; }
+#toolbar #searchBox.has-value ~ #searchClear { display:flex; align-items:center; justify-content:center; }
 /* placeholder hint tinted with the bar surface so it reads as a faint label, not real input */
 input::placeholder { color:var(--panel); opacity:1; }
 #searchResults { position:absolute; top:30px; left:0; min-width:200px; max-height:50vh; overflow:auto;

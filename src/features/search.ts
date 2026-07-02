@@ -8,9 +8,11 @@ import { paintAll, focusNode } from '../main.js';
 
 export const searchBox = document.getElementById('searchBox') as HTMLInputElement;
 const searchResults = document.getElementById('searchResults') as HTMLElement;
+const searchClear = document.getElementById('searchClear') as HTMLButtonElement;
 let searchHits: MindNode[] = [], searchActive = -1;
 function runSearch(): void {
   const q = searchBox.value.trim().toLowerCase();
+  searchBox.classList.toggle('has-value', !!searchBox.value);
   if (!q){ clearSearch(); return; }
   // match on title OR body content; dim every visible card that doesn't match
   const matches = [...state.nodes.values()].filter(n =>
@@ -31,6 +33,7 @@ function runSearch(): void {
 function clearSearch(): void {
   searchResults.classList.remove('open'); searchResults.innerHTML = '';
   searchHits = [];
+  searchBox.classList.toggle('has-value', !!searchBox.value);
   if (state.searchMatch){ state.searchMatch = null; paintAll(); }   // un-dim
 }
 function gotoHit(id: string): void {
@@ -59,6 +62,7 @@ searchResults.addEventListener('click', (e: MouseEvent) => {
   const item = (e.target as Element).closest('.sr-item');
   if (item) gotoHit((item as HTMLElement).dataset.id!);
 });
+searchClear.addEventListener('click', () => { searchBox.value = ''; runSearch(); searchBox.focus(); });
 document.addEventListener('pointerdown', (e: PointerEvent) => {           // click-away closes the dropdown
   if (!(e.target as Element).closest('#searchWrap')) searchResults.classList.remove('open');
 });
