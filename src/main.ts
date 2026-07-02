@@ -760,6 +760,7 @@ window.addEventListener('keyup', (e) => {
 byId('fitBtn').onclick = focusOrFit;
 byId('edgeBtn').onclick = cycleEdgeStyle;
 byId('homeBtn').onclick = showStart;   // icon + folder name → home screen
+byId('helpBtn').onclick = openHelpTab;  // same as F1 — opens the help mindmap in a new tab
 
 // ---- edit-panel action buttons: on-screen equivalents of the keyboard shortcuts,
 // so every editing action is reachable on a touch device with no keyboard ----

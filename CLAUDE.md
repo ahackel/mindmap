@@ -23,9 +23,11 @@ dependencies; the only deps are the dev-time bundler. No tests.
   (`tsc --noEmit`, run after touching types). No `@ts-nocheck` remains; keep it that way.
   `allowJs` is on for safety but nothing is `.js` anymore; keep `.js` in import specifiers
   (Vite/TS `bundler` resolution maps them to `.ts`).
-- **`help/` is runtime-fetched**, so it lives in `public/help/` and Vite copies it to
-  `dist/help/`; the relative `fetch('help/...')` resolves in dev and prod alike. Edit
-  help content there.
+- **Help content lives in `public/help/*.md`** and is **embedded into the bundle at
+  build time** (`import.meta.glob(..., '?raw', eager)` in `src/boot.ts`) — NOT fetched at
+  runtime, so the help mindmap works even when `dist/index.html` is opened from a `file://`
+  path (browsers block `fetch()` under `file://`). Edit help content there; dev HMR picks it
+  up. There is no `manifest.json` — the tree is derived from each note's `mm_parent`.
 - **Works in any modern browser** (incl. iPad Safari) thanks to the OPFS default. The
   "Open folder" option additionally needs the File System Access API
   (`showDirectoryPicker`), which only Chrome/Edge implement.
@@ -121,10 +123,13 @@ don't scatter backend calls elsewhere. The focus/visibility reload is a shared l
 (`installWatch`) re-pointed at the active store (OPFS's `watch` is a no-op).
 
 **Help mindmap:** `F1` opens `?help` in a new tab (`openHelpTab`). On boot with `?help`,
-`openHelp()` switches to a read-only `helpStore` that fetches `help/manifest.json` + the
-listed `help/*.md` — a real mindmap shipped next to `index.html`, isolated in its own tab so
-the user's vault is never touched. Edit help content by editing those `.md` files (and the
-manifest); use backtick code spans, not raw HTML, since `renderBodyHTML` escapes `<…>`.
+`openHelp()` switches to a read-only `helpStore` that serves the bundle-embedded `help/*.md`
+notes (see the storage bullet above) — a real mindmap isolated in its own tab so the user's
+vault is never touched. Titles carry a leading emoji (the filename is the title); the map goes
+general→specific from a root welcome card, with each branch collapsed so users expand to go
+deeper. Edit help content by editing those `.md` files; use backtick code spans, not raw HTML,
+since `renderBodyHTML` escapes `<…>`, and avoid wrapping inline `code` in `**bold**`/`*italic*`
+(the code span is extracted first, so the emphasis won't pair).
 
 **Touch input:** pan/zoom on the canvas is a unified Pointer-Events gesture layer on
 `#stage` (one finger pans, two fingers pinch-zoom + pan); node drag/reparent uses the

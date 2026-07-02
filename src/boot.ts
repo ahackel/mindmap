@@ -92,29 +92,26 @@ function renderStoreScreen(): void {
 (document.getElementById('startClose') as HTMLElement).onclick  = () => hideStart();
 setOnRecentsChanged(renderRecents);   // let the store signal recents changes without rendering UI itself
 
-// ---------- help mindmap (shipped as help/*.md next to index.html, opened with F1) ----------
-// Read-only store that fetches the help notes; lives in its own tab (?help), so the user's
-// own map and vault are never touched. help/manifest.json lists the note filenames.
-const helpUrl = (rel: string) => 'help/' + rel.split('/').map(encodeURIComponent).join('/');
+// ---------- help mindmap (help/*.md, opened with F1) ----------
+// Read-only store serving the help notes; lives in its own tab (?help), so the user's own map
+// and vault are never touched. The notes are embedded in the bundle at build time (via glob)
+// rather than fetched: `fetch()` is blocked under the file:// protocol, so a fetch-based help
+// store silently failed when the single-file build was opened directly from disk.
+const helpModules = import.meta.glob('../public/help/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+// Key off the bare filename ('Storage.md'), matching the old fetch paths / manifest entries.
+const helpNotes: Record<string, string> = Object.fromEntries(
+  Object.entries(helpModules).map(([path, text]) => [path.split('/').pop()!, text]),
+);
 const helpStore: Store = {
   get isOpen(){ return true; },
   get name(){ return 'Help'; },
   async pick(){ return 'ok'; },
   async openRecent(){ return 'ok'; },
   async list(){
-    const names: string[] = await (await fetch('help/manifest.json', { cache:'no-cache' })).json();
-    const out = [];
-    for (const name of names){
-      const res = await fetch(helpUrl(name), { cache:'no-cache' });
-      if (res.ok) out.push({ path: name, text: await res.text() });
-    }
-    return out;
+    return Object.entries(helpNotes).map(([path, text]) => ({ path, text }));
   },
   async write(){}, async remove(){},
-  async readBlob(path: string){
-    try { const r = await fetch(helpUrl(path), { cache:'no-cache' }); return r.ok ? await r.blob() : null; }
-    catch { return null; }
-  },
+  async readBlob(){ return null; },   // help notes reference no local images
   watch(){}, recents(){ return []; },
 };
 export function openHelpTab(): void {
