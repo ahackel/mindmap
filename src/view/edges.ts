@@ -96,6 +96,9 @@ function edgePath(parent: MindNode, child: MindNode): string {
 function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: number }; side: LayoutSide } | null {
   const drag = ui.drag;
   if (!drag || !drag.dropTarget || !drag.dropSide) return null;
+  // In-parent reorder previews with the insertion bar alone — the dragged card and its edge are
+  // hidden, so no dashed would-be-edge either (the parent connection isn't changing anyway).
+  if (drag.dropMode === 'reorder') return null;
   const tgtNode = state.nodes.get(drag.dropTarget);
   if (!tgtNode) return null;
   const parent = drag.dropMode === 'sibling'
@@ -103,7 +106,7 @@ function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: 
     : tgtNode;
   if (!parent) return null;
   const h = nodeH(drag.active);
-  const land = dropLanding(drag.active, tgtNode, drag.dropMode, drag.dropSide);
+  const land = dropLanding(drag.active, tgtNode, drag.dropMode, drag.dropSide, drag.dropAfter);
   return { parent, box: { x: land.x, y: land.y, h }, side: drag.dropSide };
 }
 const BG_PAD = 20;      // margin around the enclosed cards — hugs the bounds, kept a multiple of 20

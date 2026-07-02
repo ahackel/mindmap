@@ -203,6 +203,11 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
 /* landing-spot preview: where the dragged card will actually land once dropped onto a
    valid reparent target — renders on top of all other cards (z-index:5) */
 .node.landing-ghost { pointer-events:none; transition:none; z-index:5; }
+/* in-parent reorder indicator: a bar in the gap between the two siblings the dragged card
+   would slot between (horizontal for a vertical stack, vertical for a horizontal spread).
+   White and dashed to match the reparent ghost's border; the dash gradient runs along the
+   bar's long axis, set inline per orientation — see features/drag.ts showInsertLine */
+.insert-line { position:absolute; pointer-events:none; z-index:5; }
 /* break long words / URLs and clip anything that still overflows the card horizontally */
 .node .title { font-weight:600; font-size:14px; margin-bottom:9px; padding-right:16px;
   overflow-wrap:anywhere; overflow:hidden; }

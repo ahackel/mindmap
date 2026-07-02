@@ -19,10 +19,15 @@ export interface Drag {
   // whose own parent isn't ALSO selected — descendants ride along with their selected ancestor
   // rather than getting re-parented independently). Reparented as a group on drop.
   selRoots: string[];
-  moved: boolean; dropTarget: string | null; dropMode: 'child' | 'sibling';
+  // dropMode 'reorder' = no card hovered but the drag is sliding along its OWN parent's
+  // line/fan sibling band — dropTarget is the parent itself, the drop just re-slots the order.
+  moved: boolean; dropTarget: string | null; dropMode: 'child' | 'sibling' | 'reorder';
   // Side the drop resolved to (edge zone -> that edge; centre zone -> the sibling target's own
   // side), set explicitly on every reparented root on commit — see features/drag.ts.
   dropSide: LayoutSide | null;
+  // Insertion anchor for sibling/reorder drops: slot in right after this sibling in the parent's
+  // order (`null` = at the front, `undefined` = default — after the hovered card / appended).
+  dropAfter: string | null | undefined;
   alt: boolean; shift: boolean; cloned: boolean; rip: boolean;
   downTarget: EventTarget | null; meta: boolean; touch: boolean;
   clones?: MindNode[] | null;

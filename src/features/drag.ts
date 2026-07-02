@@ -8,7 +8,7 @@
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
 import { state, stage, world, setStatus, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
-import { applyLayouts, reorderDraggedParents, dropLanding, effectiveLayout, insertedKidOrder, sideOf, deriveSide } from '../view/layout.js';
+import { applyLayouts, reorderDraggedParents, dropLanding, effectiveLayout, insertedKidOrder, sideOf, deriveSide, reorderTarget } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
 import { ui, type Pt, type Drag } from '../core/ui-state.js';
@@ -53,11 +53,37 @@ function showLandingGhost(x: number, y: number, h: number, draggedIds: Iterable<
   el.style.minHeight = h + 'px';
   el.style.borderColor = 'white';   // matches the highlighted anchor dot/ghost edge
   el.style.display = '';
+  if (_insertLine) _insertLine.style.display = 'none';   // ghost and reorder bar never coexist
   setSubtreeVisibility(draggedIds, false);
 }
 function hideLandingGhost(draggedIds?: Iterable<string> | null): void {
   if (_landingGhost) _landingGhost.style.display = 'none';
+  if (_insertLine) _insertLine.style.display = 'none';
   if (draggedIds) setSubtreeVisibility(draggedIds, true);
+}
+// Lazily-created insertion indicator for an in-parent REORDER: a thin bar in the CURRENT gap
+// between the two siblings the dragged card would slot between (horizontal for a vertical
+// stack, vertical for a horizontal spread) — shows the order slot relative to the siblings as
+// they stand, rather than a ghost card at the post-drop position. The dragged card itself keeps
+// following the cursor. Hidden by hideLandingGhost alongside the reparent ghost.
+let _insertLine: HTMLElement | null = null;
+const INSERT_LINE_W = 3;   // bar thickness (world px) — reads like the ghost's 2px dashed border
+function showInsertLine(seg: { x0: number; y0: number; x1: number; y1: number }): void {
+  const el = _insertLine ??= (() => {
+    const d = document.createElement('div');
+    d.className = 'insert-line';
+    world.appendChild(d);
+    return d;
+  })();
+  const horiz = seg.y0 === seg.y1;
+  el.style.left = (seg.x0 - (horiz ? 0 : INSERT_LINE_W / 2)) + 'px';
+  el.style.top = (seg.y0 - (horiz ? INSERT_LINE_W / 2 : 0)) + 'px';
+  el.style.width = (horiz ? seg.x1 - seg.x0 : INSERT_LINE_W) + 'px';
+  el.style.height = (horiz ? INSERT_LINE_W : seg.y1 - seg.y0) + 'px';
+  // white + dashed, matching the reparent ghost's border (2px dashed white, dash ~6/5) — a div
+  // can't dash a background, so fake it with a repeating gradient along the bar's long axis
+  el.style.background = `repeating-linear-gradient(${horiz ? 90 : 180}deg, white 0 6px, transparent 6px 11px)`;
+  el.style.display = '';
 }
 
 // True roots of a drag-selection set: a member whose own parent is ALSO in the set rides along
@@ -81,7 +107,10 @@ function updateRip(drag: Drag): void {
   if (drag.multi || drag.cloned || !drag.moved) return;
   const act = drag.active;
   let rip = false;
-  if (act.parent) {
+  // A live in-parent reorder preview overrides rip: while the card slides along its sibling
+  // band (updateDropTarget ran just before us), releasing means "re-slot", never "detach".
+  const reordering = drag.dropMode === 'reorder' && !!drag.dropTarget;
+  if (act.parent && !reordering) {
     const origin = drag.start.get(act.id);
     if (origin) {
       const dx = (act.x - origin.x) * state.view.k;
@@ -204,7 +233,7 @@ export function bindNodeDrag(n: MindNode): void {
     // origins = the left/top CSS values frozen at drag start; transforms are relative to these
     const origins = new Map(ids.map(id => { const m2 = state.nodes.get(id)!; return [id, { x:m2.x, y:m2.y }] as [string, Pt]; }));
     ui.drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets, origins, selRoots,
-             moved:false, dropTarget:null as string | null, dropMode:'child', dropSide:null, alt:e.altKey, shift:e.shiftKey, cloned:false, rip:false,
+             moved:false, dropTarget:null as string | null, dropMode:'child', dropSide:null, dropAfter:undefined, alt:e.altKey, shift:e.shiftKey, cloned:false, rip:false,
              downTarget:e.target,              // where the press landed -> slow-click edits title or body
              meta: e.metaKey || e.ctrlKey,     // ⌘/Ctrl-click toggles this card in the selection
              touch: e.pointerType === 'touch' }; // higher move threshold for finger taps
@@ -290,7 +319,7 @@ function dragPointerUp(): void {
         // dropped onto a node? re-parent (the whole multi-selection, if that's what's dragging).
         // Alt+drop on empty canvas? detach to root. Otherwise it's just a move.
         const tgt = drag.dropTarget;
-        const { cloned, targets, alt, shift, clones, rip, dropMode, dropSide, selRoots } = drag;
+        const { cloned, targets, alt, shift, clones, rip, dropMode, dropSide, dropAfter, selRoots } = drag;
         clearDropTarget();
         hideLandingGhost(targets.keys());
         // Null drag NOW so every paintAll/paintEdges in the commit phase sees no active drag
@@ -309,7 +338,7 @@ function dragPointerUp(): void {
           // placement). `act` anchors the snap even for a multi-drag — everyone else keeps
           // their offset from it.
           if (!cloned){
-            const land = dropLanding(act, tgtNode, dropMode, dropSide);
+            const land = dropLanding(act, tgtNode, dropMode, dropSide, dropAfter);
             const startAct = targets.get(act.id)!;
             const ddx = land.x - startAct.x, ddy = land.y - startAct.y;
             for (const [id, s] of targets){
@@ -323,7 +352,13 @@ function dragPointerUp(): void {
           // root gets the SAME resolved side — a multi-drop moves the whole group to one side,
           // not each member wherever its own offset happens to derive to.
           const roots = selRoots.includes(act.id) ? [act.id, ...selRoots.filter(id => id !== act.id)] : selRoots;
-          let afterId = dropMode === 'sibling' ? tgtNode.id : undefined;
+          // Anchor the first insertion where the preview showed it: the resolved dropAfter for
+          // sibling/reorder mode (careful — `null` means "front", it must NOT fall back), append
+          // for child mode. Sibling mode without an anchor falls back to "after the hovered card".
+          let afterId: string | null | undefined =
+            dropMode === 'sibling' ? (dropAfter !== undefined ? dropAfter : tgtNode.id)
+            : dropMode === 'reorder' ? dropAfter
+            : undefined;
           let moved = 0;
           for (const rootId of roots){
             if (reparentOnly(rootId, effectiveParent, afterId)){
@@ -332,9 +367,11 @@ function dragPointerUp(): void {
             }
           }
           const parentTitle = state.nodes.get(effectiveParent)?.title ?? 'that card';
-          setStatus(moved > 1
-            ? `Re-parented ${moved} cards -> "${parentTitle}"`
-            : `Re-parented "${act.title}" -> "${parentTitle}"`);
+          setStatus(dropMode === 'reorder'
+            ? `Reordered "${act.title}"`
+            : moved > 1
+              ? `Re-parented ${moved} cards -> "${parentTitle}"`
+              : `Re-parented "${act.title}" -> "${parentTitle}"`);
         } else {
           // snap onto the 20px grid: align the dragged node, shift the rest of its
           // subtree by the same delta so relative layout is preserved.
@@ -362,13 +399,17 @@ function dragPointerUp(): void {
               if (p && effectiveLayout(p).type !== 'free') r.side = deriveSide(p, r);
             }
           }
+          // Refresh sibling order from the dropped positions (the ONLY position-based reorder).
+          // The drop-target branch above skips this: there the previewed kidOrder was just set
+          // explicitly via insertedKidOrder, and re-sorting from positions is exactly the
+          // preview/commit disagreement being eliminated.
+          for (const id of targets.keys()) touch(state.nodes.get(id)?.parent);   // kidOrder pre-images
+          reorderDraggedParents(targets.keys());
         }
         // Paint first so freshly-created clone cards have real DOM heights before applyLayouts
         // measures them — otherwise a chain/fan of clones lays out on the 64px height fallback
         // (only the first lands right). Mirrors the duplicate path: paint -> layout -> paint.
         paintAll();
-        for (const id of targets.keys()) touch(state.nodes.get(id)?.parent);   // kidOrder pre-images
-        reorderDraggedParents(targets.keys());   // a drag is the ONLY thing that reorders siblings
         applyLayouts(); paintAll();   // re-snap any dragged child back into its parent's layout
         // select the new clone(s) you just dragged out
         if (cloned){ if (clones && clones.length > 1) setSelectionSet(clones.map(c => c.id)); else selectNode(act.id); }
@@ -390,7 +431,7 @@ export function startNodeDrag(n: MindNode, clientX: number, clientY: number): vo
   const targets = new Map<string, Pt>([[n.id, { x:n.x, y:n.y }]]);
   const origins = new Map<string, Pt>([[n.id, { x:n.x, y:n.y }]]);
   ui.drag = { n, active:n, multi:false, sx:clientX, sy:clientY, cx:clientX, cy:clientY,
-    start, targets, origins, selRoots:[n.id], moved:true, dropTarget:null, dropMode:'child', dropSide:null,
+    start, targets, origins, selRoots:[n.id], moved:true, dropTarget:null, dropMode:'child', dropSide:null, dropAfter:undefined,
     alt:false, shift:false, cloned:false, rip:false, downTarget:null, meta:false, touch:false };
   if (n.el){ n.el.style.willChange = 'transform'; n.el.classList.add('dragging'); }
   document.body.classList.add('grabbing');
@@ -519,9 +560,12 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
     }
   }
   clearDropTarget();
+  const drag = ui.drag;
   let target: string | null = null;
-  let mode: 'child' | 'sibling' = 'child';
+  let mode: 'child' | 'sibling' | 'reorder' = 'child';
   let side: LayoutSide | null = null;
+  let after: string | null | undefined = undefined;   // insertion anchor (sibling/reorder)
+  let line: { x0: number; y0: number; x1: number; y1: number } | null = null;   // reorder gap indicator
   if (hovered && sub.has(hovered)){
     setStatus(`Can't parent "${dragged.title}" onto its own child/descendant`);
   } else if (hovered) {
@@ -532,9 +576,13 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
       const sibParent = hoveredNode.parent;
       // Valid as long as it wouldn't re-parent onto self or create a cycle
       if (sibParent !== dragged.id && !sub.has(sibParent)) {
+        const parentNode = state.nodes.get(sibParent)!;
         target = hovered;
         mode = 'sibling';
-        side = sideOf(state.nodes.get(sibParent)!, hoveredNode);
+        side = sideOf(parentNode, hoveredNode);
+        // Anchor by the dragged card's midpoint vs the siblings' boxes: hovering the near half
+        // of the card inserts BEFORE it, the far half AFTER — not always-after as before.
+        after = reorderTarget(parentNode, dragged, side).afterId;
       }
     }
     // Edge zone (or no valid sibling target) -> child-of-hovered, attaching on whichever side
@@ -542,21 +590,52 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
     // re-sides the child instead of being a no-op, since the drop point may be near a
     // different edge than the one it currently occupies.
     if (!target) { target = hovered; side = hoveredEdge; }
+  } else if (drag && drag.selRoots.length === 1 && !drag.alt && dragged.parent) {
+    // No card hovered: if the dragged card is sliding along its OWN parent's line/fan sibling
+    // band, preview the in-parent REORDER — an insertion bar marks the sibling gap the card
+    // would slot into, so "drop it between two siblings" is no longer guesswork. Single-root
+    // drags only (a multi-drag keeps the plain-reposition fallback) and never while Alt
+    // (detach) is held. The `near` gate is what keeps rip-detach reachable: close to the band a
+    // release means "re-slot"; pulled away from it, today's rip behaviour returns.
+    const parent = state.nodes.get(dragged.parent);
+    const t = parent ? effectiveLayout(parent).type : 'free';
+    if (parent && (t === 'line' || t === 'fan')) {
+      let rt = reorderTarget(parent, dragged);
+      // Far along a wide fan, deriveSide flips to the (usually empty) perpendicular bucket and
+      // the first/last slots become unreachable — retry with the card's STORED side so sliding
+      // to the ends of its own band keeps previewing, while genuine cross-side moves (which
+      // pass the near gate on the derived side's band) still work.
+      if (!rt.near && dragged.side && dragged.side !== rt.side)
+        rt = reorderTarget(parent, dragged, dragged.side);
+      if (rt.near) {
+        target = parent.id; mode = 'reorder'; side = rt.side; after = rt.afterId; line = rt.line;
+      }
+    }
   }
   // An inheriting card's colour depends on its parent chain (effectiveColor), and while poised
   // over a valid target that chain is about to change — repaint the dragged subtree so an
   // inheriting card previews the NEW parent's colour live, instead of only updating on drop.
-  const changed = !!ui.drag && (ui.drag.dropTarget !== target || ui.drag.dropMode !== mode);
-  if (ui.drag) { ui.drag.dropTarget = target; ui.drag.dropMode = mode; ui.drag.dropSide = side; }
+  // A REORDER never changes the parent chain, so for colour purposes it counts as no target.
+  const colorKey = (t: string | null, m: string): string => (!t || m === 'reorder') ? '' : m + ':' + t;
+  const changed = !!drag && colorKey(drag.dropTarget, drag.dropMode) !== colorKey(target, mode);
+  if (drag) { drag.dropTarget = target; drag.dropMode = mode; drag.dropSide = side; drag.dropAfter = after; }
   if (changed) for (const id of sub) { const m = state.nodes.get(id); if (m) paintNode(m); }
   if (target && side) {
     const targetNode = state.nodes.get(target)!;
-    targetNode.el?.classList.add(mode === 'sibling' ? 'drop-sibling' : 'drop-target');
-    // poised over a valid target -> preview the LANDING spot (where it'll actually be once
-    // dropped, depending on which zone is hovered), hiding the real dragged card so only
-    // the landing preview shows.
-    const land = dropLanding(dragged, targetNode, mode, side);
-    showLandingGhost(land.x, land.y, nodeH(dragged), sub);
+    if (mode === 'reorder') {
+      // In-parent reorder: hide the dragged subtree (its edge is dropped by paintEdges via
+      // drag.dropTarget) — only the insertion bar in the sibling gap previews the slot.
+      hideLandingGhost();
+      setSubtreeVisibility(sub, false);
+      if (line) showInsertLine(line);
+    } else {
+      // Poised over a reparent target -> preview the LANDING spot (where the card will actually
+      // be once dropped, depending on which zone is hovered), hiding the real dragged card so
+      // only the landing preview shows.
+      targetNode.el?.classList.add(mode === 'sibling' ? 'drop-sibling' : 'drop-target');
+      const land = dropLanding(dragged, targetNode, mode, side, after);
+      showLandingGhost(land.x, land.y, nodeH(dragged), sub);
+    }
   } else {
     hideLandingGhost(sub);
   }
@@ -567,10 +646,11 @@ function clearDropTarget(): void {
 }
 // Mutates `child`'s parent + the new parent's kidOrder only — no layout/paint/status. Callers
 // batch layout/paint once for the whole dragged group (see dragPointerUp) rather than per root.
-// `afterId` anchors a sibling-mode drop: the child slots in right after that sibling in the new
-// parent's order, matching the centre-zone hover that triggered sibling mode (see dropLanding).
+// `afterId` anchors a sibling/reorder-mode drop: the child slots in right after that sibling in
+// the parent's order (`null` = at the front), matching the preview that triggered the mode (see
+// dropLanding). Re-setting the SAME parent (a reorder) is fine — only kidOrder changes.
 // Returns whether the reparent actually happened, so callers can count/chain successful ones.
-function reparentOnly(childId: string, newParentId: string, afterId?: string): boolean {
+function reparentOnly(childId: string, newParentId: string, afterId?: string | null): boolean {
   if (state.readOnly) return false;
   const child = state.nodes.get(childId);
   if (!child || childId === newParentId) return false;
