@@ -8,6 +8,8 @@
 import type { MindNode, LayoutType, LayoutSide } from './state.js';
 
 export type Pt = { x: number; y: number };
+// World-space line segment (axis-aligned for the insertion indicator).
+export type Seg = { x0: number; y0: number; x1: number; y1: number };
 
 // A live node drag (moves a whole subtree, or the multi-selection). `active` is the card being
 // dragged/dropped; `targets` follow the cursor (or, after a Shift-clone, just the clones).
@@ -28,6 +30,10 @@ export interface Drag {
   // Insertion anchor for sibling/reorder drops: slot in right after this sibling in the parent's
   // order (`null` = at the front, `undefined` = default — after the hovered card / appended).
   dropAfter: string | null | undefined;
+  // World-space gap segment of the insertion-line preview, when one is showing (managed governor
+  // with children on the resolved side). The line REPLACES the landing ghost and the dashed
+  // would-be-edge preview — they never show together (see features/drag.ts, view/edges.ts).
+  dropLine: Seg | null;
   alt: boolean; shift: boolean; cloned: boolean; rip: boolean;
   downTarget: EventTarget | null; meta: boolean; touch: boolean;
   clones?: MindNode[] | null;

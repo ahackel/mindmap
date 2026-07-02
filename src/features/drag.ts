@@ -8,10 +8,10 @@
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
 import { state, stage, world, setStatus, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
-import { applyLayouts, reorderDraggedParents, dropLanding, effectiveLayout, insertedKidOrder, sideOf, deriveSide, reorderTarget } from '../view/layout.js';
+import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, insertedKidOrder, sideOf, deriveSide, reorderTarget } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
-import { ui, type Pt, type Drag } from '../core/ui-state.js';
+import { ui, type Pt, type Seg, type Drag } from '../core/ui-state.js';
 import { paintEdges } from '../view/edges.js';
 import { NODE_W, nodeH, paintAll, paintNode, selectNode, setSelectionSet, toggleSel,
          subtreeIds, foldNodeOrGroup } from '../main.js';
@@ -68,7 +68,9 @@ function hideLandingGhost(draggedIds?: Iterable<string> | null): void {
 // following the cursor. Hidden by hideLandingGhost alongside the reparent ghost.
 let _insertLine: HTMLElement | null = null;
 const INSERT_LINE_W = 3;   // bar thickness (world px) — reads like the ghost's 2px dashed border
-function showInsertLine(seg: { x0: number; y0: number; x1: number; y1: number }): void {
+function showInsertLine(seg: Seg, draggedIds: Iterable<string>): void {
+  if (_landingGhost) _landingGhost.style.display = 'none';   // bar and ghost never coexist
+  setSubtreeVisibility(draggedIds, false);   // only the bar previews the slot; the card hides
   const el = _insertLine ??= (() => {
     const d = document.createElement('div');
     d.className = 'insert-line';
@@ -233,7 +235,7 @@ export function bindNodeDrag(n: MindNode): void {
     // origins = the left/top CSS values frozen at drag start; transforms are relative to these
     const origins = new Map(ids.map(id => { const m2 = state.nodes.get(id)!; return [id, { x:m2.x, y:m2.y }] as [string, Pt]; }));
     ui.drag = { n, active:n, multi, sx:e.clientX, sy:e.clientY, cx:e.clientX, cy:e.clientY, start, targets, origins, selRoots,
-             moved:false, dropTarget:null as string | null, dropMode:'child', dropSide:null, dropAfter:undefined, alt:e.altKey, shift:e.shiftKey, cloned:false, rip:false,
+             moved:false, dropTarget:null as string | null, dropMode:'child', dropSide:null, dropAfter:undefined, dropLine:null, alt:e.altKey, shift:e.shiftKey, cloned:false, rip:false,
              downTarget:e.target,              // where the press landed -> slow-click edits title or body
              meta: e.metaKey || e.ctrlKey,     // ⌘/Ctrl-click toggles this card in the selection
              touch: e.pointerType === 'touch' }; // higher move threshold for finger taps
@@ -352,13 +354,12 @@ function dragPointerUp(): void {
           // root gets the SAME resolved side — a multi-drop moves the whole group to one side,
           // not each member wherever its own offset happens to derive to.
           const roots = selRoots.includes(act.id) ? [act.id, ...selRoots.filter(id => id !== act.id)] : selRoots;
-          // Anchor the first insertion where the preview showed it: the resolved dropAfter for
-          // sibling/reorder mode (careful — `null` means "front", it must NOT fall back), append
-          // for child mode. Sibling mode without an anchor falls back to "after the hovered card".
+          // Anchor the first insertion where the preview showed it: the resolved dropAfter
+          // (careful — `null` means "front", it must NOT fall back). Sibling mode without an
+          // anchor falls back to "after the hovered card"; child mode without one (free-layout
+          // governor) appends.
           let afterId: string | null | undefined =
-            dropMode === 'sibling' ? (dropAfter !== undefined ? dropAfter : tgtNode.id)
-            : dropMode === 'reorder' ? dropAfter
-            : undefined;
+            dropMode === 'sibling' && dropAfter === undefined ? tgtNode.id : dropAfter;
           let moved = 0;
           for (const rootId of roots){
             if (reparentOnly(rootId, effectiveParent, afterId)){
@@ -396,7 +397,7 @@ function dragPointerUp(): void {
               const r = state.nodes.get(rootId);
               if (!r?.parent) continue;
               const p = state.nodes.get(r.parent);
-              if (p && effectiveLayout(p).type !== 'free') r.side = deriveSide(p, r);
+              if (p && isManagedLayout(p)) r.side = deriveSide(p, r);
             }
           }
           // Refresh sibling order from the dropped positions (the ONLY position-based reorder).
@@ -431,7 +432,7 @@ export function startNodeDrag(n: MindNode, clientX: number, clientY: number): vo
   const targets = new Map<string, Pt>([[n.id, { x:n.x, y:n.y }]]);
   const origins = new Map<string, Pt>([[n.id, { x:n.x, y:n.y }]]);
   ui.drag = { n, active:n, multi:false, sx:clientX, sy:clientY, cx:clientX, cy:clientY,
-    start, targets, origins, selRoots:[n.id], moved:true, dropTarget:null, dropMode:'child', dropSide:null, dropAfter:undefined,
+    start, targets, origins, selRoots:[n.id], moved:true, dropTarget:null, dropMode:'child', dropSide:null, dropAfter:undefined, dropLine:null,
     alt:false, shift:false, cloned:false, rip:false, downTarget:null, meta:false, touch:false };
   if (n.el){ n.el.style.willChange = 'transform'; n.el.classList.add('dragging'); }
   document.body.classList.add('grabbing');
@@ -565,7 +566,7 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   let mode: 'child' | 'sibling' | 'reorder' = 'child';
   let side: LayoutSide | null = null;
   let after: string | null | undefined = undefined;   // insertion anchor (sibling/reorder)
-  let line: { x0: number; y0: number; x1: number; y1: number } | null = null;   // reorder gap indicator
+  let line: Seg | null = null;   // reorder gap indicator
   if (hovered && sub.has(hovered)){
     setStatus(`Can't parent "${dragged.title}" onto its own child/descendant`);
   } else if (hovered) {
@@ -581,15 +582,24 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
         mode = 'sibling';
         side = sideOf(parentNode, hoveredNode);
         // Anchor by the dragged card's midpoint vs the siblings' boxes: hovering the near half
-        // of the card inserts BEFORE it, the far half AFTER — not always-after as before.
-        after = reorderTarget(parentNode, dragged, side).afterId;
+        // of the card inserts BEFORE it, the far half AFTER — not always-after as before. The
+        // gap line previews the slot among the new siblings, same as an in-parent reorder.
+        ({ afterId: after, line } = reorderTarget(parentNode, dragged, side));
       }
     }
     // Edge zone (or no valid sibling target) -> child-of-hovered, attaching on whichever side
     // the drop point sits near. Allowed even when hovered is already this node's parent — that
     // re-sides the child instead of being a no-op, since the drop point may be near a
     // different edge than the one it currently occupies.
-    if (!target) { target = hovered; side = hoveredEdge; }
+    if (!target) {
+      target = hovered; side = hoveredEdge;
+      // Joining a MANAGED branch that already has children on that side: anchor the insertion
+      // by the dragged card's position among them (instead of always appending) and preview the
+      // slot with the same gap line as a reorder — it's the same "where among the siblings"
+      // question, just without leaving the parent first.
+      if (isManagedLayout(hoveredNode))
+        ({ afterId: after, line } = reorderTarget(hoveredNode, dragged, side));
+    }
   } else if (drag && drag.selRoots.length === 1 && !drag.alt && dragged.parent) {
     // No card hovered: if the dragged card is sliding along its OWN parent's line/fan sibling
     // band, preview the in-parent REORDER — an insertion bar marks the sibling gap the card
@@ -598,8 +608,7 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
     // (detach) is held. The `near` gate is what keeps rip-detach reachable: close to the band a
     // release means "re-slot"; pulled away from it, today's rip behaviour returns.
     const parent = state.nodes.get(dragged.parent);
-    const t = parent ? effectiveLayout(parent).type : 'free';
-    if (parent && (t === 'line' || t === 'fan')) {
+    if (parent && isManagedLayout(parent)) {
       let rt = reorderTarget(parent, dragged);
       // Far along a wide fan, deriveSide flips to the (usually empty) perpendicular bucket and
       // the first/last slots become unreachable — retry with the card's STORED side so sliding
@@ -618,21 +627,22 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   // A REORDER never changes the parent chain, so for colour purposes it counts as no target.
   const colorKey = (t: string | null, m: string): string => (!t || m === 'reorder') ? '' : m + ':' + t;
   const changed = !!drag && colorKey(drag.dropTarget, drag.dropMode) !== colorKey(target, mode);
-  if (drag) { drag.dropTarget = target; drag.dropMode = mode; drag.dropSide = side; drag.dropAfter = after; }
+  const prevLine = drag?.dropLine ?? null;
+  if (drag) { drag.dropTarget = target; drag.dropMode = mode; drag.dropSide = side; drag.dropAfter = after; drag.dropLine = line; }
   if (changed) for (const id of sub) { const m = state.nodes.get(id); if (m) paintNode(m); }
   if (target && side) {
     const targetNode = state.nodes.get(target)!;
-    if (mode === 'reorder') {
-      // In-parent reorder: hide the dragged subtree (its edge is dropped by paintEdges via
-      // drag.dropTarget) — only the insertion bar in the sibling gap previews the slot.
-      hideLandingGhost();
-      setSubtreeVisibility(sub, false);
-      if (line) showInsertLine(line);
+    if (mode !== 'reorder') targetNode.el?.classList.add(mode === 'sibling' ? 'drop-sibling' : 'drop-target');
+    // One preview at a time, never both: joining/reordering a managed branch with existing
+    // children shows ONLY the insertion bar in the sibling gap (the dragged subtree hides, its
+    // edge is dropped by paintEdges via drag.dropTarget, and the dashed would-be-edge preview
+    // stands down via drag.dropLine); everything else shows ONLY the landing-ghost card.
+    if (line) {
+      // Runs on every pointermove — skip the DOM writes while the segment stays in the same gap
+      // (the bar marks the SIBLINGS' gap, which only moves when the anchor flips).
+      if (!(prevLine && prevLine.x0 === line.x0 && prevLine.y0 === line.y0 && prevLine.x1 === line.x1 && prevLine.y1 === line.y1))
+        showInsertLine(line, sub);
     } else {
-      // Poised over a reparent target -> preview the LANDING spot (where the card will actually
-      // be once dropped, depending on which zone is hovered), hiding the real dragged card so
-      // only the landing preview shows.
-      targetNode.el?.classList.add(mode === 'sibling' ? 'drop-sibling' : 'drop-target');
       const land = dropLanding(dragged, targetNode, mode, side, after);
       showLandingGhost(land.x, land.y, nodeH(dragged), sub);
     }
@@ -659,8 +669,7 @@ function reparentOnly(childId: string, newParentId: string, afterId?: string | n
   child.parent = newParentId;
   child.dirtyLayout = true;
   const newParent = state.nodes.get(newParentId)!;
-  const eff = effectiveLayout(newParent);
-  if (eff.type === 'line' || eff.type === 'fan')
+  if (isManagedLayout(newParent))
     newParent.kidOrder = insertedKidOrder(newParent, childId, afterId);
   return true;
 }

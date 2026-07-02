@@ -8,6 +8,7 @@
 // side effect of laying it out. layoutH/NODE_W/subtreeIds come from main (render + tree
 // helpers) — a runtime-only cycle.
 import { state, type MindNode, type LayoutSide } from '../core/state.js';
+import type { Seg } from '../core/ui-state.js';
 import { childrenOf, isHidden, isRoot } from '../utils/model.js';
 import { subtreeIds, layoutH, nodeH, NODE_W } from '../main.js';
 
@@ -39,8 +40,7 @@ const LANDING_GAP = 40;   // gap below/beside the hovered card a drag-reparented
 // the order, `undefined` = default: after `target` in sibling mode, append in child mode).
 export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' | 'sibling' | 'reorder', side: LayoutSide, afterId?: string | null): { x: number; y: number } {
   const governor = mode === 'child' || mode === 'reorder' ? target : (target.parent ? state.nodes.get(target.parent) : null) ?? target;
-  const eff = effectiveLayout(governor);
-  if (eff.type !== 'line' && eff.type !== 'fan') {
+  if (!isManagedLayout(governor)) {
     // Nudge the cross-axis in child mode (a fresh attachment, offset from target) but keep it
     // aligned with target in sibling mode (it's slotting into target's own spot). `side` is the
     // side of TARGET the card is docking against — same geometry regardless of which side that is.
@@ -178,6 +178,13 @@ export function effectiveLayout(node: MindNode): { type: string } {
   }
   return { type: 'free' };   // unset root → free
 }
+// Whether a node's effective layout actively MANAGES its children (line/fan) — vs free, where
+// children stay where dragged and sibling order/insertion anchors don't apply. The single
+// spelling of "is this a managed governor?" shared by layout, drag previews, and reparenting.
+export function isManagedLayout(node: MindNode): boolean {
+  const t = effectiveLayout(node).type;
+  return t === 'line' || t === 'fan';
+}
 // Which of the parent's 4 sides a child sits on, computed FRESH from its current position —
 // dominant axis of the offset between the two centers, SCALED by the parent's own aspect ratio
 // (a card is wide and short) rather than compared as raw pixels: a `fan` spreads same-side
@@ -257,7 +264,7 @@ function orderedKids(node: MindNode, kids: MindNode[]): MindNode[] {
 // position is correct by construction (that's how afterId was picked), so only the CROSS-axis
 // distance to the gap matters; past the first/last sibling the along-axis distance is bounded
 // too, so pulling away off the end of the row/column still rips as before.
-export function reorderTarget(parent: MindNode, dragged: MindNode, forcedSide?: LayoutSide): { side: LayoutSide; afterId: string | null; line: { x0: number; y0: number; x1: number; y1: number } | null; near: boolean } {
+export function reorderTarget(parent: MindNode, dragged: MindNode, forcedSide?: LayoutSide): { side: LayoutSide; afterId: string | null; line: Seg | null; near: boolean } {
   const side = forcedSide ?? deriveSide(parent, dragged);
   const kids = childrenOf(parent.id).filter(k => !isHidden(k) && k.id !== dragged.id);
   const sibs = orderedKids(parent, kids).filter(k => sideOf(parent, k) === side);
@@ -273,7 +280,7 @@ export function reorderTarget(parent: MindNode, dragged: MindNode, forcedSide?: 
   // The gap the card would slot into: between `prev` (the afterId sibling) and `next` — either
   // may be missing at the ends of the row/column, where the line sits just beyond the last box.
   const prev = idx >= 0 ? sibs[idx] : null, next = sibs[idx + 1] ?? null;
-  let line: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  let line: Seg | null = null;
   let near = false;
   if (prev || next) {
     const pb = prev ? subtreeBox(prev) : null, nb = next ? subtreeBox(next) : null;
@@ -305,8 +312,7 @@ export function reorderDraggedParents(movedIds: Iterable<string>): void {
   for (const id of movedIds){ const n = state.nodes.get(id); if (n && n.parent) parents.add(n.parent); }
   for (const pid of parents){
     const p = state.nodes.get(pid); if (!p) continue;
-    const t = effectiveLayout(p).type;
-    if (t === 'line' || t === 'fan')
+    if (isManagedLayout(p))
       p.kidOrder = kidsByPosition(p, childrenOf(p.id).filter(k => !isHidden(k)));
   }
 }
