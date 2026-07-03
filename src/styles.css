@@ -107,19 +107,28 @@ button:disabled { opacity:.45; cursor:default; }
    squashing when a shrinking neighbour (folder name / search box) fights for space */
 #toolbar button svg { width:15px; height:15px; display:block; flex:none; }
 #status { display:none; }   /* transient log messages are not shown in the toolbar */
-/* the sketch toggle reads as "on" with a solid accent fill, like the .primary buttons */
-#toolbar button#sketchBtn.active,
-#toolbar button#sketchBtn.active:hover { background:var(--accent); color:#fff; }
+/* floating toolbar-less buttons pinned to the canvas corners (sketch / home / help) */
+.floating-btn {
+  position:fixed; z-index:20;
+  width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center;
+  padding:0; border:none; border-radius:10px; background:var(--panel); color:var(--muted); cursor:pointer;
+}
+.floating-btn:hover { color:var(--text); }
+.floating-btn svg { width:16px; height:16px; display:block; }
+/* sketch toggle — top-right corner */
+#sketchBtn { top:10px; right:12px; }
+/* reads as "on" with a solid accent fill, like the .primary buttons */
+#sketchBtn.active, #sketchBtn.active:hover { background:var(--accent); color:#fff; }
 body.sketching #stage { cursor:crosshair; }
 body.sketching #ghostCard { display:none; }    /* the drag-to-create card would fight the pen */
 body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag / edit while sketching */
-/* home button = folder icon + loaded-folder name as one clickable element */
-#toolbar button#homeBtn { width:auto; gap:5px; padding:0 7px; flex:0 1 auto; min-width:36px; }
-#homeBtn #folderName { font-size:12px; font-weight:600; color:var(--text);
-  max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-#homeBtn #folderName:empty { display:none; }   /* icon-only until a folder is loaded */
-@media (max-width:480px){ #homeBtn #folderName { display:none; } }   /* icon-only on narrow screens */
-#toolbar button#homeBtn:hover #folderName { color:var(--text); }
+/* home / storage — floating bar in the top-left; the loaded-folder name sits BESIDE the button */
+#homeBar { position:fixed; top:10px; left:12px; z-index:20; display:flex; align-items:center; gap:8px; max-width:calc(100% - 24px); }
+#homeBar #homeBtn { position:static; flex:none; }   /* .floating-btn styles the box; the bar owns positioning */
+#folderName { font-size:13px; font-weight:600; color:var(--text);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#folderName:empty { display:none; }   /* icon-only until a folder is loaded */
+@media (max-width:480px){ #folderName { display:none; } }   /* icon-only on narrow screens */
 /* find / jump-to-card */
 /* the search field yields first when the toolbar runs out of room (down to min-width),
    so it can never stick out of the bar; focus widens the wrap, not the input */
@@ -300,6 +309,7 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
   text-transform:uppercase; color:var(--tint); border:1px solid var(--tint);
   border-radius:6px; padding:1px 6px; opacity:.85; }
 .node.search-dim { opacity:.2; }         /* dimmed while a find query excludes this card */
+.node.search-active { box-shadow:0 0 0 2px #fff; }   /* the active dropdown option's card */
 /* "add note" bubble: on a lone-selected, body-less card, the centre-bottom shows a blue pill
    (a sibling of the + bubble) that opens the in-place note editor — replaces the old faint
    "Add note…" placeholder text that used to live inside the body. */
@@ -352,20 +362,22 @@ body.readonly #ghostCard { opacity:.35; pointer-events:none; }
 
 /* first-run hints next to the + ghost card and the help button — only while empty */
 .emptyhint {
-  position:fixed; z-index:21; display:none; align-items:center; gap:6px;
+  position:fixed; z-index:21; display:flex; align-items:center; gap:6px;
   color:var(--muted); font-size:14px; font-weight:500;
   pointer-events:none; user-select:none;
+  opacity:0; transition:opacity .45s ease;   /* fade in/out only when the "no cards" state changes */
 }
-body.empty-canvas:not(.readonly) .emptyhint { display:flex; animation:hintPulse 2.8s ease-in-out infinite; }
-@keyframes hintPulse { 0%,100%{ opacity:.25 } 50%{ opacity:1 } }
-@media (prefers-reduced-motion: reduce) { .emptyhint { animation:none !important; } }
+body.empty-canvas:not(.readonly) .emptyhint { opacity:1; }
+@media (prefers-reduced-motion: reduce) { .emptyhint { transition:none; } }
 #ghostHint { left:126px; bottom:29px; }                 /* right of the ghost card */
 #ghostHint span { position:relative; top:-5px; }        /* nudge only the label up, arrow stays */
-/* help hint lives INSIDE the (centred, shifting) help button, so it tracks it with no JS */
-#helpBtn { position:relative; overflow:visible; }
+/* help toggle — bottom-right corner */
+#helpBtn { right:12px; bottom:18px; overflow:visible; }
+/* help hint lives INSIDE the help button, so it tracks it with no JS — sits ABOVE the
+   bottom-right button and points down at it */
 #helpHint {
-  position:absolute; top:100%; left:50%; transform:translateX(-50%); margin-top:7px;
-  flex-direction:column; gap:2px; white-space:nowrap;
+  position:absolute; bottom:100%; right:6px; margin-bottom:7px;
+  flex-direction:column; align-items:flex-end; gap:2px; white-space:nowrap;
 }
 .hint-arrow { flex:none; opacity:.85; }
 /* override #toolbar button svg (15×15) so the in-button help arrow keeps its real size */
@@ -495,21 +507,39 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
 #startScreen.hidden { display:none; }
 .start-card { width:min(440px, 90vw); background:var(--panel); border:1px solid var(--grid);
   border-radius:16px; padding:28px; }
-.start-card h2 { margin:0 0 6px; font-size:20px; }
+.start-card h2 { margin:0 0 14px; font-size:20px; }
+/* storage-backend tabs — segmented control, matching the sidebar layout pickers */
+.store-tabs { display:inline-flex; margin:0 0 16px; border-radius:8px; overflow:hidden; background:var(--bg); }
+.store-tab { padding:7px 16px; font-size:13px; background:transparent; border:0; border-radius:0; color:var(--muted); cursor:pointer; }
+.store-tab + .store-tab { border-left:1px solid var(--node-border); }   /* segment divider */
+.store-tab:hover:not(:disabled):not(.active) { color:var(--text); background:color-mix(in srgb, var(--text) 8%, transparent); }
+.store-tab.active { color:#fff; background:var(--accent); }
+.store-tab:disabled { opacity:.35; cursor:default; }
+.store-tab:disabled:hover { color:var(--muted); background:transparent; }
 .start-card p { margin:0 0 18px; color:var(--muted); font-size:13px; line-height:1.5; }
 .start-card .primary { width:100%; padding:11px; font-size:14px; margin-bottom:14px; }
 .start-card .ghost { width:100%; padding:9px; background:transparent; color:var(--muted);
   margin-top:6px; }
 .recent-label { font-size:11px; text-transform:uppercase; letter-spacing:.5px;
   color:var(--muted); margin:6px 0 8px; }
+/* recent folders read as a single framed list, not a stack of buttons */
+#recentList { border:1px solid var(--node-border); border-radius:9px; overflow:hidden; }
 .recent-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left;
-  padding:9px 11px; margin-bottom:6px; background:var(--node-border); border:1px solid var(--node-border);
-  border-radius:9px; cursor:pointer; font-size:13px; color:var(--text); }
-.recent-item:hover { background:var(--accent); border-color:var(--accent); }
-.recent-item .ri-icon { width:16px; height:16px; flex:none; display:block; }
+  padding:9px 11px; margin:0; background:transparent; border:0; border-radius:0;
+  cursor:pointer; font-size:13px; color:var(--text); }
+.recent-item + .recent-item { border-top:1px solid var(--node-border); }   /* row dividers */
+.recent-item:hover:not(.selected) { background:color-mix(in srgb, var(--text) 6%, transparent); }
+/* the one selected row (the folder that will load on close) */
+.recent-item.selected { background:color-mix(in srgb, var(--accent) 16%, transparent); }
+.recent-item .ri-icon { width:16px; height:16px; flex:none; display:block; color:var(--muted); }
 .recent-item .ri-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .recent-item .ri-when { font-size:11px; color:var(--muted); }
-.start-note { margin:14px 0 0 !important; font-size:11px !important; }
+.recent-item .ri-check { flex:none; width:14px; text-align:center; color:var(--accent); opacity:0; }
+.recent-item.selected .ri-icon,
+.recent-item.selected .ri-name,
+.recent-item.selected .ri-check { color:var(--accent); }
+.recent-item.selected .ri-name { font-weight:600; }
+.recent-item.selected .ri-check { opacity:1; }
 .start-card { position:relative; }
 .start-close { position:absolute; top:10px; right:12px; width:28px; height:28px; padding:0;
   background:transparent; border:none; color:var(--muted); font-size:18px; cursor:pointer; }
@@ -518,14 +548,11 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
 .store-actions { display:flex; gap:8px; margin-top:12px; }
 .store-actions button { flex:1; padding:9px 10px; font-size:13px; cursor:pointer;
   background:var(--node-border); color:var(--text); border:1px solid var(--node-border); border-radius:9px; }
-.store-actions button:hover { background:var(--accent); border-color:var(--accent); }
+.store-actions button:hover { background:color-mix(in srgb, var(--text) 12%, var(--node-border)); border-color:var(--node-border); }
 /* inline icon inside text buttons (open / import / export) */
 .btn-icon { width:16px; height:16px; vertical-align:-3px; margin-right:5px; display:inline-block; }
 /* icon placeholders (filled by mountIcons): transparent to layout so the injected <svg> sits where it would have */
 .ic { display:contents; }
-.linkish { display:block; width:100%; margin-top:12px; padding:8px; background:transparent;
-  border:none; color:var(--muted); font-size:12px; cursor:pointer; }
-.linkish:hover { color:var(--text); }
 
 /* ---- toolbar section for editing the selected card(s) ---- */
 #toolbar button:disabled, #toolbar button:disabled:hover { background:transparent; opacity:.3; cursor:default; }
@@ -536,7 +563,7 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
   #toolbar button { width:34px; height:34px; }
   #toolbar button svg { width:18px; height:18px; }
   #toolbar { gap:8px; padding:5px 10px; }
-  #toolbar button#homeBtn { padding:0 8px; }
+  #homeBar #homeBtn { width:40px; height:40px; }
   #editor { top:58px; width:240px; padding:12px; }
   .node .addnote { height:28px; line-height:28px; bottom:-14px; padding:0 11px; border-radius:14px; font-size:12px; }
   /* explicit flex:none so flex-basis doesn't override width and stretch them tall */

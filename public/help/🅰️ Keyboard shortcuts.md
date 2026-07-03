@@ -25,6 +25,7 @@ mm_collapsed: true
 - `F` — fit / focus
 - `/` — find
 - `R` — read-only
+- `S` — sketch
 
 ## History
 - `⌘/Ctrl Z` — undo

@@ -18,6 +18,18 @@ export function isHidden(n: MindNode): boolean {
   }
   return false;
 }
+// The visible card standing in for n: n itself when it's shown, otherwise its nearest
+// ancestor that is still visible. Search uses this to highlight the first visible parent
+// containing a match that's buried inside a collapsed branch.
+export function firstVisible(n: MindNode): MindNode {
+  if (!isHidden(n)) return n;
+  let p = n.parent ? state.nodes.get(n.parent) : undefined;
+  while (p){
+    if (!isHidden(p)) return p;
+    p = p.parent ? state.nodes.get(p.parent) : undefined;
+  }
+  return n; // unreachable: the root is always visible
+}
 export function descendantCount(id: string): number {
   let c = 0; for (const ch of childrenOf(id)) c += 1 + descendantCount(ch.id); return c;
 }

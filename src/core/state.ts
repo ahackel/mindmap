@@ -70,7 +70,8 @@ export interface AppState {
   sel: Set<string>;                // full selection set (⌘-click / marquee)
   edgeStyle: EdgeStyle;            // restored from localStorage
   strokes: Stroke[];               // freehand sketch layer (loaded from / saved to sketch.json)
-  searchMatch: Set<string> | null; // ids matching the find query, or null when not searching
+  searchMatch: Set<string> | null; // ids to highlight for the find query (matches' visible reps), or null when not searching
+  searchActiveId: string | null;   // visible rep of the active dropdown option → gets a white outline
   readOnly: boolean;               // read-only mode: no saves, no edits; collapse/expand only
   idSeq: number;
   toDelete: string[];
@@ -87,6 +88,7 @@ export const state: AppState = {
   edgeStyle: 'orthogonal',
   strokes: [],
   searchMatch: null,
+  searchActiveId: null,
   readOnly: false,
   idSeq: 1,
   toDelete: [],

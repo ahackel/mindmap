@@ -34,7 +34,7 @@ stage.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse'){                   // touch / pen
     gPointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
     if (gPointers.size === 1){                      // one finger → sketch (in sketch mode) / marquee select
-      if (ui.sketchOn && !state.readOnly){          // draw; two fingers still pinch-zoom (see below)
+      if (ui.sketchOn){                             // draw (allowed even read-only); two fingers still pinch-zoom
         stage.setPointerCapture(e.pointerId);
         sketchDown(e.clientX, e.clientY);
         return;
@@ -51,8 +51,8 @@ stage.addEventListener('pointerdown', (e) => {
     return;
   }
 
-  // Sketch mode (mouse): a left-drag draws / erases instead of marquee-selecting.
-  if (ui.sketchOn && !state.readOnly && e.button === 0){
+  // Sketch mode (mouse): a left-drag draws / erases instead of marquee-selecting (allowed read-only too).
+  if (ui.sketchOn && e.button === 0){
     stage.setPointerCapture(e.pointerId);
     sketchDown(e.clientX, e.clientY);
     return;

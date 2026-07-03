@@ -28,8 +28,7 @@ const MIN_DIST2 = 4;
 const ERASE_PX = 8;
 
 // ---- active gesture (module-local; ui.sketchDraw is the flag gestures.ts reads) ----
-let cur: Stroke | null = null;          // stroke being drawn (pen); cur.pts is the LIVE-simplified path
-let rawPts: [number, number][] = [];    // every captured point; simplified into cur.pts each move
+let cur: Stroke | null = null;          // stroke being drawn (pen); cur.pts collects raw points, simplified once on up
 let curEl: SVGPathElement | null = null;
 let erasedAny = false;                  // an erase gesture removed at least one stroke → save on up
 let idSeq = 0;
@@ -132,9 +131,7 @@ export function sketchDown(cx: number, cy: number): void {
     touchStrokes();               // snapshot the ink layer before this erase gesture removes anything
     eraseAt(w.x, w.y);
   } else {
-    const p: [number, number] = [round(w.x), round(w.y)];
-    rawPts = [p];
-    cur = { id: newId(), color, width, pts: [p] };
+    cur = { id: newId(), color, width, pts: [[round(w.x), round(w.y)]] };
     curEl = pathFor(cur);
     sketchSvg.appendChild(curEl);
     ui.sketchDraw = { tool: 'pen' };
@@ -145,21 +142,20 @@ export function sketchMove(cx: number, cy: number): void {
   const w = screenToWorld(cx, cy);
   if (ui.sketchDraw.tool === 'eraser') { eraseAt(w.x, w.y); return; }
   if (!cur || !curEl) return;
-  const last = rawPts[rawPts.length - 1];
+  const last = cur.pts[cur.pts.length - 1];
   const dx = w.x - last[0], dy = w.y - last[1];
   if (dx * dx + dy * dy < MIN_DIST2) return;
-  rawPts.push([round(w.x), round(w.y)]);
-  cur.pts = simplify(rawPts, SIMPLIFY_EPS);   // simplify live so the drawn path is already reduced
+  cur.pts.push([round(w.x), round(w.y)]);   // collect raw points; simplified once on up
   curEl.setAttribute('d', strokeD(cur.pts));
 }
 export function sketchUp(): void {
   const d = ui.sketchDraw; ui.sketchDraw = null;
   if (!d) return;
   if (d.tool === 'pen') {
-    // cur.pts is already live-simplified; the drawn curEl matches it, so just keep it and persist.
-    if (cur && cur.pts.length >= 2) { touchStrokes(); state.strokes.push(cur); commitStep(); scheduleSaveSketch(); }
+    if (cur) cur.pts = simplify(cur.pts, SIMPLIFY_EPS);   // reduce to a handful of points now the stroke is complete
+    if (cur && cur.pts.length >= 2) { curEl!.setAttribute('d', strokeD(cur.pts)); touchStrokes(); state.strokes.push(cur); commitStep(); scheduleSaveSketch(); }
     else if (curEl) curEl.remove();   // a mere tap / too-short stroke → discard, nothing committed
-    cur = null; curEl = null; rawPts = [];
+    cur = null; curEl = null;
   } else {
     commitStep();                     // close the erase step (no-op if nothing was removed)
     if (erasedAny) { scheduleSaveSketch(); erasedAny = false; }
@@ -170,7 +166,7 @@ export function sketchCancel(): void {
   if (!ui.sketchDraw) return;
   if (ui.sketchDraw.tool === 'pen') { if (curEl) curEl.remove(); }   // pen never mutated strokes yet — just drop it
   else { commitStep(); if (erasedAny) scheduleSaveSketch(); }        // eraser already removed strokes live — keep it undoable
-  cur = null; curEl = null; rawPts = []; erasedAny = false; ui.sketchDraw = null;
+  cur = null; curEl = null; erasedAny = false; ui.sketchDraw = null;
 }
 const round = (v: number): number => Math.round(v * 10) / 10;
 

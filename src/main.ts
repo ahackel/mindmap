@@ -30,7 +30,7 @@ import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInp
 import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
 import { searchBox } from './features/search.js';
-import { toggleSketchMode, setSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
+import { toggleSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
 import { touch, commitStep, record, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
@@ -173,7 +173,8 @@ export function paintNode(n: MindNode): void {
     + (showDone ? ' show-done' : '')
     + (showDone && n.done ? ' done' : '')
     + (ui.drag?.targets?.has(n.id) ? ' dragging' : '')   // float the dragged subtree above all cards
-    + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '');
+    + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '')
+    + (state.searchActiveId === n.id ? ' search-active' : '');   // active dropdown option → white outline
   (el.querySelector('.donebox') as HTMLInputElement).checked = n.done;
   // this card's own checklist (over ITS children) → an "n/m done" progress readout by the title
   el.querySelector('.progress')!.textContent =
@@ -249,13 +250,24 @@ function followEdges(tok: number, ms: number): void {
   };
   requestAnimationFrame(tick);
 }
-// Run a structural change (a collapse toggle) and CSS-animate the resulting reflow.
-function withLayoutAnimation(mutate: () => void): void {
+// Snapshot the on-screen position of every visible card — the START frame animateReflow
+// glides away from. Take it BEFORE the structural change.
+function layoutSnapshot(): Map<string, Pt> {
   const before = new Map<string, Pt>();
   for (const m of state.nodes.values()) if (m.el && !isHidden(m)) before.set(m.id, { x:m.x, y:m.y });
+  return before;
+}
+// Run a structural change (a collapse toggle) and CSS-animate the resulting reflow.
+function withLayoutAnimation(mutate: () => void): void {
+  const before = layoutSnapshot();
   mutate();
   paintAll();          // reveal/hide DOM and measure real heights
   applyLayouts();      // compute FINAL positions into n.x/n.y (DOM not updated yet)
+  animateReflow(before);
+}
+// CSS-animate every visible card from its snapshotted `before` spot to its current (final)
+// n.x/n.y. Just-revealed cards (absent from `before`) fade in from their nearest ancestor.
+function animateReflow(before: Map<string, Pt>): void {
   const visible = [...state.nodes.values()].filter(m => m.el && !isHidden(m));
   const tok = ++ui.animToken;                           // supersede any in-flight animation
   if (prefersReducedMotion()){ for (const m of visible){ m.el!.classList.remove('lt-anim'); placeNodeEl(m); } paintEdges(); return; }
@@ -360,20 +372,29 @@ export function subtreeIds(id: string): string[] {
 // ---------- pan / zoom / marquee-select gestures live in features/gestures.ts ----------
 
 
-// Focus a card: un-collapse hiding ancestors, select it, frame it + all its visible descendants.
-export function focusNode(target: MindNode | undefined): void {
+// Focus a card: un-collapse hiding ancestors (and, when openTarget, the card itself), select
+// it, frame it + all its visible descendants. Ancestors are expanded shallowest-first with a
+// layout pass after EACH level, so every newly revealed level lays out on the already-settled
+// positions above it — expanding a nested chain in one shot mis-spaces the shallow branches.
+export function focusNode(target: MindNode | undefined, openTarget = false): void {
   if (!target) return;
-  let revealed = false;
-  const chain: string[] = [];
+  const before = layoutSnapshot();             // pre-reveal frame to glide away from
+  const toReveal: MindNode[] = [];
   for (let p = target.parent ? state.nodes.get(target.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null)
-    chain.push(p.id);
-  record(chain, () => {
-    for (const id of chain){
-      const p = state.nodes.get(id)!;
-      if (p.collapsed){ p.collapsed = false; p.dirtyLayout = true; revealed = true; }
+    toReveal.push(p);
+  toReveal.reverse();                          // root → immediate parent (shallowest first)
+  if (openTarget) toReveal.push(target);       // open the card itself last (deepest level)
+  let revealed = false;
+  record(toReveal.map(n => n.id), () => {
+    for (const n of toReveal){
+      if (!n.collapsed) continue;
+      n.collapsed = false; n.dirtyLayout = true; revealed = true;
+      paintAll(); applyLayouts();              // settle this level before revealing the next
     }
   });
-  selectNode(target.id);                       // paint first so heights are known / editor opens
+  selectNode(target.id);                       // select → the card shows its full body (grows)
+  applyLayouts(); paintAll();                  // reflow siblings around the now-taller selection
+  animateReflow(before);                       // one glide from the pre-reveal frame to the final
   frameBox(subtreeIds(target.id).map(id => state.nodes.get(id)));
   if (revealed && store.isOpen) scheduleSave();
 }
@@ -621,7 +642,8 @@ async function setReadOnly(on: boolean): Promise<void> {
   if (on){
     await flushSave();                                   // persist anything pending before locking (clears the save timer)
     state.readOnly = true;
-    setSketchMode(false);                                // drawing is an edit — leave sketch mode when locking
+    // sketching stays available in read-only, but any strokes made there are in-memory only:
+    // leaving read-only reloads sketch.json below, discarding them (like the collapse state).
     selectNode(null);                                    // close any open edit
   } else {
     state.readOnly = false;

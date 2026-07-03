@@ -9,4 +9,4 @@ mm_y: 331
 mm_collapsed: true
 ---
 
-The handy extras: undo/redo, the right-click menu, pasting images, and a safe read-only mode.
+The handy extras: undo/redo, the right-click menu, pasting images, a freehand sketch layer, and a safe read-only mode.

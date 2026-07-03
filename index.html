@@ -15,9 +15,14 @@
 <meta name="apple-mobile-web-app-title" content="Mindmap">
 </head>
 <body>
+  <!-- home / storage: floating bar in the top-left; the folder name sits beside the button -->
+  <div id="homeBar">
+    <button id="homeBtn" class="floating-btn" title="Home — recent folders / open another" aria-label="Home — recent folders">
+      <span class="ic" data-icon="home"></span></button>
+    <span id="folderName"></span>
+  </div>
+
   <div id="toolbar">
-    <button id="homeBtn" class="primary" title="Home — recent folders / open another" aria-label="Home — recent folders">
-      <span class="ic" data-icon="home"></span><span id="folderName"></span></button>
     <button id="undoBtn" disabled title="Undo (Ctrl/⌘ Z)" aria-label="Undo">
       <span class="ic" data-icon="undo"></span></button>
     <button id="redoBtn" disabled title="Redo (Ctrl Y / ⇧⌘Z)" aria-label="Redo">
@@ -26,20 +31,11 @@
       <span class="ic" data-icon="fit"></span></button>
     <button id="edgeBtn" title="Edge style — click to cycle" aria-label="Cycle edge style">
       <span class="ic" data-icon="edge-orthogonal"></span></button>
-    <button id="sketchBtn" title="Sketch (S) — draw freehand on the canvas" aria-label="Toggle sketch mode">
-      <span class="ic" data-icon="sketch"></span></button>
     <span class="sep"></span>
     <span id="status"></span>
     <button id="roBtn" title="Read-only mode (R) — view & collapse only, nothing is saved" aria-label="Toggle read-only mode">
       <span class="ic" data-icon="lock"></span></button>
     <button id="themeBtn" title="Toggle light / dark mode" aria-label="Toggle theme"></button>
-    <button id="helpBtn" title="Open help (F1)" aria-label="Open help">
-      <span class="ic" data-icon="help"></span>
-      <span id="helpHint" class="emptyhint" aria-hidden="true">
-        <svg class="hint-arrow" viewBox="0 0 24 46" width="24" height="46" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M8 44 Q 20 24 12 4"/><path d="M12 4l-6 6M12 4l7 4"/></svg>
-        <span>Click for help</span>
-      </span></button>
     <div id="searchWrap">
       <span class="ic" data-icon="search"></span>
       <input id="searchBox" type="text" placeholder="" title="Find card (/)" aria-label="Find a card" autocomplete="off" spellcheck="false" />
@@ -64,7 +60,8 @@
     </div>
   </div>
 
-  <div id="editor" class="open">
+  <!-- starts closed (no "open" class) so it doesn't flash in before applySidebar() runs -->
+  <div id="editor">
     <div id="edEmpty" class="editnote">Select a node to edit it, or press <kbd>Space</kbd> for a new one.</div>
     <div id="edFields">
       <div id="edMulti" class="editnote"></div>
@@ -104,6 +101,19 @@
     </div>
   </div>
 
+  <!-- sketch toggle: floating top-right, outside the toolbar -->
+  <button id="sketchBtn" class="floating-btn" title="Sketch (S) — draw freehand on the canvas" aria-label="Toggle sketch mode">
+    <span class="ic" data-icon="sketch"></span></button>
+
+  <!-- help toggle: floating bottom-right, outside the toolbar -->
+  <button id="helpBtn" class="floating-btn" title="Open help (F1)" aria-label="Open help">
+    <span class="ic" data-icon="help"></span>
+    <span id="helpHint" class="emptyhint" aria-hidden="true">
+      <span>Click for help</span>
+      <svg class="hint-arrow" viewBox="0 0 24 46" width="24" height="46" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 2 Q 20 22 12 42"/><path d="M12 42l-6-6M12 42l7-4"/></svg>
+    </span></button>
+
   <!-- sketch sidebar: replaces the edit panel while sketch mode is on (populated by features/sketch.ts) -->
   <div id="sketchPanel">
     <div class="sk-title">Sketch</div>
@@ -140,20 +150,27 @@
   <div id="startScreen" class="hidden">
     <div class="start-card">
       <button id="startClose" class="start-close" aria-label="Close" title="Close">✕</button>
-      <h2>Markdown Mindmap</h2>
-      <p>Your map is saved <b>on this device</b> and opens automatically. Manage where it lives:</p>
-      <div id="storeStatus" class="store-status"></div>
-      <button id="startOpen" class="primary"><span class="ic" data-icon="folder-open"></span> Open a local folder…</button>
-      <div id="recentWrap" style="display:none">
-        <div class="recent-label">Recent folders</div>
-        <div id="recentList"></div>
+      <h2>Storage settings</h2>
+      <div class="store-tabs" role="tablist">
+        <button id="tabDevice" class="store-tab" role="tab">On device</button>
+        <button id="tabFolder" class="store-tab" role="tab">Local folder</button>
+      </div>
+      <div id="panelDevice" class="store-panel">
+        <p>Your map is saved <b>on this device</b> and opens automatically. It stays private to this browser.</p>
+        <div id="storeStatus" class="store-status"></div>
+      </div>
+      <div id="panelFolder" class="store-panel">
+        <p>Save your map to a real folder on disk. Needs Chrome or Edge.</p>
+        <button id="startOpen" class="primary"><span class="ic" data-icon="folder-open"></span> Open a local folder…</button>
+        <div id="recentWrap" style="display:none">
+          <div class="recent-label">Recent folders</div>
+          <div id="recentList"></div>
+        </div>
       </div>
       <div class="store-actions">
         <button id="importBtn"><span class="ic" data-icon="import"></span> Import .zip</button>
         <button id="exportBtn"><span class="ic" data-icon="export"></span> Export .zip</button>
       </div>
-      <button id="useDeviceBtn" class="linkish">↩ Use on-device storage</button>
-      <p class="start-note">A local folder needs Chrome or Edge. Import/export works everywhere.</p>
     </div>
   </div>
 
