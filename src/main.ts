@@ -207,6 +207,13 @@ export function layoutH(n: MindNode): number {
 export function paintAll(): void {
   for (const n of state.nodes.values()) paintNode(n);
   paintEdges();
+  updateEmptyHints();
+}
+
+// First-run hints ("Drag to create a card" / "Click for help") show only on an empty canvas.
+// The help hint tracks the (centred, variable-x) help button; the ghost hint is CSS-anchored.
+export function updateEmptyHints(): void {
+  document.body.classList.toggle('empty-canvas', state.nodes.size === 0);
 }
 
 // ---------- animated relayout (expand / collapse) ----------

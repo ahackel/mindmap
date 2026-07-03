@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Markdown Mindmap</title>
+<!-- App icon. The favicon is an inline SVG data URI so it also works when index.html is
+     opened from a file:// path; the PNG/manifest links (copied from public/) drive the
+     home-screen / PWA-install icon when served over http(s). -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0NjEgNDYxIj48cGF0aCBmaWxsPSIjMDA4MGZmIiBmaWxsLW9wYWNpdHk9Ii4yNyIgZD0iTTI0NC41IDgzLjNjLS4zLjctLjQgMTUuNi0uMyAzMy4ybC4zIDMyIC41LTMzLjNjLjMtMTguMi40LTMzLjIuMi0zMy4yLS4xIDAtLjUuNi0uNyAxLjNtLTI5LjMgMzEuNWMtLjEgMjQuMS0uNSAzMi4xLTEuNCAzMS42LS43LS41LS44LS4zLS4zLjUgMi4xIDMuNCAyLjUtMi45IDIuMi0zMi41bC0uMi0zMS45em0wIDI1Ny45TDIxNSA0MjJsLTcxLjIuMy03MS4zLjIgNzEuMy4zYzU2LjMuMSA3MS40LS4xIDcxLjctMS4xLjMtLjYuNC0yMyAuMy00OS43bC0uMy00OC41em0yOS4zIDIuM3Y0Ny41aDE0M2wtNzEuMi0uMi03MS4zLS4zLS4zLTQ3LjMtLjItNDcuMnptLTkxLjIgNzUuN2M0Mi4yLjIgMTExLjIuMiAxNTMuNSAwIDQyLjItLjEgNy42LS4yLTc2LjgtLjJzLTExOSAuMS03Ni43LjIiLz48cGF0aCBmaWxsPSIjMDA4MGZmIiBkPSJNMjE4LjkgMTMuNWMtMjkuNCA5LjQtMzMuOCA1Mi44LTYuNyA2Ni42TDIxNiA4MnYzMy41YzAgMTguNC0uMyAzMy41LS43IDMzLjQtLjUgMC0zLjktNC4xLTcuOC05LjEtMTAuMy0xMy4zLTI0LTI1LjktNDAuNy0zNy40bC00LjUtMy4yLS41LTcuOUMxNTkuNyA1NCAxMDguOSA0My45IDkzIDc3LjdjLTE0LjggMzEuNCAxNy42IDYzLjUgNDkuMSA0OC42bDYuNy0zLjEgMTAuMyA3LjdjMzMgMjQuNiA1Ni45IDY4LjUgNTYuOSAxMDQuMyAwIDYuMy0uNCA2LjEtNy41LTMuMy0yNy45LTM3LjUtNzMuNS02My42LTEyMi43LTcwLjQtNC40LS42LTQuOS0uOS03LjctNS45LTEzLTIzLTQ4LjItMjEuMS01OS40IDMuMi0zLjQgNy40LTMuMSAyMC44LjYgMjguMyAxMS42IDIzLjcgNDYuMyAyNS4xIDU5LjIgMi41IDIuNC00LjIgMzMuOCA0LjMgNTUgMTQuOSAxMi4zIDYuMSAyOS41IDE3LjUgMjkuNSAxOS42IDAgLjUtMy4xLjktNyAuOS03LjcgMC0xNC41IDEuMi0yMy44IDQuMmwtNi4zIDItMy4yLTIuNWMtMTcuOC0xMy41LTQzLjMtNy44LTUxLjggMTEuNi0xMy42IDMxLjQgMjEuNiA2MC44IDQ5LjcgNDEuNCA1LjYtMy45IDEwLjktMTEuMSAxMi41LTE3IDIuMi04LjMgMi4yLTguMyAxMS4xLTEwLjcgMjgtNy42IDU1LjMgNy43IDY0LjcgMzYuNCA2LjMgMTguOCA2LjQgMjAuNiA2LjggNzguOGwuNCA1My44SDczbC0zLjggMy40Yy02LjkgNi40LTQuOSAxNy42IDQgMjIuMiAyLjMgMS4yIDI2LjQgMS40IDE1Ni44IDEuNCAxNjcgMCAxNTYuNi4zIDE2MS45LTUuMyAzLjItMy41IDQtMTAuOSAxLjctMTUuMi0zLjctNi44LjMtNi41LTc4LjUtNi41SDI0NHYtNDcuOGMwLTUwLjEuNS01Ny42IDQuNi03NS4yIDguNS0zNi43IDM5LTU2LjMgNzAuMy00NS4zIDYgMi4xIDYuMiAyLjMgOC41IDEwLjUgMi4yIDcuNiAxMC4zIDE2LjYgMTcuOCAxOS44IDI3LjQgMTEuOCA1NS4xLTE0LjcgNDQuNi00Mi43LTcuNy0yMC43LTM1LjItMjcuOS01Mi0xMy43LTIuMiAxLjgtMy43IDIuMy01LjIgMS45LTEwLjUtMy41LTIwLjEtNS40LTI3LjMtNS40LTEwLS4xLTEwLjItLjYtMS41LTYuOCAyMS43LTE1LjYgNDEuMi0yMy45IDY3LjctMjguOGw5LTEuNyAxLjUgMi4zYzE0LjcgMjIuNiA0OC4xIDIwLjQgNTkuMy0zLjkgMy40LTcuNCAzLjEtMjAuOC0uNi0yOC40LTExLjgtMjQtNDcuNS0yNC42LTU5LjYtMS0xLjkgMy44LTIuMiAzLjktOS44IDUuMS00OS4yIDcuNy05NC44IDM0LjgtMTIxLjYgNzIuMy01LjUgNy43LTYuMSA3LjQtNS4zLTIuNSAzLjItMzkgMjQuMS03Ni40IDU2LTEwMC40IDEwLjktOC4yIDEwLjItOC4xIDIwLjUtMy44IDUuOCAyLjQgNy40IDIuNyAxNSAyLjMgNDcuMi0yLjQgNDUuMy03Mi4zLTEuOS03Mi4zLTIwLjMgMC0zNC43IDEzLjctMzUuOCAzNGwtLjQgOC04IDUuNGMtMTQuMyA5LjctMzUgMjkuOS00Mi4xIDQxLjItMS4xIDEuNi0yLjMgMi45LTIuOCAyLjlzLS45LTE0LjEtLjktMzMuM1Y4Mi41bDUuMS0zYzI0LjYtMTQuNCAyMi4yLTUyLjItNC02NC4zLTYuOS0zLjItMTguOS00LTI2LjItMS43Ii8+PC9zdmc+">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#11151c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mindmap">
 </head>
 <body>
   <div id="toolbar">
@@ -23,7 +32,12 @@
       <span class="ic" data-icon="lock"></span></button>
     <button id="themeBtn" title="Toggle light / dark mode" aria-label="Toggle theme"></button>
     <button id="helpBtn" title="Open help (F1)" aria-label="Open help">
-      <span class="ic" data-icon="help"></span></button>
+      <span class="ic" data-icon="help"></span>
+      <span id="helpHint" class="emptyhint" aria-hidden="true">
+        <svg class="hint-arrow" viewBox="0 0 24 46" width="24" height="46" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 44 Q 20 24 12 4"/><path d="M12 4l-6 6M12 4l7 4"/></svg>
+        <span>Click for help</span>
+      </span></button>
     <div id="searchWrap">
       <span class="ic" data-icon="search"></span>
       <input id="searchBox" type="text" placeholder="" title="Find card (/)" aria-label="Find a card" autocomplete="off" spellcheck="false" />
@@ -88,6 +102,13 @@
 
   <!-- ghost card in the corner — drag it onto the canvas to create a new card -->
   <div id="ghostCard" title="Drag to create a new card">+</div>
+
+  <!-- first-run hints: shown only while the canvas is empty (body.empty-canvas) -->
+  <div id="ghostHint" class="emptyhint" aria-hidden="true">
+    <svg class="hint-arrow" viewBox="0 0 52 22" width="52" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M50 8 Q 24 20 5 13"/><path d="M5 13l9-3M5 13l6 7"/></svg>
+    <span>Drag to create a card</span>
+  </div>
 
   <!-- home screen: storage settings (the map itself opens straight onto the canvas) -->
   <div id="startScreen" class="hidden">

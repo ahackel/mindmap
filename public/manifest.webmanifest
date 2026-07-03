@@ -1,0 +1,16 @@
+{
+  "name": "Markdown Mindmap",
+  "short_name": "Mindmap",
+  "description": "Local-first mindmap editor for a folder of Markdown notes",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#11151c",
+  "theme_color": "#11151c",
+  "icons": [
+    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512" },
+    { "src": "icon-maskable-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

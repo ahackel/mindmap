@@ -343,6 +343,27 @@ body.light #ghostCard { background:var(--pal-white); color:#2b3645; }
 #ghostCard:hover { box-shadow:0 0 0 2px var(--accent); }
 body.readonly #ghostCard { opacity:.35; pointer-events:none; }
 
+/* first-run hints next to the + ghost card and the help button — only while empty */
+.emptyhint {
+  position:fixed; z-index:21; display:none; align-items:center; gap:6px;
+  color:var(--muted); font-size:14px; font-weight:500;
+  pointer-events:none; user-select:none;
+}
+body.empty-canvas:not(.readonly) .emptyhint { display:flex; animation:hintPulse 2.8s ease-in-out infinite; }
+@keyframes hintPulse { 0%,100%{ opacity:.25 } 50%{ opacity:1 } }
+@media (prefers-reduced-motion: reduce) { .emptyhint { animation:none !important; } }
+#ghostHint { left:126px; bottom:29px; }                 /* right of the ghost card */
+#ghostHint span { position:relative; top:-5px; }        /* nudge only the label up, arrow stays */
+/* help hint lives INSIDE the (centred, shifting) help button, so it tracks it with no JS */
+#helpBtn { position:relative; overflow:visible; }
+#helpHint {
+  position:absolute; top:100%; left:50%; transform:translateX(-50%); margin-top:7px;
+  flex-direction:column; gap:2px; white-space:nowrap;
+}
+.hint-arrow { flex:none; opacity:.85; }
+/* override #toolbar button svg (15×15) so the in-button help arrow keeps its real size */
+#helpHint .hint-arrow { width:24px; height:46px; }
+
 /* floating edit panel — sits below the toolbar, off the right edge, hugs its content */
 #editor {
   position:fixed; top:50px; right:10px; width:240px; z-index:15;
