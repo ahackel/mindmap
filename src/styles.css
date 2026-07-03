@@ -107,6 +107,12 @@ button:disabled { opacity:.45; cursor:default; }
    squashing when a shrinking neighbour (folder name / search box) fights for space */
 #toolbar button svg { width:15px; height:15px; display:block; flex:none; }
 #status { display:none; }   /* transient log messages are not shown in the toolbar */
+/* the sketch toggle reads as "on" with a solid accent fill, like the .primary buttons */
+#toolbar button#sketchBtn.active,
+#toolbar button#sketchBtn.active:hover { background:var(--accent); color:#fff; }
+body.sketching #stage { cursor:crosshair; }
+body.sketching #ghostCard { display:none; }    /* the drag-to-create card would fight the pen */
+body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag / edit while sketching */
 /* home button = folder icon + loaded-folder name as one clickable element */
 #toolbar button#homeBtn { width:auto; gap:5px; padding:0 7px; flex:0 1 auto; min-width:36px; }
 #homeBtn #folderName { font-size:12px; font-weight:600; color:var(--text);
@@ -165,8 +171,9 @@ input::placeholder { color:var(--panel); opacity:1; }
 body.grabbing, body.grabbing * { cursor:grabbing !important; }
 #world { position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; touch-action:none; }
 
-svg#backgrounds, svg#edges, svg#toggles, svg#dragEdges { position:absolute; top:0; left:0; overflow:visible; }
+svg#backgrounds, svg#sketch, svg#edges, svg#toggles, svg#dragEdges { position:absolute; top:0; left:0; overflow:visible; }
 svg#backgrounds { z-index:0; pointer-events:none; } /* group backgrounds behind everything */
+svg#sketch { z-index:0; pointer-events:none; }      /* freehand ink behind cards + edges (drawing is handled on #stage) */
 svg#edges { z-index:1; pointer-events:none; }      /* curves behind nodes */
 .node { z-index:2; }                               /* nodes in the middle */
 svg#toggles { z-index:3; pointer-events:none; }    /* toggles on top; group re-enables events */
@@ -375,6 +382,41 @@ body.empty-canvas:not(.readonly) .emptyhint { display:flex; animation:hintPulse 
   pointer-events:none;
 }
 #editor.open { transform:translateX(0); opacity:1; pointer-events:auto; }  /* slide in from the right */
+
+/* sketch sidebar — same slot as #editor, shown only in sketch mode (replaces the edit panel) */
+#sketchPanel {
+  position:fixed; top:50px; right:10px; width:240px; z-index:15;
+  max-height:calc(100vh - 60px); overflow:auto;
+  background:var(--panel); border-radius:12px; padding:12px;
+  flex-direction:column; gap:12px; display:none;
+}
+body.sketching #sketchPanel { display:flex; }
+body.sketching #editor { display:none; }   /* the sketch panel takes the edit panel's place */
+#sketchPanel .sk-title { font-size:16px; font-weight:600; color:var(--text);
+  padding-bottom:8px; border-bottom:1px solid var(--grid); }
+#sketchPanel .fgroup { display:flex; flex-direction:column; gap:6px; }
+#sketchPanel label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+.sk-tools { display:flex; gap:6px; }
+.sk-tools button {
+  flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  height:34px; padding:0; border-radius:8px; font-size:12px;
+  background:var(--node-border); border:1px solid var(--node-border); color:var(--muted); cursor:pointer;
+}
+.sk-tools button svg { width:16px; height:16px; display:block; }
+.sk-tools button:hover { color:var(--text); }
+.sk-tools button.active { color:#fff; background:var(--accent); border-color:var(--accent); }
+/* colour & width pickers — round dots (plain buttons in the sidebar, so no #toolbar override) */
+.sketch-dots { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.sketch-dots .dot {
+  width:22px; height:22px; min-width:0; border-radius:50%; cursor:pointer; flex:none; box-sizing:border-box;
+  padding:0; border:1px solid var(--node-border); background:var(--sw, var(--muted)); }
+.sketch-dots .dot:hover { border-color:var(--accent); }
+.sketch-dots .dot.active { box-shadow:0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+/* width picker: a centred ink blob whose size previews the stroke width */
+.sketch-dots.widths .dot { background:transparent; position:relative; }
+.sketch-dots.widths .dot::after {
+  content:""; position:absolute; inset:0; margin:auto; border-radius:50%;
+  width:var(--d); height:var(--d); background:var(--text); }
 #edFields { flex:1; display:flex; flex-direction:column; gap:10px; min-height:0; }
 #edFields .fgroup { display:flex; flex-direction:column; gap:6px; }
 /* empty state vs. fields: only one shows at a time, driven by .has-selection */
@@ -418,8 +460,9 @@ body.empty-canvas:not(.readonly) .emptyhint { display:flex; animation:hintPulse 
 #editor .row { display:flex; gap:8px; }
 #editor .editnote { font-size:11px; color:var(--muted); line-height:1.5; }
 /* colour picker = a row of individual round bubbles; the selection outline sits AROUND one */
-.swatches { display:flex; gap:6px; flex-wrap:nowrap; align-items:center; }
-.swatch { flex:1 1 0; min-width:0; aspect-ratio:1; border-radius:50%; cursor:pointer;
+.swatches { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+/* fixed size so colour chips match the sketch sidebar's colour dots (.sketch-dots .dot) exactly */
+.swatch { flex:none; width:22px; height:22px; border-radius:50%; cursor:pointer;
   border:0; background:var(--sw); }
 .swatch:hover  { box-shadow:0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent); }
 .swatch.active { box-shadow:0 0 0 2px var(--text); }

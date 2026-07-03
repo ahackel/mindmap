@@ -14,8 +14,14 @@ import { resetImageCache } from '../features/images.js';
 import { clearHistory } from '../features/history.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, seenFolders, markFolderSeen, type Store } from '../store/index.js';
 import { paintAll, selectNode } from '../main.js';
+import { paintStrokes } from '../features/sketch.js';
 import { ui, isTypingInField } from '../core/ui-state.js';
 import { hideStart } from '../boot.js';
+
+// The sketch layer lives beside the notes as one plain JSON data file (Obsidian .canvas-style),
+// not a note — it holds no mm_* / frontmatter, just world-space strokes. Read/written through the
+// same store I/O as everything else (see load/save below).
+export const SKETCH_FILE = 'sketch.json';
 
 // Active backend. Local-first: default to the on-device vault; "Open folder" swaps in fsaStore.
 export let store: Store = opfsStore;
@@ -60,6 +66,9 @@ export async function importFiles(files: File[]): Promise<void> {
   }
   for (const e of md)  await store.write(e.name, e.text ?? '');
   for (const e of img) await store.write(e.name, new Blob([e.bytes! as BlobPart]));
+  // carry over the sketch layer if the archive included one (matching the note top-folder strip)
+  const sketch = entries.find(e => e.text != null && (e.name === SKETCH_FILE || e.name === top + SKETCH_FILE));
+  if (sketch?.text != null) await store.write(SKETCH_FILE, sketch.text);
   hideStart();
   await loadFromDir();
   setStatus(`Imported ${md.length} note${md.length===1?'':'s'}${img.length ? ` + ${img.length} image${img.length===1?'':'s'}` : ''}.`);
@@ -87,6 +96,7 @@ export async function exportZip(): Promise<void> {
   }));
   const attached = images.filter(Boolean).length;
   for (const img of images) if (img) files.push(img);
+  if (state.strokes.length) files.push({ name: SKETCH_FILE, data: sketchJSON() });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(zipBlob(files));
   a.download = 'mindmap.zip';
@@ -99,6 +109,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   clearHistory();   // ids are minted fresh per load, so no snapshot survives a (re)load / map switch
   state.nodes.clear(); state.toDelete = []; world.querySelectorAll('[data-id]').forEach(e=>e.remove());
   resetImageCache();   // blob URLs from the previous map (or store) are stale now
+  await loadSketch();  // read the freehand ink layer (sketch.json) for this map, if any
 
   // First pass: read every .md and parse it (layout now lives in each note's frontmatter).
   const entries: { rel: string; parsed: ReturnType<typeof parseMd> }[] = [];
@@ -160,6 +171,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   paintAll();
   applyLayouts();
   paintAll();
+  paintStrokes();      // render the sketch layer over the freshly loaded map
   if (!keepView) fit();
   // Persist the resolved layout so the saved mm_x/mm_y match what's on screen. Only write when
   // the load actually moved something, so a stable reopen touches no files.
@@ -251,6 +263,37 @@ export async function flushSave(): Promise<void> {
   if (saveAgain) { saveAgain = false; flushSave(); }
 }
 
+// ---------- sketch layer (freehand ink) ----------
+// Serialised as one JSON data file (SKETCH_FILE) beside the notes — not a node. It rides the same
+// store I/O; only the .md walk in the store filters by extension, so this file is invisible to the
+// node model. Its own debounce keeps a burst of pen moves from rewriting every note.
+function sketchJSON(): string { return JSON.stringify({ version: 1, strokes: state.strokes }); }
+export async function loadSketch(): Promise<void> {
+  state.strokes = [];
+  try {
+    const blob = store.readBlob ? await store.readBlob(SKETCH_FILE) : null;
+    if (!blob) return;
+    const data = JSON.parse(await blob.text());
+    if (Array.isArray(data?.strokes)) state.strokes = data.strokes;
+  } catch { /* missing or malformed → start with an empty ink layer */ }
+}
+let sketchTimer: number | undefined;
+export function scheduleSaveSketch(): void {
+  if (state.readOnly || !store.isOpen) return;   // read-only / demo mode: never write
+  clearTimeout(sketchTimer);
+  sketchTimer = setTimeout(flushSketch, 400);
+}
+async function flushSketch(): Promise<void> {
+  if (state.readOnly || !store.isOpen) return;
+  try {
+    await store.write(SKETCH_FILE, sketchJSON());
+    state.lastSelfWrite = Date.now();            // so the focus-reload ignores our own write
+  } catch (err) {
+    console.error('Sketch save failed:', err);
+    setStatus('⚠ Sketch save failed: ' + ((err as Error).message || (err as Error).name));
+  }
+}
+
 // ---------- reload on focus ----------
 let reloading = false;
 export async function reloadFromDisk(): Promise<void> {
@@ -264,6 +307,7 @@ export async function reloadFromDisk(): Promise<void> {
   const selBefore = state.selId;
   // Don't yank the rug out while the user is actively typing in the panel or renaming a card.
   if (ui.inlineEdit || ui.bodyEdit || isTypingInField()) return;
+  if (ui.sketchDraw) return;          // mid-stroke: don't reload the ink layer under the pen
   reloading = true;
   try {
     await loadFromDir({ keepView:true });

@@ -6,11 +6,12 @@
 // gesture boundary calls commitStep() — pointer-up for drags, end-of-edit for inline editing,
 // record() for one-shot ops. A step whose before/after images are identical is discarded, so
 // plain clicks, cancelled drags and unchanged edits never pollute the history.
-import { state, stage, setStatus, type MindNode } from '../core/state.js';
+import { state, stage, setStatus, type MindNode, type Stroke } from '../core/state.js';
 import { applyLayouts } from '../view/layout.js';
 import { frameBox } from '../view/camera.js';
-import { scheduleSave } from '../data/persistence.js';
+import { scheduleSave, scheduleSaveSketch } from '../data/persistence.js';
 import { paintAll, setSelectionSet, NODE_W, nodeH } from '../main.js';
+import { paintStrokes } from './sketch.js';
 import { endInlineEdit, endBodyEdit } from './inline-edit.js';
 
 // Everything persistent about a node EXCEPT its identity/render/dirty fields. `file` is
@@ -18,12 +19,18 @@ import { endInlineEdit, endBodyEdit } from './inline-edit.js';
 // still exists — see applyImages.
 type NodeSnap = Omit<MindNode, 'id' | 'el' | 'dirty' | 'dirtyLayout' | '_parentPath'>;
 type Images = Map<string, NodeSnap | null>;      // null = the node does not exist
-interface Step { before: Images; after: Images; }
+// A step captures node before/after images and, when a sketch gesture changed the ink layer,
+// the whole strokes array before/after — one unified timeline covers both (see touchStrokes).
+interface Step { before: Images; after: Images; strokes?: { before: Stroke[]; after: Stroke[] }; }
 
 const MAX_STEPS = 100;
 const undoStack: Step[] = [];
 const redoStack: Step[] = [];
 let pending: Images | null = null;
+let pendingStrokes: Stroke[] | null = null;      // strokes before-image for the open step, if a sketch op touched it
+
+const cloneStrokes = (s: Stroke[]): Stroke[] => structuredClone(s);
+const sameStrokes = (a: Stroke[], b: Stroke[]): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 // Fixed key order (so JSON-compare in commitStep is reliable) + deep copies of the arrays.
 function snap(n: MindNode): NodeSnap {
@@ -54,18 +61,26 @@ export function touch(...ids: (string | null | undefined)[]): void {
     pending.set(id, n ? snap(n) : null);
   }
 }
+// Remember the ink layer's pre-mutation image in the pending step. Call BEFORE changing
+// state.strokes (adding a stroke, erasing). Idempotent per step; a no-op in read-only mode.
+export function touchStrokes(): void {
+  if (state.readOnly) return;
+  if (!pendingStrokes) pendingStrokes = cloneStrokes(state.strokes);
+}
 // Close the pending step: capture after-images, drop untouched-in-practice nodes, and push.
 export function commitStep(): void {
   const before = pending; pending = null;
-  if (!before) return;
+  const strokesBefore = pendingStrokes; pendingStrokes = null;
   const step: Step = { before: new Map(), after: new Map() };
-  for (const [id, b] of before) {
+  if (before) for (const [id, b] of before) {
     const n = state.nodes.get(id);
     const a = n ? snap(n) : null;
     if (sameSnap(b, a)) continue;
     step.before.set(id, b); step.after.set(id, a);
   }
-  if (!step.before.size) return;
+  if (strokesBefore && !sameStrokes(strokesBefore, state.strokes))
+    step.strokes = { before: strokesBefore, after: cloneStrokes(state.strokes) };
+  if (!step.before.size && !step.strokes) return;    // nothing actually changed
   undoStack.push(step);
   if (undoStack.length > MAX_STEPS) undoStack.shift();
   redoStack.length = 0;
@@ -80,7 +95,7 @@ export function record(ids: Iterable<string | null | undefined>, fn: () => void)
   if (owner) commitStep();
 }
 export function clearHistory(): void {
-  undoStack.length = 0; redoStack.length = 0; pending = null;
+  undoStack.length = 0; redoStack.length = 0; pending = null; pendingStrokes = null;
   updateUndoButtons();
 }
 
@@ -118,8 +133,9 @@ function frameIfOffscreen(ids: string[]): void {
   }
   if (maxX < 0 || minX > r.width || maxY < 0 || minY > r.height) frameBox(nodes);
 }
-function applyStep(images: Images, label: string): void {
+function applyStep(images: Images, strokes: Stroke[] | undefined, label: string): void {
   applyImages(images);
+  if (strokes) { state.strokes = cloneStrokes(strokes); paintStrokes(); scheduleSaveSketch(); }
   // paint first so resurrected cards have real DOM heights, then lay out, then commit
   paintAll(); applyLayouts(); paintAll();
   const ids = [...images.keys()].filter(id => state.nodes.has(id));
@@ -135,7 +151,7 @@ export function undo(): void {
   const step = undoStack.pop();
   if (!step) { setStatus('Nothing to undo'); return; }
   redoStack.push(step);
-  applyStep(step.before, 'Undo');
+  applyStep(step.before, step.strokes?.before, 'Undo');
   updateUndoButtons();
 }
 export function redo(): void {
@@ -145,7 +161,7 @@ export function redo(): void {
   const step = redoStack.pop();
   if (!step) { setStatus('Nothing to redo'); return; }
   undoStack.push(step);
-  applyStep(step.after, 'Redo');
+  applyStep(step.after, step.strokes?.after, 'Redo');
   updateUndoButtons();
 }
 

@@ -30,6 +30,7 @@ import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInp
 import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
 import { searchBox } from './features/search.js';
+import { toggleSketchMode, setSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
 import { touch, commitStep, record, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
@@ -387,7 +388,7 @@ function focusByTitle(title: string): void {
 // frame the whole map when nothing is selected — both glide with the same easing.
 function focusOrFit(): void {
   if (state.selId && state.nodes.has(state.selId)) focusNode(state.nodes.get(state.selId));
-  else frameBox([...state.nodes.values()]);
+  else frameBox([...state.nodes.values()], true);   // frame the whole map — strokes included
 }
 
 // ---------- selection + editor ----------
@@ -620,6 +621,7 @@ async function setReadOnly(on: boolean): Promise<void> {
   if (on){
     await flushSave();                                   // persist anything pending before locking (clears the save timer)
     state.readOnly = true;
+    setSketchMode(false);                                // drawing is an edit — leave sketch mode when locking
     selectNode(null);                                    // close any open edit
   } else {
     state.readOnly = false;
@@ -690,6 +692,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (typing) return;
   if (e.key === 'r' || e.key === 'R'){ e.preventDefault(); setReadOnly(!state.readOnly); return; }
+  if ((e.key === 's' || e.key === 'S') && !e.metaKey && !e.ctrlKey){ e.preventDefault(); toggleSketchMode(); return; }   // Sketch mode
   if (e.key === '/'){ e.preventDefault(); searchBox.focus(); searchBox.select(); return; }   // find a card
   // Space = hand-tool to pan while held; a quick tap (released without panning) makes a node.
   if (e.key === ' '){ e.preventDefault(); if (!e.repeat){ ui.spaceHeld = true; ui.spaceUsedForPan = false; } return; }

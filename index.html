@@ -26,6 +26,8 @@
       <span class="ic" data-icon="fit"></span></button>
     <button id="edgeBtn" title="Edge style — click to cycle" aria-label="Cycle edge style">
       <span class="ic" data-icon="edge-orthogonal"></span></button>
+    <button id="sketchBtn" title="Sketch (S) — draw freehand on the canvas" aria-label="Toggle sketch mode">
+      <span class="ic" data-icon="sketch"></span></button>
     <span class="sep"></span>
     <span id="status"></span>
     <button id="roBtn" title="Read-only mode (R) — view & collapse only, nothing is saved" aria-label="Toggle read-only mode">
@@ -51,6 +53,8 @@
     <div id="world">
       <!-- group backgrounds: the "encloses card + descendants" tint, behind everything else -->
       <svg id="backgrounds"></svg>
+      <!-- freehand sketch layer: ink drawn on the canvas, behind the cards -->
+      <svg id="sketch"></svg>
       <svg id="edges"></svg>
       <!-- toggles overlay renders ABOVE node divs so collapse dots are always visible -->
       <svg id="toggles"></svg>
@@ -97,6 +101,28 @@
         <button id="edDelete" disabled title="Delete selected card(s) (Delete)" aria-label="Delete selected card(s)">
           <span class="ic" data-icon="delete"></span></button>
       </div>
+    </div>
+  </div>
+
+  <!-- sketch sidebar: replaces the edit panel while sketch mode is on (populated by features/sketch.ts) -->
+  <div id="sketchPanel">
+    <div class="sk-title">Sketch</div>
+    <div class="fgroup">
+      <label>Tool</label>
+      <div class="sk-tools">
+        <button id="sketchPen" title="Pen — draw" aria-label="Pen">
+          <span class="ic" data-icon="sketch"></span> Pen</button>
+        <button id="sketchEraser" title="Eraser — remove a whole stroke" aria-label="Eraser">
+          <span class="ic" data-icon="eraser"></span> Erase</button>
+      </div>
+    </div>
+    <div class="fgroup">
+      <label>Colour</label>
+      <div id="sketchColors" class="sketch-dots colors"></div>
+    </div>
+    <div class="fgroup">
+      <label>Width</label>
+      <div id="sketchWidths" class="sketch-dots widths"></div>
     </div>
   </div>
 

@@ -9,6 +9,7 @@ import { applyView, cancelViewAnim, screenToWorld, zoomAt } from '../view/camera
 import { ui, gPointers, type Pt, type GestureEvt } from '../core/ui-state.js';
 import { NODE_W, nodeH, selectNode, setSelectionSet } from '../main.js';
 import { endInlineEdit, endBodyEdit } from './inline-edit.js';
+import { sketchDown, sketchMove, sketchUp, sketchCancel } from './sketch.js';
 
 const marqueeEl = document.createElement('div');
 marqueeEl.id = 'marquee'; stage.appendChild(marqueeEl);
@@ -32,15 +33,28 @@ stage.addEventListener('pointerdown', (e) => {
 
   if (e.pointerType !== 'mouse'){                   // touch / pen
     gPointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
-    if (gPointers.size === 1){                      // one finger → marquee select (pan with two fingers)
+    if (gPointers.size === 1){                      // one finger → sketch (in sketch mode) / marquee select
+      if (ui.sketchOn && !state.readOnly){          // draw; two fingers still pinch-zoom (see below)
+        stage.setPointerCapture(e.pointerId);
+        sketchDown(e.clientX, e.clientY);
+        return;
+      }
       ui.marquee = { sx:e.clientX, sy:e.clientY, add:false, base:new Set(state.sel), moved:false };
       drawMarquee(e.clientX, e.clientY);
       marqueeEl.style.display = 'block';
       stage.setPointerCapture(e.pointerId);         // keep events on stage even when finger slides onto a node
     } else if (gPointers.size === 2){               // second finger → pinch-zoom + two-finger pan
+      if (ui.sketchDraw) sketchCancel();            // abandon the one-finger stroke; this is a pinch now
       ui.marquee = null; marqueeEl.style.display = 'none';
       startPinch();
     }
+    return;
+  }
+
+  // Sketch mode (mouse): a left-drag draws / erases instead of marquee-selecting.
+  if (ui.sketchOn && !state.readOnly && e.button === 0){
+    stage.setPointerCapture(e.pointerId);
+    sketchDown(e.clientX, e.clientY);
     return;
   }
 
@@ -56,6 +70,7 @@ stage.addEventListener('pointerdown', (e) => {
   marqueeEl.style.display = 'block';
 });
 window.addEventListener('pointermove', (e) => {
+  if (ui.sketchDraw){ if (gPointers.has(e.pointerId)) gPointers.set(e.pointerId, { x:e.clientX, y:e.clientY }); sketchMove(e.clientX, e.clientY); return; }
   if (gPointers.has(e.pointerId)){
     gPointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
     const pinch = ui.pinch;
@@ -101,6 +116,7 @@ function endGesturePointer(e: PointerEvent): boolean {
   return true;
 }
 window.addEventListener('pointerup', (e) => {
+  if (ui.sketchDraw){ gPointers.delete(e.pointerId); if (gPointers.size < 2) ui.pinch = null; sketchUp(); return; }
   if (endGesturePointer(e)) return;
   if (ui.pan){ ui.pan = null; stage.classList.remove('panning'); return; }
   if (ui.marquee){
@@ -109,7 +125,10 @@ window.addEventListener('pointerup', (e) => {
     ui.marquee = null;
   }
 });
-window.addEventListener('pointercancel', endGesturePointer);
+window.addEventListener('pointercancel', (e) => {
+  if (ui.sketchDraw){ gPointers.delete(e.pointerId); sketchCancel(); return; }
+  endGesturePointer(e);
+});
 function drawMarquee(cx: number, cy: number): void {
   const marquee = ui.marquee;
   if (!marquee) return;
