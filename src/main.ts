@@ -17,6 +17,9 @@ import { childrenOf, isHidden, descendantCount } from './utils/model.js';
 import { state, world, stage, setStatus } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { mountIcons } from './view/icons.js';
+import edgeStraightIcon from './assets/icons/edge-straight.svg?raw';
+import edgeOrthogonalIcon from './assets/icons/edge-orthogonal.svg?raw';
+import edgeBezierIcon from './assets/icons/edge-bezier.svg?raw';
 import { zoomAt, frameBox, screenToWorld } from './view/camera.js';
 import { applyLayouts } from './view/layout.js';
 import { paintEdges } from './view/edges.js';
@@ -275,15 +278,25 @@ function withLayoutAnimation(mutate: () => void): void {
 // ---------- edge style (straight / orthogonal / bezier), persisted ----------
 const EDGE_KEY = 'mindmap.edgeStyle';
 const EDGE_STYLES: EdgeStyle[] = ['orthogonal', 'bezier', 'straight'];
+const EDGE_ICONS: Record<EdgeStyle, string> = { straight: edgeStraightIcon, orthogonal: edgeOrthogonalIcon, bezier: edgeBezierIcon };
+// The toolbar button shows the ACTIVE style's icon (not a generic one); clicking cycles.
+function updateEdgeIcon(): void {
+  const span = document.querySelector('#edgeBtn .ic');
+  if (span) span.innerHTML = EDGE_ICONS[state.edgeStyle];
+  const btn = document.getElementById('edgeBtn');
+  if (btn) btn.title = `Edge style: ${state.edgeStyle} — click to cycle`;
+}
 function initEdgeStyle(): void {
   let saved: string | null = null;
   try { saved = localStorage.getItem(EDGE_KEY); } catch {}
   if (saved && (EDGE_STYLES as string[]).includes(saved)) state.edgeStyle = saved as EdgeStyle;
+  updateEdgeIcon();
 }
 function cycleEdgeStyle(): void {
   const i = EDGE_STYLES.indexOf(state.edgeStyle);
   state.edgeStyle = EDGE_STYLES[(i + 1) % EDGE_STYLES.length];
   try { localStorage.setItem(EDGE_KEY, state.edgeStyle); } catch {}
+  updateEdgeIcon();
   paintEdges();
   setStatus(`Edge style: ${state.edgeStyle}`);
 }

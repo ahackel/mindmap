@@ -10,7 +10,7 @@ let themeBtn: HTMLElement | null = null;   // cached at setupTheme; applyTheme o
 function applyTheme(theme: string): void {
   const light = theme === 'light';
   document.body.classList.toggle('light', light);
-  if (themeBtn) themeBtn.innerHTML = light ? moonIcon : sunIcon;   // icon = the mode you'd switch TO
+  if (themeBtn) themeBtn.innerHTML = light ? sunIcon : moonIcon;   // icon = the ACTIVE theme
 }
 function initTheme(): void {
   let saved: string | null = null;
