@@ -73,6 +73,9 @@ html, body { margin:0; height:100%; overflow:hidden;
   touch-action:manipulation; } /* disables double-tap zoom page-wide on iOS (user-scalable=no is ignored since iOS 10) */
 /* re-enable selection inside form controls and editable elements */
 input, textarea, [contenteditable] { user-select:text; -webkit-user-select:text; outline:none; }
+/* floating panels: pan-y (not none) lets their own/descendant vertical scroll keep working,
+   while still blocking the browser from pinch-zooming the page when two fingers land on them */
+#toolbar, #searchResults, #editor, #startScreen { touch-action:pan-y; }
 
 /* floating "island" toolbar — no border, rounded, soft shadow (Excalidraw-style) */
 #toolbar {
