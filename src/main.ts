@@ -17,15 +17,20 @@ import { childrenOf, isHidden, descendantCount } from './utils/model.js';
 import { state, world, stage, setStatus } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { mountIcons } from './view/icons.js';
+import edgeStraightIcon from './assets/icons/edge-straight.svg?raw';
+import edgeOrthogonalIcon from './assets/icons/edge-orthogonal.svg?raw';
+import edgeBezierIcon from './assets/icons/edge-bezier.svg?raw';
 import { zoomAt, frameBox, screenToWorld } from './view/camera.js';
 import { applyLayouts } from './view/layout.js';
 import { paintEdges } from './view/edges.js';
 import './features/gestures.js';   // registers the canvas pan/zoom/marquee gesture listeners
 import './features/attachments.js';   // registers the OS image drag/drop listeners
+import './features/context-menu.js';   // registers the custom right-click menu on the canvas
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInput, onInlineKeydown } from './features/inline-edit.js';
 import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
 import { searchBox } from './features/search.js';
+import { toggleSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
 import { touch, commitStep, record, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
@@ -168,7 +173,8 @@ export function paintNode(n: MindNode): void {
     + (showDone ? ' show-done' : '')
     + (showDone && n.done ? ' done' : '')
     + (ui.drag?.targets?.has(n.id) ? ' dragging' : '')   // float the dragged subtree above all cards
-    + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '');
+    + (state.searchMatch && !state.searchMatch.has(n.id) ? ' search-dim' : '')
+    + (state.searchActiveId === n.id ? ' search-active' : '');   // active dropdown option → white outline
   (el.querySelector('.donebox') as HTMLInputElement).checked = n.done;
   // this card's own checklist (over ITS children) → an "n/m done" progress readout by the title
   el.querySelector('.progress')!.textContent =
@@ -206,6 +212,13 @@ export function layoutH(n: MindNode): number {
 export function paintAll(): void {
   for (const n of state.nodes.values()) paintNode(n);
   paintEdges();
+  updateEmptyHints();
+}
+
+// First-run hints ("Drag to create a card" / "Click for help") show only on an empty canvas.
+// The help hint tracks the (centred, variable-x) help button; the ghost hint is CSS-anchored.
+export function updateEmptyHints(): void {
+  document.body.classList.toggle('empty-canvas', state.nodes.size === 0);
 }
 
 // ---------- animated relayout (expand / collapse) ----------
@@ -237,13 +250,24 @@ function followEdges(tok: number, ms: number): void {
   };
   requestAnimationFrame(tick);
 }
-// Run a structural change (a collapse toggle) and CSS-animate the resulting reflow.
-function withLayoutAnimation(mutate: () => void): void {
+// Snapshot the on-screen position of every visible card — the START frame animateReflow
+// glides away from. Take it BEFORE the structural change.
+function layoutSnapshot(): Map<string, Pt> {
   const before = new Map<string, Pt>();
   for (const m of state.nodes.values()) if (m.el && !isHidden(m)) before.set(m.id, { x:m.x, y:m.y });
+  return before;
+}
+// Run a structural change (a collapse toggle) and CSS-animate the resulting reflow.
+function withLayoutAnimation(mutate: () => void): void {
+  const before = layoutSnapshot();
   mutate();
   paintAll();          // reveal/hide DOM and measure real heights
   applyLayouts();      // compute FINAL positions into n.x/n.y (DOM not updated yet)
+  animateReflow(before);
+}
+// CSS-animate every visible card from its snapshotted `before` spot to its current (final)
+// n.x/n.y. Just-revealed cards (absent from `before`) fade in from their nearest ancestor.
+function animateReflow(before: Map<string, Pt>): void {
   const visible = [...state.nodes.values()].filter(m => m.el && !isHidden(m));
   const tok = ++ui.animToken;                           // supersede any in-flight animation
   if (prefersReducedMotion()){ for (const m of visible){ m.el!.classList.remove('lt-anim'); placeNodeEl(m); } paintEdges(); return; }
@@ -267,15 +291,25 @@ function withLayoutAnimation(mutate: () => void): void {
 // ---------- edge style (straight / orthogonal / bezier), persisted ----------
 const EDGE_KEY = 'mindmap.edgeStyle';
 const EDGE_STYLES: EdgeStyle[] = ['orthogonal', 'bezier', 'straight'];
+const EDGE_ICONS: Record<EdgeStyle, string> = { straight: edgeStraightIcon, orthogonal: edgeOrthogonalIcon, bezier: edgeBezierIcon };
+// The toolbar button shows the ACTIVE style's icon (not a generic one); clicking cycles.
+function updateEdgeIcon(): void {
+  const span = document.querySelector('#edgeBtn .ic');
+  if (span) span.innerHTML = EDGE_ICONS[state.edgeStyle];
+  const btn = document.getElementById('edgeBtn');
+  if (btn) btn.title = `Edge style: ${state.edgeStyle} — click to cycle`;
+}
 function initEdgeStyle(): void {
   let saved: string | null = null;
   try { saved = localStorage.getItem(EDGE_KEY); } catch {}
   if (saved && (EDGE_STYLES as string[]).includes(saved)) state.edgeStyle = saved as EdgeStyle;
+  updateEdgeIcon();
 }
 function cycleEdgeStyle(): void {
   const i = EDGE_STYLES.indexOf(state.edgeStyle);
   state.edgeStyle = EDGE_STYLES[(i + 1) % EDGE_STYLES.length];
   try { localStorage.setItem(EDGE_KEY, state.edgeStyle); } catch {}
+  updateEdgeIcon();
   paintEdges();
   setStatus(`Edge style: ${state.edgeStyle}`);
 }
@@ -338,20 +372,29 @@ export function subtreeIds(id: string): string[] {
 // ---------- pan / zoom / marquee-select gestures live in features/gestures.ts ----------
 
 
-// Focus a card: un-collapse hiding ancestors, select it, frame it + all its visible descendants.
-export function focusNode(target: MindNode | undefined): void {
+// Focus a card: un-collapse hiding ancestors (and, when openTarget, the card itself), select
+// it, frame it + all its visible descendants. Ancestors are expanded shallowest-first with a
+// layout pass after EACH level, so every newly revealed level lays out on the already-settled
+// positions above it — expanding a nested chain in one shot mis-spaces the shallow branches.
+export function focusNode(target: MindNode | undefined, openTarget = false): void {
   if (!target) return;
-  let revealed = false;
-  const chain: string[] = [];
+  const before = layoutSnapshot();             // pre-reveal frame to glide away from
+  const toReveal: MindNode[] = [];
   for (let p = target.parent ? state.nodes.get(target.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null)
-    chain.push(p.id);
-  record(chain, () => {
-    for (const id of chain){
-      const p = state.nodes.get(id)!;
-      if (p.collapsed){ p.collapsed = false; p.dirtyLayout = true; revealed = true; }
+    toReveal.push(p);
+  toReveal.reverse();                          // root → immediate parent (shallowest first)
+  if (openTarget) toReveal.push(target);       // open the card itself last (deepest level)
+  let revealed = false;
+  record(toReveal.map(n => n.id), () => {
+    for (const n of toReveal){
+      if (!n.collapsed) continue;
+      n.collapsed = false; n.dirtyLayout = true; revealed = true;
+      paintAll(); applyLayouts();              // settle this level before revealing the next
     }
   });
-  selectNode(target.id);                       // paint first so heights are known / editor opens
+  selectNode(target.id);                       // select → the card shows its full body (grows)
+  applyLayouts(); paintAll();                  // reflow siblings around the now-taller selection
+  animateReflow(before);                       // one glide from the pre-reveal frame to the final
   frameBox(subtreeIds(target.id).map(id => state.nodes.get(id)));
   if (revealed && store.isOpen) scheduleSave();
 }
@@ -366,7 +409,7 @@ function focusByTitle(title: string): void {
 // frame the whole map when nothing is selected — both glide with the same easing.
 function focusOrFit(): void {
   if (state.selId && state.nodes.has(state.selId)) focusNode(state.nodes.get(state.selId));
-  else frameBox([...state.nodes.values()]);
+  else frameBox([...state.nodes.values()], true);   // frame the whole map — strokes included
 }
 
 // ---------- selection + editor ----------
@@ -599,6 +642,8 @@ async function setReadOnly(on: boolean): Promise<void> {
   if (on){
     await flushSave();                                   // persist anything pending before locking (clears the save timer)
     state.readOnly = true;
+    // sketching stays available in read-only, but any strokes made there are in-memory only:
+    // leaving read-only reloads sketch.json below, discarding them (like the collapse state).
     selectNode(null);                                    // close any open edit
   } else {
     state.readOnly = false;
@@ -637,10 +682,12 @@ edTags.addEventListener('blur', () => commitStep());
 // (so the folder isn't littered with M.md, Ma.md, Mag.md…) — it keys off `ui.inlineEdit` directly.
 
 // keyboard:
-//  · Space          → new node (only when nothing is selected)
+//  · Space          → new node at the pointer (only when nothing is selected)
 //  · Enter          → add a sibling of the selected node
 //  · Tab            → add a child of the selected node
 //  · F2             → rename the selected node in place (also: slow-click its title)
+//  · X              → collapse/eXpand the selected node(s) (also: double-click)
+//  · E              → edit the selected node's note/body in place (also: slow-click the body)
 //  · Delete/Backspace → delete the selected node (only when the edit panel is closed)
 // A focused title editor (the sidebar field OR an in-card inline rename) counts as "typing",
 // so these card shortcuts stay out of the way while you're naming something.
@@ -667,23 +714,38 @@ window.addEventListener('keydown', (e) => {
   }
   if (typing) return;
   if (e.key === 'r' || e.key === 'R'){ e.preventDefault(); setReadOnly(!state.readOnly); return; }
+  if ((e.key === 's' || e.key === 'S') && !e.metaKey && !e.ctrlKey){ e.preventDefault(); toggleSketchMode(); return; }   // Sketch mode
   if (e.key === '/'){ e.preventDefault(); searchBox.focus(); searchBox.select(); return; }   // find a card
   // Space = hand-tool to pan while held; a quick tap (released without panning) makes a node.
   if (e.key === ' '){ e.preventDefault(); if (!e.repeat){ ui.spaceHeld = true; ui.spaceUsedForPan = false; } return; }
   if (e.key === 'f' || e.key === 'F'){ e.preventDefault(); focusOrFit(); return; }
   if ((e.key === 'd' || e.key === 'D') && state.sel.size){ e.preventDefault(); duplicateSelection(); return; }
+  if ((e.key === 'x' || e.key === 'X') && state.sel.size && !e.metaKey && !e.ctrlKey){   // don't shadow cut
+    e.preventDefault(); toggleCollapseSelection(state.sel); return;
+  }
   if (e.key === 'F2' && state.selId){ e.preventDefault(); startInlineEdit(state.nodes.get(state.selId)); return; }   // selId guards non-null
+  if ((e.key === 'e' || e.key === 'E') && state.selId && !e.metaKey && !e.ctrlKey){
+    e.preventDefault(); const n = state.nodes.get(state.selId); if (n) startBodyEdit(n); return;
+  }
   if (e.key === 'Enter' && state.selId){ e.preventDefault(); createSibling(state.selId); return; }
   if (e.key === 'Tab' && state.selId){ e.preventDefault(); addChild(state.selId); return; }
   if ((e.key === 'Delete' || e.key === 'Backspace') && state.sel.size){
     e.preventDefault(); deleteSelection();
   }
 });
+// Track the mouse so keyboard/clipboard actions (Space-tap, paste) land AT the pointer.
+window.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'mouse') ui.lastMouse = { x: e.clientX, y: e.clientY };
+});
 window.addEventListener('keyup', (e) => {
   if (e.key !== ' ') return;
   const wasPan = ui.spaceUsedForPan;
   ui.spaceHeld = false; ui.spaceUsedForPan = false;
-  if (!isTypingInField() && !wasPan && !ui.pan && state.sel.size === 0) createNode();   // tap = new node
+  if (isTypingInField() || wasPan || ui.pan || state.sel.size !== 0) return;
+  if (ui.lastMouse){         // tap = new card under the cursor (centre when the mouse hasn't moved yet)
+    const p = screenToWorld(ui.lastMouse.x, ui.lastMouse.y);
+    createNode({ x: p.x - 100, y: p.y - 32 });
+  } else createNode();
 });
 
 // Ghost-card drag: grab the corner card to spawn a new note that rides the cursor through the same
@@ -743,6 +805,7 @@ window.addEventListener('keyup', (e) => {
 byId('fitBtn').onclick = focusOrFit;
 byId('edgeBtn').onclick = cycleEdgeStyle;
 byId('homeBtn').onclick = showStart;   // icon + folder name → home screen
+byId('helpBtn').onclick = openHelpTab;  // same as F1 — opens the help mindmap in a new tab
 
 // ---- edit-panel action buttons: on-screen equivalents of the keyboard shortcuts,
 // so every editing action is reachable on a touch device with no keyboard ----

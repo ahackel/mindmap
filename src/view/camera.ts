@@ -49,11 +49,31 @@ export function zoomAt(mx: number, my: number, factor: number): void {
   applyView();
 }
 
+// World-space bounding box of every sketch stroke (padded by half each stroke's width), or null
+// when the ink layer is empty. Folded into fit()/frameBox so framing never crops a drawing.
+export function strokesBounds(): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false;
+  for (const s of state.strokes) {
+    const hw = s.width / 2;
+    for (const [x, y] of s.pts) {
+      any = true;
+      minX = Math.min(minX, x - hw); minY = Math.min(minY, y - hw);
+      maxX = Math.max(maxX, x + hw); maxY = Math.max(maxY, y + hw);
+    }
+  }
+  return any ? { minX, minY, maxX, maxY } : null;
+}
+
 export function fit(): void {
   const ns = [...state.nodes.values()].filter(n => !isHidden(n));
-  if (!ns.length) return;
-  const minX = Math.min(...ns.map(n=>n.x)), minY = Math.min(...ns.map(n=>n.y));
-  const maxX = Math.max(...ns.map(n=>n.x+NODE_W)), maxY = Math.max(...ns.map(n=>n.y+nodeH(n)));
+  const sb = strokesBounds();
+  if (!ns.length && !sb) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of ns) {
+    minX = Math.min(minX, n.x);          minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + NODE_W); maxY = Math.max(maxY, n.y + nodeH(n));
+  }
+  if (sb) { minX = Math.min(minX, sb.minX); minY = Math.min(minY, sb.minY); maxX = Math.max(maxX, sb.maxX); maxY = Math.max(maxY, sb.maxY); }
   const r = stage.getBoundingClientRect();
   const k = Math.min(1.4, Math.min(r.width/(maxX-minX+120), r.height/(maxY-minY+120)));
   state.view.k = k;
@@ -65,14 +85,16 @@ export function fit(): void {
 // Zoom + glide so a set of nodes fits, honouring the space the editor sidebar takes from the
 // right. Zoom is clamped so we never blow things up huge. Shared by focus-selected and fit-all.
 const FOCUS_MIN_K = 0.2, FOCUS_MAX_K = 1.0, FOCUS_PAD = 80;
-export function frameBox(nodes: ReadonlyArray<MindNode | undefined>): void {
+export function frameBox(nodes: ReadonlyArray<MindNode | undefined>, includeStrokes = false): void {
   const group = nodes.filter((n): n is MindNode => !!n && !isHidden(n));
-  if (!group.length) return;
+  const sb = includeStrokes ? strokesBounds() : null;
+  if (!group.length && !sb) return;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const n of group){
     minX = Math.min(minX, n.x);            minY = Math.min(minY, n.y);
     maxX = Math.max(maxX, n.x + NODE_W);   maxY = Math.max(maxY, n.y + nodeH(n));
   }
+  if (sb) { minX = Math.min(minX, sb.minX); minY = Math.min(minY, sb.minY); maxX = Math.max(maxX, sb.maxX); maxY = Math.max(maxY, sb.maxY); }
   const bw = maxX - minX, bh = maxY - minY, cx = (minX+maxX)/2, cy = (minY+maxY)/2;
   // available canvas = stage minus the sidebar (when open). The sidebar sits on the RIGHT,
   // so the usable region spans x:[0, availW] and we centre the box within it.

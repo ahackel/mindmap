@@ -8,6 +8,8 @@
 import type { MindNode, LayoutType, LayoutSide } from './state.js';
 
 export type Pt = { x: number; y: number };
+// World-space line segment (axis-aligned for the insertion indicator).
+export type Seg = { x0: number; y0: number; x1: number; y1: number };
 
 // A live node drag (moves a whole subtree, or the multi-selection). `active` is the card being
 // dragged/dropped; `targets` follow the cursor (or, after a Shift-clone, just the clones).
@@ -19,10 +21,19 @@ export interface Drag {
   // whose own parent isn't ALSO selected — descendants ride along with their selected ancestor
   // rather than getting re-parented independently). Reparented as a group on drop.
   selRoots: string[];
-  moved: boolean; dropTarget: string | null; dropMode: 'child' | 'sibling';
+  // dropMode 'reorder' = no card hovered but the drag is sliding along its OWN parent's
+  // line/fan sibling band — dropTarget is the parent itself, the drop just re-slots the order.
+  moved: boolean; dropTarget: string | null; dropMode: 'child' | 'sibling' | 'reorder';
   // Side the drop resolved to (edge zone -> that edge; centre zone -> the sibling target's own
   // side), set explicitly on every reparented root on commit — see features/drag.ts.
   dropSide: LayoutSide | null;
+  // Insertion anchor for sibling/reorder drops: slot in right after this sibling in the parent's
+  // order (`null` = at the front, `undefined` = default — after the hovered card / appended).
+  dropAfter: string | null | undefined;
+  // World-space gap segment of the insertion-line preview, when one is showing (managed governor
+  // with children on the resolved side). The line REPLACES the landing ghost and the dashed
+  // would-be-edge preview — they never show together (see features/drag.ts, view/edges.ts).
+  dropLine: Seg | null;
   alt: boolean; shift: boolean; cloned: boolean; rip: boolean;
   downTarget: EventTarget | null; meta: boolean; touch: boolean;
   clones?: MindNode[] | null;
@@ -57,8 +68,18 @@ export const ui = {
   // (read as `!!ui.inlineEdit` / `!!ui.bodyEdit` in persistence.ts).
   inlineEdit: null as InlineEdit | null,
   bodyEdit: null as BodyEdit | null,
+  // ---- sketch / freehand drawing (features/sketch.ts) ----
+  sketchOn: false,                                // sketch mode active: canvas pointers draw, not select
+  // A stroke (pen) or erase gesture in progress; gestures.ts checks its truthiness to route
+  // single-pointer input to sketch.ts and to skip the disk-reload while mid-draw. The active
+  // stroke/path themselves live in features/sketch.ts module scope.
+  sketchDraw: null as { tool: 'pen' | 'eraser' } | null,
   // ---- animated relayout (main) ----
   animToken: 0,
+  // ---- last known mouse position (window pointermove, main) ----
+  // Lets keyboard/clipboard actions (Space-tap new card, paste) land AT the cursor; null until
+  // the mouse first moves (touch never sets it) → callers fall back to the viewport centre.
+  lastMouse: null as Pt | null,
 };
 
 // pointerId -> position, for the multi-touch gesture layer (a const Map, mutated in place).

@@ -1,78 +1,75 @@
 # Markdown Mindmap
 
 A single-file, zero-build mindmap editor for a **local folder of Markdown notes**.
-Open a folder, and every `.md` file becomes a card on an infinite canvas; edits are
-saved straight back to disk as plain Markdown.
+Every `.md` file becomes a card on an infinite canvas; edits are saved straight back to
+disk as plain Markdown.
 
-**[▶ Open the app](https://andreashackel.de/mindmap/)**
+**[▶ Open the app](https://andreashackel.de/mindmap/)** — usage is documented in the
+built-in help mindmap (press **F1**).
 
 ## How it works
 
 The deployed app is a single static `index.html` — no server, no backend, no runtime
 dependencies. (Source lives in `src/` and is bundled back into that one file at build
-time; see *Hosting* below.) It's **local-first**: your map is saved in a private
-on-device store (the browser's
+time; see *Hosting* below.) It's **local-first**: the map is saved in a private on-device
+store (the browser's
 [Origin Private File System](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system))
 and reopens automatically every visit — no sign-in, no setup, works on every browser
-including iPad. Your notes never leave your machine.
+including iPad. Notes never leave the machine.
 
-To keep notes as real `.md` files in a folder you choose, Chrome and Edge can also
-**open a local folder** directly (via the File System Access API) and autosave to it.
-Either way, move a map between devices with **Import / Export** as a `.zip`.
+Cards are linked parent → child; the tree and all edges are **derived** from each note's
+`mm_parent` frontmatter — there is no stored edge list and no database. Layout, colours,
+and positions live in the same frontmatter (`mm_x`, `mm_y`, `mm_collapsed`, `mm_layout`, …),
+so a map travels with its files. Serialization only rewrites the app-owned keys and
+preserves every other frontmatter field and the note body verbatim. One `.md` file per
+node; the filename is the node's identity. The freehand sketch layer is the one exception —
+it's stored as a single `sketch.json` data file beside the notes, as world-space polylines.
 
-## Quick start
+## Storage
 
-1. Open the [app](https://andreashackel.de/mindmap/) — it opens straight onto the canvas
-   with your last map (empty on the first visit).
-2. Press **Space** (or the **＋** toolbar button) to add a node; double-click the title to
-   rename. Pan with one finger / two-finger scroll (or **Space** + drag), zoom with pinch /
-   ctrl-scroll, press **F** to fit.
-3. Click the **🧠 Home** button anytime to manage storage — open a local folder, or
-   import / export a `.zip`.
+All file I/O goes through a single swappable `store` adapter (`src/store/`). Two
+implementations share one interface:
 
-Cards are linked parent → child; layout, colours, and positions are stored in each
-note's frontmatter (`mm_x`, `mm_y`, …), so the map travels with the files.
+- **`opfsStore`** — the local-first on-device default (Origin Private File System). Works on
+  every browser incl. iPad; per-device, no built-in cross-device sync.
+- **`fsaStore`** — a real local folder on Chrome/Edge (File System Access API), autosaved
+  directly. Point it at a cloud-synced folder (iCloud Drive, Dropbox, …) and the map lives
+  in that cloud with no app-side server config.
 
-## Storage & moving between devices
-
-All storage is managed from the **home screen** (the 🧠 button):
-
-- **On-device (default):** auto-saves locally and reopens on its own. Per-device — it does
-  not sync between machines by itself.
-- **Open a local folder** *(Chrome/Edge)*: work directly on a real folder of `.md` files.
-  Point it at a folder your cloud client (iCloud Drive, Synology Drive, Dropbox, …) keeps
-  synced, and your map effectively lives in that cloud — no server config in the app.
-- **Import / Export `.zip`:** export the whole map as a `.zip`, then import it on another
-  device (iPad included — *Save to Files* / pick from Files). Zips made by the app or by
-  zipping a folder of `.md` both work.
-
-Add `?nofsa` to the URL to preview the no-local-folder (iPad-style) layout on desktop.
+`.zip` **import / export** moves a map in and out (the inline ZIP reader/writer is
+zero-dependency). Add `?nofsa` to the URL to preview the no-local-folder (iPad-style)
+layout on desktop.
 
 ## Features
 
-- Cards rendered from Markdown — headings, links, task lists
-- Direction-aware two-sided layout with auto-fan
+- Cards rendered from a hand-rolled Markdown subset — headings, links, emphasis, task lists
+- Direction-aware two-sided radial layout with auto-fan
 - Per-branch colours with inheritance
 - Collapse / focus / find, read-only mode
 - Inline rename, reparent, duplicate, extract-to-child
+- Freehand sketch layer (world-space ink that pans/zooms with the map)
+- Undo / redo, image paste & drop
 - Autosave back to the source files
-- Built-in help mindmap — press **F1**
+- Built-in help mindmap (**F1**)
 
 ## Architecture
 
-All file I/O lives behind a single swappable `store` adapter (search `let store`
-in `index.html`). There are two implementations with an identical interface —
-`opfsStore` (the local-first on-device default, Origin Private File System) and `fsaStore`
-(a real local folder on Chrome/Edge, File System Access API). The home screen picks between
-them; `.zip` import/export moves a map in and out. Replacing only that object would retarget
-the app to an Obsidian vault or a Tauri/native build.
+`src/` is split into domain folders, all fully strict-typed TypeScript: `core/` (shared
+mutable `state` + interaction `ui`), `utils/` (pure helpers — Markdown, frontmatter, model
+queries), `store/` (the swappable I/O boundary), `data/persistence.ts` (autosave / load /
+zip orchestration), `view/` (camera, layout, edges, theme, icons), `features/` (the
+interactive subsystems — drag, gestures, inline-edit, crud, attachments, search, sketch,
+history), and `main.ts` (the render + selection core). Replacing only the `store` object
+would retarget the app to an Obsidian vault or a Tauri/native build.
 
 ## Hosting
 
-A GitHub Action (`.github/workflows/deploy.yml`) bundles the source with Vite into a
-single self-contained `dist/index.html` and deploys it to GitHub Pages on every push to
-`main`. Pages "Source" is set to *GitHub Actions* in the repo settings.
+A GitHub Action (`.github/workflows/deploy.yml`) bundles the source with Vite
+(`vite-plugin-singlefile`) into a self-contained `dist/index.html` and deploys it to GitHub
+Pages on every push to `main`. Pages "Source" is set to *GitHub Actions* in the repo
+settings.
 
 To run locally: `npm install`, then `npm run dev` (Vite dev server on `localhost:5173`).
 The on-device store needs a secure context, so use the dev server rather than opening the
-file directly. `npm run build` produces the deployable single-file `dist/`.
+file directly. `npm run build` produces the deployable single-file `dist/`; `npm run
+typecheck` runs `tsc --noEmit`.

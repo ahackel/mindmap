@@ -96,6 +96,11 @@ function edgePath(parent: MindNode, child: MindNode): string {
 function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: number }; side: LayoutSide } | null {
   const drag = ui.drag;
   if (!drag || !drag.dropTarget || !drag.dropSide) return null;
+  // Whenever the insertion bar is the preview (in-parent reorder — which always resolves a gap
+  // segment — or a reparent joining a managed branch's existing children), the dragged card is
+  // hidden and the bar alone marks the slot — a dashed edge into empty space would dangle, so
+  // it stands down too.
+  if (drag.dropLine) return null;
   const tgtNode = state.nodes.get(drag.dropTarget);
   if (!tgtNode) return null;
   const parent = drag.dropMode === 'sibling'
@@ -103,7 +108,7 @@ function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: 
     : tgtNode;
   if (!parent) return null;
   const h = nodeH(drag.active);
-  const land = dropLanding(drag.active, tgtNode, drag.dropMode, drag.dropSide);
+  const land = dropLanding(drag.active, tgtNode, drag.dropMode, drag.dropSide, drag.dropAfter);
   return { parent, box: { x: land.x, y: land.y, h }, side: drag.dropSide };
 }
 const BG_PAD = 20;      // margin around the enclosed cards — hugs the bounds, kept a multiple of 20

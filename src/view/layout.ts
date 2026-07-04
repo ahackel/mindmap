@@ -8,6 +8,7 @@
 // side effect of laying it out. layoutH/NODE_W/subtreeIds come from main (render + tree
 // helpers) — a runtime-only cycle.
 import { state, type MindNode, type LayoutSide } from '../core/state.js';
+import type { Seg } from '../core/ui-state.js';
 import { childrenOf, isHidden, isRoot } from '../utils/model.js';
 import { subtreeIds, layoutH, nodeH, NODE_W } from '../main.js';
 
@@ -33,10 +34,13 @@ const LANDING_GAP = 40;   // gap below/beside the hovered card a drag-reparented
 // every position/order/parent/side change — a dry run, no visible side effect. A free/unset
 // governing layout never reflows on drop, so the cheap geometric estimate is exact there and a
 // simulation would be wasted work (though `side` is still what the caller stores on commit).
-export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' | 'sibling', side: LayoutSide): { x: number; y: number } {
-  const governor = mode === 'child' ? target : (target.parent ? state.nodes.get(target.parent) : null) ?? target;
-  const eff = effectiveLayout(governor);
-  if (eff.type !== 'line' && eff.type !== 'fan') {
+// REORDER mode (in-parent, no hovered card): `target` IS dragged's current parent — always a
+// line/fan governor (the caller checks), so it always takes the simulation path below.
+// `afterId` is the explicit insertion anchor when the caller resolved one (`null` = front of
+// the order, `undefined` = default: after `target` in sibling mode, append in child mode).
+export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' | 'sibling' | 'reorder', side: LayoutSide, afterId?: string | null): { x: number; y: number } {
+  const governor = mode === 'child' || mode === 'reorder' ? target : (target.parent ? state.nodes.get(target.parent) : null) ?? target;
+  if (!isManagedLayout(governor)) {
     // Nudge the cross-axis in child mode (a fresh attachment, offset from target) but keep it
     // aligned with target in sibling mode (it's slotting into target's own spot). `side` is the
     // side of TARGET the card is docking against — same geometry regardless of which side that is.
@@ -48,16 +52,18 @@ export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' |
       default:      return { x: target.x + nudge, y: target.y + nodeH(target) + LANDING_GAP };
     }
   }
-  return simulateLanding(dragged, governor, side, mode === 'sibling' ? target.id : undefined);
+  return simulateLanding(dragged, governor, side, afterId !== undefined ? afterId : (mode === 'sibling' ? target.id : undefined));
 }
 
 // The order `governor`'s children would have if `draggedId` were inserted right after `afterId`
-// (or appended at the end if `afterId` is omitted/not a current child) — everyone else keeps
-// their existing relative order. Shared by the ghost-preview dry run and the real reparent commit
-// so both agree on where a sibling-mode drop slots in.
-export function insertedKidOrder(governor: MindNode, draggedId: string, afterId?: string): string[] {
+// (`null` = at the FRONT of the order; omitted/not a current child = appended at the end) —
+// everyone else keeps their existing relative order. Shared by the ghost-preview dry run and the
+// real reparent commit so both agree on where a sibling/reorder drop slots in. (Front-of-order is
+// also front of dragged's own side bucket, since bucketing preserves the global relative order.)
+export function insertedKidOrder(governor: MindNode, draggedId: string, afterId?: string | null): string[] {
   const kids = childrenOf(governor.id).filter(k => !isHidden(k) && k.id !== draggedId);
   const order = orderedKids(governor, kids).map(k => k.id);
+  if (afterId === null) { order.unshift(draggedId); return order; }
   const idx = afterId ? order.indexOf(afterId) : -1;
   if (idx >= 0) order.splice(idx + 1, 0, draggedId);
   else order.push(draggedId);
@@ -68,7 +74,7 @@ export function insertedKidOrder(governor: MindNode, draggedId: string, afterId?
 // `side` set (so bucketing sees the drop's resolved side, not whatever `dragged` had before): re-
 // parent, run the real layoutSubtree(), capture dragged's resulting position, then put every
 // touched node/field back exactly as found.
-function simulateLanding(dragged: MindNode, governor: MindNode, side: LayoutSide, afterId?: string): { x: number; y: number } {
+function simulateLanding(dragged: MindNode, governor: MindNode, side: LayoutSide, afterId?: string | null): { x: number; y: number } {
   const prevParent = dragged.parent;
   const prevSide = dragged.side;
   const prevKidOrder = governor.kidOrder ? [...governor.kidOrder] : undefined;
@@ -172,6 +178,13 @@ export function effectiveLayout(node: MindNode): { type: string } {
   }
   return { type: 'free' };   // unset root → free
 }
+// Whether a node's effective layout actively MANAGES its children (line/fan) — vs free, where
+// children stay where dragged and sibling order/insertion anchors don't apply. The single
+// spelling of "is this a managed governor?" shared by layout, drag previews, and reparenting.
+export function isManagedLayout(node: MindNode): boolean {
+  const t = effectiveLayout(node).type;
+  return t === 'line' || t === 'fan';
+}
 // Which of the parent's 4 sides a child sits on, computed FRESH from its current position —
 // dominant axis of the offset between the two centers, SCALED by the parent's own aspect ratio
 // (a card is wide and short) rather than compared as raw pixels: a `fan` spreads same-side
@@ -199,12 +212,19 @@ const SIDE_RANK: Record<LayoutSide, number> = { right: 0, down: 1, left: 2, up: 
 // Sibling order: group by each child's own derived side, then by the coordinate that side's
 // layout treats as "along" (fan → cross axis, line → the growth axis). Ties break by filename
 // so the seeded order is deterministic across reloads (folder iteration order is not stable).
+// Whether ordering along `side` under this layout reads the X coordinate (else Y): a fan orders
+// along the CROSS axis of the side, a line along the growth axis. Shared by the position sort
+// below and the live reorder-anchor computation (reorderTarget).
+function orderAxisIsX(node: MindNode, side: LayoutSide): boolean {
+  const horiz = side === 'left' || side === 'right';
+  return effectiveLayout(node).type === 'fan' ? !horiz : horiz;
+}
 function kidsByPosition(node: MindNode, kids: MindNode[]): string[] {
-  const eff = effectiveLayout(node);
+  // Sort by the SUBTREE box's midpoint, not the card's own corner — a sibling with a big
+  // subtree visually occupies its whole box, so that's the order the user perceives.
   const coord = (k: MindNode): number => {
-    const side = sideOf(node, k), horiz = side === 'left' || side === 'right';
-    const useX = eff.type === 'fan' ? !horiz : horiz;
-    return useX ? k.x : k.y;
+    const b = subtreeBox(k);
+    return orderAxisIsX(node, sideOf(node, k)) ? (b.x0 + b.x1) / 2 : (b.y0 + b.y1) / 2;
   };
   const tie = (n: MindNode) => n.file || n.title || n.id;
   return kids.slice()
@@ -224,6 +244,67 @@ function orderedKids(node: MindNode, kids: MindNode[]): MindNode[] {
   const rank = new Map(order.map((id,i)=>[id,i]));
   return kids.slice().sort((a,b)=>rank.get(a.id)! - rank.get(b.id)!);
 }
+// Turn a live drag position into an insertion anchor among `parent`'s children: which side the
+// dragged card is on right now (or `forcedSide`, e.g. the hovered sibling's stored side for a
+// centre-zone drop) and which same-side sibling it should slot in AFTER (`null` = before them
+// all). Compares the dragged CARD's midpoint against each sibling's SUBTREE-box midpoint along
+// the side's ordering axis, so "between two siblings" means between their visible boxes — the
+// order the user perceives — not between the cards' top-left corners. Stored bucket order equals
+// visual order along the increasing coordinate on all four sides for both fan and line (lineSide
+// reverses left/up iteration precisely to guarantee that), so no mapping is needed. The single
+// source of the anchor for both the insertion-line preview and the drop commit.
+//
+// `line` is the world-space segment for the insertion indicator: it sits in the CURRENT gap
+// between the two adjacent siblings' subtree boxes (perpendicular to the ordering axis, spanning
+// the neighbours' cards) — i.e. relative to where the siblings are NOW, not where the post-drop
+// layout would put things. `null` when there's no same-side sibling to slot against.
+//
+// `near` is the engage gate: whether the dragged card is close enough to the sibling band that a
+// release should mean "re-slot" rather than rip/free-move. Between two neighbours the along-axis
+// position is correct by construction (that's how afterId was picked), so only the CROSS-axis
+// distance to the gap matters; past the first/last sibling the along-axis distance is bounded
+// too, so pulling away off the end of the row/column still rips as before.
+export function reorderTarget(parent: MindNode, dragged: MindNode, forcedSide?: LayoutSide): { side: LayoutSide; afterId: string | null; line: Seg | null; near: boolean } {
+  const side = forcedSide ?? deriveSide(parent, dragged);
+  const kids = childrenOf(parent.id).filter(k => !isHidden(k) && k.id !== dragged.id);
+  const sibs = orderedKids(parent, kids).filter(k => sideOf(parent, k) === side);
+  const useX = orderAxisIsX(parent, side);
+  const mid = useX ? dragged.x + NODE_W / 2 : dragged.y + nodeH(dragged) / 2;
+  let afterId: string | null = null;
+  let idx = -1;   // index of the `afterId` sibling in sibs
+  for (const s of sibs) {
+    const b = subtreeBox(s);
+    if ((useX ? (b.x0 + b.x1) / 2 : (b.y0 + b.y1) / 2) <= mid) { afterId = s.id; idx++; }
+    else break;
+  }
+  // The gap the card would slot into: between `prev` (the afterId sibling) and `next` — either
+  // may be missing at the ends of the row/column, where the line sits just beyond the last box.
+  const prev = idx >= 0 ? sibs[idx] : null, next = sibs[idx + 1] ?? null;
+  let line: Seg | null = null;
+  let near = false;
+  if (prev || next) {
+    const pb = prev ? subtreeBox(prev) : null, nb = next ? subtreeBox(next) : null;
+    const END = LAYOUT_CHAIN;   // half-gap-ish offset past the first/last sibling's box
+    if (useX) {
+      const x = pb && nb ? (pb.x1 + nb.x0) / 2 : pb ? pb.x1 + END : nb!.x0 - END;
+      const y0 = Math.min(prev?.y ?? Infinity, next?.y ?? Infinity);
+      const y1 = Math.max(prev ? prev.y + nodeH(prev) : -Infinity, next ? next.y + nodeH(next) : -Infinity);
+      line = { x0: x, y0, x1: x, y1 };
+      const crossMid = dragged.y + nodeH(dragged) / 2;
+      near = crossMid > y0 - (nodeH(dragged) + LANDING_GAP) && crossMid < y1 + (nodeH(dragged) + LANDING_GAP)
+          && (!!(prev && next) || Math.abs(mid - x) < NODE_W);
+    } else {
+      const y = pb && nb ? (pb.y1 + nb.y0) / 2 : pb ? pb.y1 + END : nb!.y0 - END;
+      const x0 = Math.min(prev?.x ?? Infinity, next?.x ?? Infinity);
+      const x1 = Math.max(prev ? prev.x + NODE_W : -Infinity, next ? next.x + NODE_W : -Infinity);
+      line = { x0, y0: y, x1, y1: y };
+      const crossMid = dragged.x + NODE_W / 2;
+      near = crossMid > x0 - NODE_W && crossMid < x1 + NODE_W
+          && (!!(prev && next) || Math.abs(mid - y) < nodeH(dragged) + LANDING_GAP);
+    }
+  }
+  return { side, afterId, line, near };
+}
 // After a drag the dropped positions are authoritative (heights didn't change), so refresh the
 // sibling order of every parent that had a child moved — this is the ONLY place order changes.
 export function reorderDraggedParents(movedIds: Iterable<string>): void {
@@ -231,8 +312,7 @@ export function reorderDraggedParents(movedIds: Iterable<string>): void {
   for (const id of movedIds){ const n = state.nodes.get(id); if (n && n.parent) parents.add(n.parent); }
   for (const pid of parents){
     const p = state.nodes.get(pid); if (!p) continue;
-    const t = effectiveLayout(p).type;
-    if (t === 'line' || t === 'fan')
+    if (isManagedLayout(p))
       p.kidOrder = kidsByPosition(p, childrenOf(p.id).filter(k => !isHidden(k)));
   }
 }

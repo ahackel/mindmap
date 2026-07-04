@@ -52,6 +52,16 @@ export interface MindNode {
 
 export interface View { x: number; y: number; k: number; }
 
+// A freehand sketch stroke drawn on the canvas. Stored (as pure data, not a node) in the
+// vault's sketch.json — see data/persistence.ts. `pts` are WORLD coordinates, so ink pans /
+// zooms with the map for free. Edges/nodes are unaffected; this is a separate ink layer.
+export interface Stroke {
+  id: string;
+  color: string;                   // CSS colour (hex)
+  width: number;                   // stroke width in world units
+  pts: [number, number][];         // world-space polyline
+}
+
 export interface AppState {
   dir: unknown;
   nodes: Map<string, MindNode>;    // id -> node
@@ -59,7 +69,9 @@ export interface AppState {
   selId: string | null;            // primary selection — drives the single-node editor fields
   sel: Set<string>;                // full selection set (⌘-click / marquee)
   edgeStyle: EdgeStyle;            // restored from localStorage
-  searchMatch: Set<string> | null; // ids matching the find query, or null when not searching
+  strokes: Stroke[];               // freehand sketch layer (loaded from / saved to sketch.json)
+  searchMatch: Set<string> | null; // ids to highlight for the find query (matches' visible reps), or null when not searching
+  searchActiveId: string | null;   // visible rep of the active dropdown option → gets a white outline
   readOnly: boolean;               // read-only mode: no saves, no edits; collapse/expand only
   idSeq: number;
   toDelete: string[];
@@ -74,7 +86,9 @@ export const state: AppState = {
   selId: null,
   sel: new Set<string>(),
   edgeStyle: 'orthogonal',
+  strokes: [],
   searchMatch: null,
+  searchActiveId: null,
   readOnly: false,
   idSeq: 1,
   toDelete: [],
@@ -84,6 +98,8 @@ export const state: AppState = {
 export const world = document.getElementById('world') as HTMLElement;
 export const stage = document.getElementById('stage') as HTMLElement;
 export const backgroundsSvg = document.getElementById('backgrounds') as unknown as SVGSVGElement;
+// Freehand sketch layer — sits behind the cards (see index.html / styles.css z-index).
+export const sketchSvg = document.getElementById('sketch') as unknown as SVGSVGElement;
 export const edgesSvg = document.getElementById('edges') as unknown as SVGSVGElement;
 export const togglesSvg = document.getElementById('toggles') as unknown as SVGSVGElement;
 // Top overlay for drag-time edges (dragged card's connectors + reparent preview) — see view/edges.ts.

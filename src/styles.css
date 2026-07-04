@@ -99,27 +99,55 @@ button:disabled { opacity:.45; cursor:default; }
   display:inline-flex; align-items:center; justify-content:center;
   width:28px; height:28px; padding:0; border-radius:7px;
   background:transparent; border:none; color:var(--muted);
+  flex:none;   /* icons never squash — a narrow window shrinks the search box / folder name instead */
 }
 #toolbar button:hover { background:var(--node); color:var(--text); }
 #toolbar button.primary { color:var(--accent); }
 #toolbar button.active { color:var(--accent); }
 #toolbar button#roBtn.locked { color:#e0564f; }   /* red while read-only is locked */
 #toolbar button#roBtn.locked:hover { color:#e0564f; background:var(--node); }
-#toolbar button svg { width:15px; height:15px; display:block; }
+/* .ic is display:contents, so the svg itself is the flex item — flex:none keeps icons from
+   squashing when a shrinking neighbour (folder name / search box) fights for space */
+#toolbar button svg { width:15px; height:15px; display:block; flex:none; }
 #status { display:none; }   /* transient log messages are not shown in the toolbar */
-/* home button = folder icon + loaded-folder name as one clickable element */
-#toolbar button#homeBtn { width:auto; gap:5px; padding:0 7px; }
-#homeBtn #folderName { font-size:12px; font-weight:600; color:var(--text);
-  max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-#homeBtn #folderName:empty { display:none; }   /* icon-only until a folder is loaded */
-#toolbar button#homeBtn:hover #folderName { color:var(--text); }
+/* floating toolbar-less buttons pinned to the canvas corners (sketch / home / help) */
+.floating-btn {
+  position:fixed; z-index:20;
+  width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center;
+  padding:0; border:none; border-radius:10px; background:var(--panel); color:var(--muted); cursor:pointer;
+}
+.floating-btn:hover { color:var(--text); }
+.floating-btn svg { width:16px; height:16px; display:block; }
+/* sketch toggle — top-right corner */
+#sketchBtn { top:10px; right:12px; }
+/* reads as "on" with a solid accent fill, like the .primary buttons */
+#sketchBtn.active, #sketchBtn.active:hover { background:var(--accent); color:#fff; }
+body.sketching #stage { cursor:crosshair; }
+body.sketching #ghostCard { display:none; }    /* the drag-to-create card would fight the pen */
+body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag / edit while sketching */
+/* home / storage — floating bar in the top-left; the loaded-folder name sits BESIDE the button */
+#homeBar { position:fixed; top:10px; left:12px; z-index:20; display:flex; align-items:center; gap:8px; max-width:calc(100% - 24px); }
+#homeBar #homeBtn { position:static; flex:none; }   /* .floating-btn styles the box; the bar owns positioning */
+#folderName { font-size:13px; font-weight:600; color:var(--text);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#folderName:empty { display:none; }   /* icon-only until a folder is loaded */
+@media (max-width:480px){ #folderName { display:none; } }   /* icon-only on narrow screens */
 /* find / jump-to-card */
-#searchWrap { position:relative; display:flex; align-items:center; }
+/* the search field yields first when the toolbar runs out of room (down to min-width),
+   so it can never stick out of the bar; focus widens the wrap, not the input */
+#searchWrap { position:relative; display:flex; align-items:center; flex:0 1 auto; width:130px; min-width:78px; }
+#searchWrap:focus-within { width:180px; }
 #searchIcon { position:absolute; left:7px; width:13px; height:13px; display:block;
   color:var(--muted); pointer-events:none; flex:none; }
-#searchBox { width:130px; height:26px; padding:0 8px 0 24px; border-radius:7px; font-size:12px;
-  background:var(--bg); border:none; color:var(--text); }
-#searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); width:180px; }
+#searchBox { width:100%; min-width:0; box-sizing:border-box; height:26px; padding:0 8px 0 24px;
+  border-radius:7px; font-size:12px; background:var(--bg); border:none; color:var(--text); }
+#searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); }
+#searchBox.has-value { padding-right:22px; }
+#toolbar button#searchClear { display:none; position:absolute; right:5px; width:18px; height:18px; padding:0;
+  border:none; background:transparent; color:var(--muted); cursor:pointer; }
+#toolbar button#searchClear:hover { color:var(--text); }
+#searchClear svg { width:11px; height:11px; display:block; }
+#toolbar #searchBox.has-value ~ #searchClear { display:flex; align-items:center; justify-content:center; }
 /* placeholder hint tinted with the bar surface so it reads as a faint label, not real input */
 input::placeholder { color:var(--panel); opacity:1; }
 #searchResults { position:absolute; top:30px; left:0; min-width:200px; max-height:50vh; overflow:auto;
@@ -132,6 +160,22 @@ input::placeholder { color:var(--panel); opacity:1; }
 #searchResults .sr-item:hover, #searchResults .sr-item.active { background:var(--node); }
 #searchResults .sr-none { padding:6px 9px; font-size:12px; color:var(--muted); }
 
+/* custom right-click context menu — same surface language as the search dropdown */
+#ctxMenu { position:fixed; min-width:180px; padding:4px; display:none; z-index:40;
+  background:var(--panel); border:1px solid var(--node-border); border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.25); }
+#ctxMenu.open { display:block; }
+#ctxMenu .cm-item { display:flex; width:100%; align-items:center; justify-content:space-between;
+  gap:18px; padding:6px 9px; border-radius:6px; font-size:13px; color:var(--text);
+  background:transparent; border:none; cursor:pointer; white-space:nowrap; text-align:left;
+  touch-action:manipulation; }
+#ctxMenu .cm-item:hover:not(:disabled) { background:var(--accent); color:#fff; }
+#ctxMenu .cm-item:hover:not(:disabled) kbd {
+  color:#fff; background:rgba(255,255,255,.16); border-color:rgba(255,255,255,.35); }
+#ctxMenu .cm-item:disabled { color:var(--muted); cursor:default; }
+#ctxMenu .cm-item kbd { font-family:inherit; font-size:11px; color:var(--muted); }
+#ctxMenu .cm-sep { height:1px; margin:4px 6px; background:var(--node-border); }
+
 /* touch-action:none → the browser never steals pan/zoom gestures; we drive them ourselves */
 #stage { position:fixed; inset:0; overflow:hidden; cursor:default; touch-action:none; }
 #stage.panning { cursor:grabbing; }
@@ -139,8 +183,9 @@ input::placeholder { color:var(--panel); opacity:1; }
 body.grabbing, body.grabbing * { cursor:grabbing !important; }
 #world { position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; touch-action:none; }
 
-svg#backgrounds, svg#edges, svg#toggles, svg#dragEdges { position:absolute; top:0; left:0; overflow:visible; }
+svg#backgrounds, svg#sketch, svg#edges, svg#toggles, svg#dragEdges { position:absolute; top:0; left:0; overflow:visible; }
 svg#backgrounds { z-index:0; pointer-events:none; } /* group backgrounds behind everything */
+svg#sketch { z-index:0; pointer-events:none; }      /* freehand ink behind cards + edges (drawing is handled on #stage) */
 svg#edges { z-index:1; pointer-events:none; }      /* curves behind nodes */
 .node { z-index:2; }                               /* nodes in the middle */
 svg#toggles { z-index:3; pointer-events:none; }    /* toggles on top; group re-enables events */
@@ -200,6 +245,11 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
 /* landing-spot preview: where the dragged card will actually land once dropped onto a
    valid reparent target — renders on top of all other cards (z-index:5) */
 .node.landing-ghost { pointer-events:none; transition:none; z-index:5; }
+/* in-parent reorder indicator: a bar in the gap between the two siblings the dragged card
+   would slot between (horizontal for a vertical stack, vertical for a horizontal spread).
+   White and dashed to match the reparent ghost's border; the dash gradient runs along the
+   bar's long axis, set inline per orientation — see features/drag.ts showInsertLine */
+.insert-line { position:absolute; pointer-events:none; z-index:5; }
 /* break long words / URLs and clip anything that still overflows the card horizontally */
 .node .title { font-weight:600; font-size:14px; margin-bottom:9px; padding-right:16px;
   overflow-wrap:anywhere; overflow:hidden; }
@@ -262,6 +312,7 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
   text-transform:uppercase; color:var(--tint); border:1px solid var(--tint);
   border-radius:6px; padding:1px 6px; opacity:.85; }
 .node.search-dim { opacity:.2; }         /* dimmed while a find query excludes this card */
+.node.search-active { box-shadow:0 0 0 2px #fff; }   /* the active dropdown option's card */
 /* "add note" bubble: on a lone-selected, body-less card, the centre-bottom shows a blue pill
    (a sibling of the + bubble) that opens the in-place note editor — replaces the old faint
    "Add note…" placeholder text that used to live inside the body. */
@@ -312,6 +363,29 @@ body.light #ghostCard { background:var(--pal-white); color:#2b3645; }
 #ghostCard:hover { box-shadow:0 0 0 2px var(--accent); }
 body.readonly #ghostCard { opacity:.35; pointer-events:none; }
 
+/* first-run hints next to the + ghost card and the help button — only while empty */
+.emptyhint {
+  position:fixed; z-index:21; display:flex; align-items:center; gap:6px;
+  color:var(--muted); font-size:14px; font-weight:500;
+  pointer-events:none; user-select:none;
+  opacity:0; transition:opacity .45s ease;   /* fade in/out only when the "no cards" state changes */
+}
+body.empty-canvas:not(.readonly) .emptyhint { opacity:1; }
+@media (prefers-reduced-motion: reduce) { .emptyhint { transition:none; } }
+#ghostHint { left:126px; bottom:29px; }                 /* right of the ghost card */
+#ghostHint span { position:relative; top:-5px; }        /* nudge only the label up, arrow stays */
+/* help toggle — bottom-right corner */
+#helpBtn { right:12px; bottom:18px; overflow:visible; }
+/* help hint lives INSIDE the help button, so it tracks it with no JS — sits ABOVE the
+   bottom-right button and points down at it */
+#helpHint {
+  position:absolute; bottom:100%; right:6px; margin-bottom:7px;
+  flex-direction:column; align-items:flex-end; gap:2px; white-space:nowrap;
+}
+.hint-arrow { flex:none; opacity:.85; }
+/* override #toolbar button svg (15×15) so the in-button help arrow keeps its real size */
+#helpHint .hint-arrow { width:24px; height:46px; }
+
 /* floating edit panel — sits below the toolbar, off the right edge, hugs its content */
 #editor {
   position:fixed; top:50px; right:10px; width:240px; z-index:15;
@@ -323,6 +397,41 @@ body.readonly #ghostCard { opacity:.35; pointer-events:none; }
   pointer-events:none;
 }
 #editor.open { transform:translateX(0); opacity:1; pointer-events:auto; }  /* slide in from the right */
+
+/* sketch sidebar — same slot as #editor, shown only in sketch mode (replaces the edit panel) */
+#sketchPanel {
+  position:fixed; top:50px; right:10px; width:240px; z-index:15;
+  max-height:calc(100vh - 60px); overflow:auto;
+  background:var(--panel); border-radius:12px; padding:12px;
+  flex-direction:column; gap:12px; display:none;
+}
+body.sketching #sketchPanel { display:flex; }
+body.sketching #editor { display:none; }   /* the sketch panel takes the edit panel's place */
+#sketchPanel .sk-title { font-size:16px; font-weight:600; color:var(--text);
+  padding-bottom:8px; border-bottom:1px solid var(--grid); }
+#sketchPanel .fgroup { display:flex; flex-direction:column; gap:6px; }
+#sketchPanel label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+.sk-tools { display:flex; gap:6px; }
+.sk-tools button {
+  flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  height:34px; padding:0; border-radius:8px; font-size:12px;
+  background:var(--node-border); border:1px solid var(--node-border); color:var(--muted); cursor:pointer;
+}
+.sk-tools button svg { width:16px; height:16px; display:block; }
+.sk-tools button:hover { color:var(--text); }
+.sk-tools button.active { color:#fff; background:var(--accent); border-color:var(--accent); }
+/* colour & width pickers — round dots (plain buttons in the sidebar, so no #toolbar override) */
+.sketch-dots { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.sketch-dots .dot {
+  width:22px; height:22px; min-width:0; border-radius:50%; cursor:pointer; flex:none; box-sizing:border-box;
+  padding:0; border:1px solid var(--node-border); background:var(--sw, var(--muted)); }
+.sketch-dots .dot:hover { border-color:var(--accent); }
+.sketch-dots .dot.active { box-shadow:0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+/* width picker: a centred ink blob whose size previews the stroke width */
+.sketch-dots.widths .dot { background:transparent; position:relative; }
+.sketch-dots.widths .dot::after {
+  content:""; position:absolute; inset:0; margin:auto; border-radius:50%;
+  width:var(--d); height:var(--d); background:var(--text); }
 #edFields { flex:1; display:flex; flex-direction:column; gap:10px; min-height:0; }
 #edFields .fgroup { display:flex; flex-direction:column; gap:6px; }
 /* empty state vs. fields: only one shows at a time, driven by .has-selection */
@@ -366,8 +475,9 @@ body.readonly #ghostCard { opacity:.35; pointer-events:none; }
 #editor .row { display:flex; gap:8px; }
 #editor .editnote { font-size:11px; color:var(--muted); line-height:1.5; }
 /* colour picker = a row of individual round bubbles; the selection outline sits AROUND one */
-.swatches { display:flex; gap:6px; flex-wrap:nowrap; align-items:center; }
-.swatch { flex:1 1 0; min-width:0; aspect-ratio:1; border-radius:50%; cursor:pointer;
+.swatches { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+/* fixed size so colour chips match the sketch sidebar's colour dots (.sketch-dots .dot) exactly */
+.swatch { flex:none; width:22px; height:22px; border-radius:50%; cursor:pointer;
   border:0; background:var(--sw); }
 .swatch:hover  { box-shadow:0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent); }
 .swatch.active { box-shadow:0 0 0 2px var(--text); }
@@ -400,21 +510,39 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
 #startScreen.hidden { display:none; }
 .start-card { width:min(440px, 90vw); background:var(--panel); border:1px solid var(--grid);
   border-radius:16px; padding:28px; }
-.start-card h2 { margin:0 0 6px; font-size:20px; }
+.start-card h2 { margin:0 0 14px; font-size:20px; }
+/* storage-backend tabs — segmented control, matching the sidebar layout pickers */
+.store-tabs { display:inline-flex; margin:0 0 16px; border-radius:8px; overflow:hidden; background:var(--bg); }
+.store-tab { padding:7px 16px; font-size:13px; background:transparent; border:0; border-radius:0; color:var(--muted); cursor:pointer; }
+.store-tab + .store-tab { border-left:1px solid var(--node-border); }   /* segment divider */
+.store-tab:hover:not(:disabled):not(.active) { color:var(--text); background:color-mix(in srgb, var(--text) 8%, transparent); }
+.store-tab.active { color:#fff; background:var(--accent); }
+.store-tab:disabled { opacity:.35; cursor:default; }
+.store-tab:disabled:hover { color:var(--muted); background:transparent; }
 .start-card p { margin:0 0 18px; color:var(--muted); font-size:13px; line-height:1.5; }
 .start-card .primary { width:100%; padding:11px; font-size:14px; margin-bottom:14px; }
 .start-card .ghost { width:100%; padding:9px; background:transparent; color:var(--muted);
   margin-top:6px; }
 .recent-label { font-size:11px; text-transform:uppercase; letter-spacing:.5px;
   color:var(--muted); margin:6px 0 8px; }
+/* recent folders read as a single framed list, not a stack of buttons */
+#recentList { border:1px solid var(--node-border); border-radius:9px; overflow:hidden; }
 .recent-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left;
-  padding:9px 11px; margin-bottom:6px; background:var(--node-border); border:1px solid var(--node-border);
-  border-radius:9px; cursor:pointer; font-size:13px; color:var(--text); }
-.recent-item:hover { background:var(--accent); border-color:var(--accent); }
-.recent-item .ri-icon { width:16px; height:16px; flex:none; display:block; }
+  padding:9px 11px; margin:0; background:transparent; border:0; border-radius:0;
+  cursor:pointer; font-size:13px; color:var(--text); }
+.recent-item + .recent-item { border-top:1px solid var(--node-border); }   /* row dividers */
+.recent-item:hover:not(.selected) { background:color-mix(in srgb, var(--text) 6%, transparent); }
+/* the one selected row (the folder that will load on close) */
+.recent-item.selected { background:color-mix(in srgb, var(--accent) 16%, transparent); }
+.recent-item .ri-icon { width:16px; height:16px; flex:none; display:block; color:var(--muted); }
 .recent-item .ri-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .recent-item .ri-when { font-size:11px; color:var(--muted); }
-.start-note { margin:14px 0 0 !important; font-size:11px !important; }
+.recent-item .ri-check { flex:none; width:14px; text-align:center; color:var(--accent); opacity:0; }
+.recent-item.selected .ri-icon,
+.recent-item.selected .ri-name,
+.recent-item.selected .ri-check { color:var(--accent); }
+.recent-item.selected .ri-name { font-weight:600; }
+.recent-item.selected .ri-check { opacity:1; }
 .start-card { position:relative; }
 .start-close { position:absolute; top:10px; right:12px; width:28px; height:28px; padding:0;
   background:transparent; border:none; color:var(--muted); font-size:18px; cursor:pointer; }
@@ -423,14 +551,11 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
 .store-actions { display:flex; gap:8px; margin-top:12px; }
 .store-actions button { flex:1; padding:9px 10px; font-size:13px; cursor:pointer;
   background:var(--node-border); color:var(--text); border:1px solid var(--node-border); border-radius:9px; }
-.store-actions button:hover { background:var(--accent); border-color:var(--accent); }
+.store-actions button:hover { background:color-mix(in srgb, var(--text) 12%, var(--node-border)); border-color:var(--node-border); }
 /* inline icon inside text buttons (open / import / export) */
 .btn-icon { width:16px; height:16px; vertical-align:-3px; margin-right:5px; display:inline-block; }
 /* icon placeholders (filled by mountIcons): transparent to layout so the injected <svg> sits where it would have */
 .ic { display:contents; }
-.linkish { display:block; width:100%; margin-top:12px; padding:8px; background:transparent;
-  border:none; color:var(--muted); font-size:12px; cursor:pointer; }
-.linkish:hover { color:var(--text); }
 
 /* ---- toolbar section for editing the selected card(s) ---- */
 #toolbar button:disabled, #toolbar button:disabled:hover { background:transparent; opacity:.3; cursor:default; }
@@ -441,7 +566,7 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
   #toolbar button { width:34px; height:34px; }
   #toolbar button svg { width:18px; height:18px; }
   #toolbar { gap:8px; padding:5px 10px; }
-  #toolbar button#homeBtn { padding:0 8px; }
+  #homeBar #homeBtn { width:40px; height:40px; }
   #editor { top:58px; width:240px; padding:12px; }
   .node .addnote { height:28px; line-height:28px; bottom:-14px; padding:0 11px; border-radius:14px; font-size:12px; }
   /* explicit flex:none so flex-basis doesn't override width and stretch them tall */
