@@ -16,6 +16,11 @@ mm_collapsed: true
 - `D` — duplicate
 - `Delete` — remove
 
+## Clipboard
+- `⌘/Ctrl C` — copy card + subtree
+- `⌘/Ctrl X` — cut
+- `⌘/Ctrl V` — paste (as child of the selected card, else at the pointer)
+
 ## Edit
 - `F2` — rename
 - `E` — edit note

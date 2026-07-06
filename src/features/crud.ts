@@ -15,7 +15,7 @@ import { touch, commitStep, record } from './history.js';
 // Mint a fresh node with the standard shape; callers override only the fields they care about.
 // Keeps the node schema (and its defaults) in ONE place so every create/duplicate path stays in
 // sync — the id is always minted here (ids are ephemeral, see below).
-function mkNode(fields: Partial<MindNode> = {}): MindNode {
+export function mkNode(fields: Partial<MindNode> = {}): MindNode {
   const id = 'n' + (state.idSeq++);
   touch(id);   // not in state.nodes yet → before-image is null (undo of a create = remove it)
   return {

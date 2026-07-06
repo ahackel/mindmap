@@ -11,6 +11,7 @@ import { paintAll, selectNode } from '../main.js';
 import { createNode, uniqueTitle, newCardTitle } from './crud.js';
 import { autosizeBody } from './inline-edit.js';
 import { touch, record } from './history.js';
+import { tryPasteCards } from './clipboard.js';
 
 const IMG_EXT: Record<string, string> = { 'image/png':'.png', 'image/jpeg':'.jpg', 'image/gif':'.gif', 'image/webp':'.webp',
                   'image/svg+xml':'.svg', 'image/avif':'.avif', 'image/bmp':'.bmp' };
@@ -168,6 +169,8 @@ document.addEventListener('paste', (e) => {
   const text = cd.getData('text/plain').trim();
   if (!imgs.length && !text) return;
   e.preventDefault();
+  // copied CARDS (our own marker format) reconstruct as cards; anything else becomes a new card
+  if (text && tryPasteCards(text, { sx: ui.lastMouse?.x ?? null, sy: ui.lastMouse?.y ?? null, parent: state.selId })) return;
   createCardFromClipboard(imgs, text, cardOptsAt(ui.lastMouse?.x ?? null, ui.lastMouse?.y ?? null, state.selId));
 });
 // Context-menu Paste: no ClipboardEvent to read from, so ask the async clipboard API (may prompt
@@ -188,6 +191,7 @@ export async function pasteFromClipboard(sx: number, sy: number, parent: string 
   }
   text = text.trim();
   if (!imgs.length && !text){ setStatus('Clipboard is empty'); return; }
+  if (text && tryPasteCards(text, { sx, sy, parent })) return;   // copied cards reconstruct as cards
   createCardFromClipboard(imgs, text, cardOptsAt(sx, sy, parent));
 }
 

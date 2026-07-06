@@ -30,6 +30,7 @@ import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInp
 import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
 import { searchBox } from './features/search.js';
+import { copySelection, cutSelection } from './features/clipboard.js';
 import { toggleSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
 import { touch, commitStep, record, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
@@ -720,6 +721,14 @@ window.addEventListener('keydown', (e) => {
   if (e.key === ' '){ e.preventDefault(); if (!e.repeat){ ui.spaceHeld = true; ui.spaceUsedForPan = false; } return; }
   if (e.key === 'f' || e.key === 'F'){ e.preventDefault(); focusOrFit(); return; }
   if ((e.key === 'd' || e.key === 'D') && state.sel.size){ e.preventDefault(); duplicateSelection(); return; }
+  // ⌘/Ctrl C / X copy / cut the selected cards (with their subtrees). No ⌘V handler here —
+  // the native `paste` event (features/attachments.ts) carries clipboardData permission-free.
+  if ((e.key === 'c' || e.key === 'C') && (e.metaKey || e.ctrlKey) && state.sel.size){
+    e.preventDefault(); void copySelection(); return;
+  }
+  if ((e.key === 'x' || e.key === 'X') && (e.metaKey || e.ctrlKey) && state.sel.size){
+    e.preventDefault(); void cutSelection(); return;
+  }
   if ((e.key === 'x' || e.key === 'X') && state.sel.size && !e.metaKey && !e.ctrlKey){   // don't shadow cut
     e.preventDefault(); toggleCollapseSelection(state.sel); return;
   }

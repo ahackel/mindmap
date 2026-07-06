@@ -10,6 +10,7 @@ import { screenToWorld, fit, frameBox } from '../view/camera.js';
 import { childrenOf } from '../utils/model.js';
 import { createNode, addChild, createSibling, duplicateSelection, deleteSelection, deleteNode } from './crud.js';
 import { pasteFromClipboard } from './attachments.js';
+import { copySelection, cutSelection } from './clipboard.js';
 import { startInlineEdit, startBodyEdit } from './inline-edit.js';
 import { record } from './history.js';
 import { typedImageBlob } from './images.js';
@@ -75,8 +76,11 @@ function buildNodeMenu(n: MindNode, sx: number, sy: number): void {
       addItem('Paste as child', '⌘V', () => { void pasteFromClipboard(sx, sy, n.id); });
     }
     addItem('Duplicate', 'D', () => { if (!multi) selectNode(n.id); duplicateSelection(); });
+    addItem('Cut', '⌘X', () => { if (!multi) selectNode(n.id); void cutSelection(); });
     addSep();
   }
+  // copying mutates nothing, so it's available in read-only mode too
+  addItem('Copy', '⌘C', () => { if (!multi) selectNode(n.id); void copySelection(); });
   if (!multi)
     addItem(n.collapsed ? 'Expand' : 'Collapse', 'X', () => foldNodeOrGroup(n),
       // matches toggleCollapse: children fold, and a leaf with a body can fold its body alone
