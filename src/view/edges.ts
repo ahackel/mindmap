@@ -112,7 +112,7 @@ function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: 
   return { parent, box: { x: land.x, y: land.y, h }, side: drag.dropSide };
 }
 const BG_PAD = 20;      // margin around the enclosed cards — hugs the bounds, kept a multiple of 20
-const BG_R = 10;         // corner radius — subtly rounded, not pill-shaped
+const BG_R = 16;         // corner radius — card radius (8) + a step, still not pill-shaped
 const BG_ALPHA = 0.16;  // fill opacity — translucent, reads as a tint rather than a card
 function hexToRgba(hex: string, alpha: number): string {
   const m = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
