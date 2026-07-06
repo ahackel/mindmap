@@ -1,157 +1,206 @@
 // ============================================================
-// Boot + home/storage screen. boot() opens straight into the last map (local-first, no
-// gate): resume a granted FSA folder if one was last used, else the on-device vault.
-// The home screen (🧠) manages where the map lives — open a folder, recents, import/export.
+// Boot + home screen. boot() opens straight into the last map (local-first, no gate):
+// resume a granted FSA folder if one was last open, else the last on-device map.
+// The home screen (🧠) is ONE unified list of maps — on-device maps and local folders look
+// and behave the same: click a row to open it (the click doubles as the FSA permission
+// gesture), with per-row rename / export / delete actions.
 // ============================================================
 import { state, setStatus } from './core/state.js';
 import { applyView } from './view/camera.js';
-import { store, useStore, loadFromDir, exportZip, openImportPicker, LAST_STORE_KEY } from './data/persistence.js';
-import { fsaStore, resolveOnDeviceStore, readRecents, forgetRecent, setOnRecentsChanged, type Store } from './store/index.js';
+import { store, currentMap, useStore, loadFromDir, exportZip, settleSave, switchToDeviceMap, updateMapTitle, openImportPicker } from './data/persistence.js';
+import {
+  fsaStore, resolveOnDeviceStore, forgetRecent, setOnRecentsChanged,
+  readMaps, getLastMap, ensureMapRegistry, createDeviceMap, deleteDeviceMap, renameDeviceMap,
+  type Store, type MapRef, type MapKind,
+} from './store/index.js';
+import { esc } from './utils/markdown.js';
 import { applyReadOnly } from './main.js';
+import { openMenu } from './features/context-menu.js';
 import folderIcon from './assets/icons/folder-open.svg?raw';
 
 // Chrome/Edge offer opening a real local folder (FSA); iPad/Firefox/Safari use on-device +
 // import/export. ?nofsa hides the folder option for testing the no-FSA layout on desktop.
 const HAS_FSA = !location.search.includes('nofsa') && !!(window as any).showDirectoryPicker;
 
-// The panel only *selects* a storage target; the actual load happens when the user closes it
-// (commitAndClose). `pending` is what to load on close (null = no change); `selectedRecent` is
-// the highlighted recent folder; `currentFolderKey` is the recent currently loaded (for the
-// initial highlight when reopening the panel on a folder).
-type Pending = null | { kind: 'device' } | { kind: 'recent'; key: string } | { kind: 'picked' };
-let pending: Pending = null;
-let selectedRecent: string | null = null;
-let currentFolderKey: string | null = null;
-
-// ---- on-device (the local-first default) ----
-async function commitDevice({ keepView = false }: { keepView?: boolean } = {}): Promise<void> {
-  const s = await resolveOnDeviceStore();
-  useStore(s, 'opfs');
-  await s.pick();
-  await loadFromDir({ keepView });
+// ---- opening maps (each path ends on the canvas with the panel closed) ----
+async function openDeviceMap(ref: MapRef): Promise<void> {
+  await switchToDeviceMap(ref);
+  await loadFromDir();
 }
-
-// ---- local folder (Chrome/Edge only): pick/select here, load on close ----
+// Reopen a remembered FSA folder (the row click is the gesture for the permission prompt).
+async function openFolderMap(key: string): Promise<boolean> {
+  await settleSave();   // the old map's pending writes must not land in the folder
+  const r = await fsaStore.openRecent(key);
+  if (r === 'gone') {
+    await forgetRecent(key);
+    renderMapList();
+    setStatus('That folder is no longer available — removed from the list.');
+    return false;
+  }
+  if (r === 'denied') { alert('Write permission was denied for this folder.'); return false; }
+  if (r !== 'ok') return false;
+  useStore(fsaStore, { kind: 'folder', id: fsaStore.currentKey! });   // openRecent re-remembers under a fresh key
+  await loadFromDir();
+  return true;
+}
+// Pick a NEW local folder (Chrome/Edge only) and open it right away.
 async function pickFolder(): Promise<void> {
+  await settleSave();   // the old map's pending writes must not land in the picked folder
   const r = await fsaStore.pick();   // the picker needs this click as its user gesture
   if (r === 'unsupported') { setStatus('This browser can’t open a local folder — use Chrome or Edge.'); return; }
   if (r === 'denied') { setStatus('Folder permission denied.'); alert('Write permission was denied.\nReopen the folder and choose “Edit”/“Allow”.'); return; }
   if (r !== 'ok') { if (r === 'error') setStatus('Could not open folder.'); return; }
-  pending = { kind: 'picked' };                     // fsaStore now holds the picked folder; load on close
-  selectedRecent = readRecents()[0]?.key ?? null;   // _remember put it at the top
-  renderRecents(); equalizePanels();
-}
-function selectRecent(key: string): void {          // just highlight + remember the choice
-  pending = { kind: 'recent', key };
-  selectedRecent = key;
-  renderRecents();
-}
-async function commitRecent(key: string): Promise<boolean> {
-  const r = await fsaStore.openRecent(key);         // the close click is the gesture for the permission prompt
-  if (r === 'gone') {
-    await forgetRecent(key);
-    selectedRecent = null;
-    renderRecents(); equalizePanels();
-    setStatus('That folder is no longer available — removed from recents.');
-    return false;
-  }
-  if (r === 'denied') { alert('Write permission was denied for this folder.'); return false; }
-  useStore(fsaStore, 'folder');
-  currentFolderKey = readRecents()[0]?.key ?? key;  // openRecent re-remembers with a fresh key
+  useStore(fsaStore, { kind: 'folder', id: fsaStore.currentKey! });
   await loadFromDir();
-  return true;
-}
-
-// Apply the pending selection, then close — the map loads only now, on exit.
-async function commitAndClose(): Promise<void> {
-  const p = pending; pending = null;
-  if (p?.kind === 'device') {
-    if (store === fsaStore) await commitDevice();   // no-op if already on-device
-  } else if (p?.kind === 'recent') {
-    const alreadyLoaded = store === fsaStore && p.key === currentFolderKey;
-    if (!alreadyLoaded && !(await commitRecent(p.key))) return;   // stay open on commit failure
-  } else if (p?.kind === 'picked') {
-    useStore(fsaStore, 'folder');
-    currentFolderKey = selectedRecent;
-    await loadFromDir();
-  }
   hideStart();
 }
 
+// ---------- the map list ----------
 function timeAgo(ts: number): string {
+  if (!ts) return '';                       // migrated entries carry no last-opened time yet
   const s = (Date.now()-ts)/1000;
   if (s<60) return 'just now';
   if (s<3600) return Math.floor(s/60)+'m ago';
   if (s<86400) return Math.floor(s/3600)+'h ago';
   return Math.floor(s/86400)+'d ago';
 }
-function renderRecents(): void {
-  const list = readRecents();
-  const wrap = document.getElementById('recentWrap') as HTMLElement;
-  const box = document.getElementById('recentList') as HTMLElement;
-  if (!list.length){ wrap.style.display='none'; return; }
-  wrap.style.display='block';
-  box.innerHTML = list.map(r =>
-    `<button class="recent-item${r.key === selectedRecent ? ' selected' : ''}" data-key="${r.key}">
-       ${folderIcon.replace('btn-icon', 'ri-icon')}
-       <span class="ri-name">${r.name}</span>
-       <span class="ri-when">${timeAgo(r.when)}</span>
-       <span class="ri-check" aria-hidden="true">✓</span></button>`).join('');
-  box.querySelectorAll<HTMLElement>('.recent-item').forEach(btn => {
-    btn.onclick = () => selectRecent(btn.dataset.key!);
-  });
+// the map currently open on the canvas — runtime state, not the persisted last-map key
+// (another tab may rewrite that one)
+function isCurrent(m: MapRef): boolean {
+  return !!currentMap && currentMap.id === m.id && currentMap.kind === m.kind && store.isOpen;
 }
 
-// ---------- home screen (storage settings; the map itself opens onto the canvas) ----------
-const startScreen = document.getElementById('startScreen') as HTMLElement;
-export function showStart(): void { startScreen.classList.remove('hidden'); renderStoreScreen(); }   // unhide first so equalizePanels can measure
-export function hideStart(): void { startScreen.classList.add('hidden'); }
+let renaming: string | null = null;   // map id whose row shows the inline rename input
+let activeTab: MapKind = 'device';    // which backend's maps the sidebar shows
 
-// The active tab reflects where the map currently lives; the folder tab is disabled (greyed,
-// non-clickable) when the browser lacks the File System Access API. Selecting "On device"
-// switches back to the on-device vault; "Local folder" reveals the open/recents controls
-// (the actual switch happens when a folder is picked, which needs a permission prompt).
-type StoreTab = 'device' | 'folder';
-function activeTab(): StoreTab { return store === fsaStore ? 'folder' : 'device'; }
-function selectTab(tab: StoreTab): void {
+function selectTab(tab: MapKind): void {
+  activeTab = tab;
   const dev = tab === 'device';
   document.getElementById('tabDevice')!.classList.toggle('active', dev);
   document.getElementById('tabFolder')!.classList.toggle('active', !dev);
-  (document.getElementById('panelDevice') as HTMLElement).style.display = dev ? '' : 'none';
-  (document.getElementById('panelFolder') as HTMLElement).style.display = dev ? 'none' : '';
+  // the "+" action creates where the active tab points
+  document.getElementById('newBtnLabel')!.textContent = dev ? 'New map' : 'Open folder…';
+  renaming = null;
+  renderMapList();
 }
 
-// Both panels get the height of the taller one, so the card doesn't resize (and never scrolls)
-// when switching tabs — no matter how many recent folders are listed.
-function equalizePanels(): void {
-  const pd = document.getElementById('panelDevice') as HTMLElement;
-  const pf = document.getElementById('panelFolder') as HTMLElement;
-  pd.style.minHeight = pf.style.minHeight = '';
-  const prevD = pd.style.display, prevF = pf.style.display;
-  pd.style.display = pf.style.display = '';               // measure both, ignoring the active-tab hide
-  const h = Math.max(pd.offsetHeight, pf.offsetHeight);
-  pd.style.display = prevD; pf.style.display = prevF;
-  pd.style.minHeight = pf.style.minHeight = h + 'px';
+function renderMapList(): void {
+  const list = readMaps().filter(m => m.kind === activeTab);
+  const box = document.getElementById('mapList') as HTMLElement;
+  if (!list.length){
+    box.innerHTML = `<p class="side-empty">${activeTab === 'device' ? 'No maps yet.' : 'No recent folders yet.'}</p>`;
+    return;
+  }
+  box.innerHTML = list.map(m => {
+    const name = renaming === m.id
+      ? `<input class="mi-name-input" value="${esc(m.name)}" aria-label="Map name">`
+      : `<span class="mi-name">${esc(m.name)}</span><span class="mi-when">${timeAgo(m.when)}</span>
+         <button class="mi-more" aria-label="Map actions" title="Map actions">⋮</button>`;
+    return `<div class="map-item${isCurrent(m) ? ' current' : ''}" data-id="${esc(m.id)}" tabindex="0" role="button" aria-label="Open ${esc(m.name)}">
+      <span class="mi-icon">${folderIcon.replace('btn-icon', '')}</span>${name}</div>`;
+  }).join('');
+
+  box.querySelectorAll<HTMLElement>('.map-item').forEach((row, i) => {
+    const m = list[i]!;   // rows are rendered in list order
+    row.onclick = e => {
+      if ((e.target as HTMLElement).closest('.mi-more, .mi-name-input')) return;
+      openRow(m);
+    };
+    row.onkeydown = e => { if (e.key === 'Enter' && e.target === row) openRow(m); };
+    // map actions live in a context menu: the ⋮ button (tap-friendly) or a desktop right-click
+    const more = row.querySelector<HTMLButtonElement>('.mi-more');
+    if (more) more.onclick = e => {
+      e.stopPropagation();
+      const r = more.getBoundingClientRect();
+      openMapMenu(m, r.left, r.bottom + 4);
+    };
+    row.oncontextmenu = e => {
+      e.preventDefault(); e.stopPropagation();   // keep the canvas ctx-menu handler out of it
+      openMapMenu(m, e.clientX, e.clientY);
+    };
+    const inp = row.querySelector<HTMLInputElement>('.mi-name-input');
+    if (inp) {
+      inp.focus(); inp.select();
+      inp.onkeydown = e => {
+        if (e.key === 'Enter') inp.blur();
+        else if (e.key === 'Escape') { renaming = null; renderMapList(); }
+      };
+      inp.onblur = () => {
+        if (renaming !== m.id) return;   // Escape already cancelled (re-render detached us)
+        renaming = null;
+        commitRename(m, inp.value);
+      };
+    }
+  });
 }
 
-function renderStoreScreen(): void {
-  document.getElementById('storeStatus')!.textContent =
-    store.isOpen ? 'Editing: ' + store.name : 'Loading…';
+function openMapMenu(m: MapRef, x: number, y: number): void {
+  const cur = isCurrent(m);
+  openMenu([
+    ...(m.kind === 'device' ? [{ label: 'Rename', run: () => { renaming = m.id; renderMapList(); } }] : []),
+    // export packs what's loaded on the canvas, so it exists only for the open map
+    { label: 'Export .zip', run: () => { exportZip(); }, disabled: !cur },
+    'sep',
+    m.kind === 'device'
+      ? { label: 'Delete…', run: () => { void deleteMap(m); }, danger: true }
+      : { label: 'Remove from list', run: () => { void removeFolder(m); }, danger: true },
+  ], x, y);
+}
+
+async function openRow(m: MapRef): Promise<void> {
+  if (isCurrent(m)) { hideStart(); return; }          // already on the canvas
+  if (m.kind === 'device') { await openDeviceMap(m); hideStart(); }
+  else if (await openFolderMap(m.id)) hideStart();
+}
+
+async function commitRename(m: MapRef, name: string): Promise<void> {
+  await renameDeviceMap(await resolveOnDeviceStore(), m.id, name);
+  if (isCurrent(m)) updateMapTitle();   // the open map's name shows in the toolbar + tab title
+  renderMapList();
+}
+
+async function removeFolder(m: MapRef): Promise<void> {
+  if (!confirm(`Remove “${m.name}” from this list?\nThe folder and its files stay on disk.`)) return;
+  await forgetRecent(m.id);
+  renderMapList();
+}
+async function deleteMap(m: MapRef): Promise<void> {
+  if (!confirm(`Delete “${m.name}” and all its notes from this device?\nThis cannot be undone.`)) return;
+  const wasCurrent = isCurrent(m);
+  if (wasCurrent) await settleSave();   // settle any pending autosave before the dir vanishes
+  await deleteDeviceMap(await resolveOnDeviceStore(), m.id);
+  if (wasCurrent) await commitDevice();   // fall back to the next map (or a fresh one)
+  renderMapList();
+}
+
+// ---------- home sidebar ----------
+const startScreen = document.getElementById('startScreen') as HTMLElement;
+export function showStart(): void {
+  renaming = null;
   (document.getElementById('tabFolder') as HTMLButtonElement).disabled = !HAS_FSA;
-  pending = null;                                                    // reopening the panel starts clean
-  selectedRecent = store === fsaStore ? currentFolderKey : null;     // highlight the folder currently loaded
-  renderRecents();
-  selectTab(activeTab());
-  equalizePanels();
+  // open on the tab of the map currently on the canvas
+  selectTab(HAS_FSA && currentMap?.kind === 'folder' ? 'folder' : 'device');
+  startScreen.classList.remove('hidden');
 }
+export function hideStart(): void { startScreen.classList.add('hidden'); }
 
-document.getElementById('tabDevice')!.onclick = () => { selectTab('device'); selectedRecent = null; renderRecents(); pending = { kind: 'device' }; };
-(document.getElementById('tabFolder') as HTMLButtonElement).onclick = () => { selectTab('folder'); };
-(document.getElementById('startOpen') as HTMLElement).onclick   = () => pickFolder();
-(document.getElementById('importBtn') as HTMLElement).onclick   = () => openImportPicker();
-(document.getElementById('exportBtn') as HTMLElement).onclick   = () => exportZip();   // async; fire-and-forget
-(document.getElementById('startClose') as HTMLElement).onclick  = () => commitAndClose();
-setOnRecentsChanged(renderRecents);   // let the store signal recents changes without rendering UI itself
+document.getElementById('tabDevice')!.onclick = () => selectTab('device');
+document.getElementById('tabFolder')!.onclick = () => selectTab('folder');
+// the "+" action: a new on-device map, or the FSA folder picker — per the active tab
+document.getElementById('newBtn')!.onclick = async () => {
+  if (activeTab === 'device'){
+    const ref = await createDeviceMap(await resolveOnDeviceStore());
+    await openDeviceMap(ref);
+    hideStart();
+  } else {
+    await pickFolder();
+  }
+};
+(document.getElementById('importBtn') as HTMLElement).onclick = () => openImportPicker();
+(document.getElementById('startClose') as HTMLElement).onclick = () => hideStart();
+// clicking the canvas area beside the sidebar closes it
+startScreen.addEventListener('click', e => { if (e.target === startScreen) hideStart(); });
+setOnRecentsChanged(renderMapList);   // let the store signal registry changes without rendering UI itself
 
 // ---------- help mindmap (help/*.md, opened with F1) ----------
 // Read-only store serving the help notes; lives in its own tab (?help), so the user's own map
@@ -166,6 +215,7 @@ const helpNotes: Record<string, string> = Object.fromEntries(
 const helpStore: Store = {
   get isOpen(){ return true; },
   get name(){ return 'Help'; },
+  get seenKey(){ return 'help'; },
   async pick(){ return 'ok'; },
   async openRecent(){ return 'ok'; },
   async list(){
@@ -173,7 +223,7 @@ const helpStore: Store = {
   },
   async write(){}, async remove(){},
   async readBlob(){ return null; },   // help notes reference no local images
-  watch(){}, recents(){ return []; },
+  watch(){},
 };
 export function openHelpTab(): void {
   const url = location.pathname + '?help';
@@ -181,25 +231,37 @@ export function openHelpTab(): void {
 }
 async function openHelp(): Promise<void> {
   state.readOnly = true; applyReadOnly();                 // help is view-only; nothing is saved
-  useStore(helpStore);                                    // no `kind` → doesn't change the saved store
+  useStore(helpStore);                                    // no ref → doesn't change the last-map bookkeeping
   try { await loadFromDir(); }
   catch { setStatus('Help content (help/) not found next to index.html.'); }
 }
 
 // ---------- boot: local-first — open straight into the last map, no gate ----------
+// Open the last-used on-device map; else the most recent one; else create a fresh "My map".
+async function commitDevice(): Promise<void> {
+  const s = await resolveOnDeviceStore();
+  const device = readMaps().filter(m => m.kind === 'device');
+  const last = getLastMap();
+  const ref = (last?.kind === 'device' && device.find(m => m.id === last.id))
+    || device[0]
+    || await createDeviceMap(s, 'My map');
+  await openDeviceMap(ref);
+}
+
 export async function boot(): Promise<void> {
   applyView();
   hideStart();
   if (new URLSearchParams(location.search).has('help')){ await openHelp(); return; }
+  // one-time legacy migration / rebuild — the store probe is skipped once the registry exists
+  if (!readMaps().length) await ensureMapRegistry(await resolveOnDeviceStore());
   // resume a local folder only if we can do it silently (permission still granted); else on-device
-  if (HAS_FSA && localStorage.getItem(LAST_STORE_KEY) === 'folder'){
-    const recent = readRecents()[0];
-    if (recent && fsaStore.resume && await fsaStore.resume(recent.key)){
-      useStore(fsaStore, 'folder');
-      currentFolderKey = recent.key;
+  const last = getLastMap();
+  if (HAS_FSA && last?.kind === 'folder'){
+    if (fsaStore.resume && await fsaStore.resume(last.id)){
+      useStore(fsaStore, { kind: 'folder', id: last.id });
       await loadFromDir();
       return;
     }
   }
-  await commitDevice();   // the on-device vault (empty on first run)
+  await commitDevice();   // the last / most recent on-device map (fresh "My map" on first run)
 }

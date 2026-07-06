@@ -24,15 +24,26 @@ document.body.appendChild(menu);
 
 function closeMenu(): void { menu.classList.remove('open'); }
 
-interface ItemOpts { disabled?: boolean }
+interface ItemOpts { disabled?: boolean; danger?: boolean }
 function addItem(label: string, shortcut: string, run: () => void, opts: ItemOpts = {}): void {
   const b = document.createElement('button');
-  b.className = 'cm-item'; b.type = 'button';
+  b.className = 'cm-item' + (opts.danger ? ' cm-danger' : ''); b.type = 'button';
   const l = document.createElement('span'); l.textContent = label; b.appendChild(l);
   if (shortcut){ const k = document.createElement('kbd'); k.textContent = shortcut; b.appendChild(k); }
   if (opts.disabled) b.disabled = true;
   b.addEventListener('click', () => { closeMenu(); run(); });
   menu.appendChild(b);
+}
+
+// ---- generic API: other UI (the home sidebar's ⋮ / right-click) reuses this menu ----
+export type MenuEntry = 'sep' | { label: string; shortcut?: string; run: () => void; disabled?: boolean; danger?: boolean };
+export function openMenu(entries: MenuEntry[], x: number, y: number): void {
+  menu.innerHTML = '';
+  for (const e of entries){
+    if (e === 'sep') addSep();
+    else addItem(e.label, e.shortcut ?? '', e.run, e);
+  }
+  if (menu.childElementCount) openMenuAt(x, y);
 }
 function addSep(): void {
   if (!menu.lastElementChild || menu.lastElementChild.className === 'cm-sep') return;

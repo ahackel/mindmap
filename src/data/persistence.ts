@@ -12,7 +12,7 @@ import { applyLayouts, radialLayout, collapseAtDepth, deriveSide } from '../view
 import { fit } from '../view/camera.js';
 import { resetImageCache } from '../features/images.js';
 import { clearHistory } from '../features/history.js';
-import { opfsStore, fsaStore, resolveOnDeviceStore, seenFolders, markFolderSeen, type Store } from '../store/index.js';
+import { opfsStore, fsaStore, resolveOnDeviceStore, seenFolders, markFolderSeen, setLastMap, touchMap, createDeviceMap, type Store, type MapKind, type MapRef } from '../store/index.js';
 import { paintAll, selectNode } from '../main.js';
 import { paintStrokes } from '../features/sketch.js';
 import { ui, isTypingInField } from '../core/ui-state.js';
@@ -23,11 +23,27 @@ import { hideStart } from '../boot.js';
 // same store I/O as everything else (see load/save below).
 export const SKETCH_FILE = 'sketch.json';
 
-// Active backend. Local-first: default to the on-device vault; "Open folder" swaps in fsaStore.
+// Active backend. Local-first: default to on-device; "Open folder" swaps in fsaStore.
+// `ref` identifies WHICH map is now open (registry entry + what boot() reopens); omit it
+// for stores that aren't registry-backed (help).
 export let store: Store = opfsStore;
-export const LAST_STORE_KEY = 'mindmap.lastStore';   // 'opfs' | 'folder'
-export function useStore(s: Store, kind?: string): void {
-  store = s; store.watch(reloadFromDisk); if (kind) localStorage.setItem(LAST_STORE_KEY, kind);
+// Which map is on the canvas RIGHT NOW — in-memory runtime state, unlike the persisted
+// last-map key (which another tab may rewrite). null for non-registry stores (help).
+export let currentMap: { kind: MapKind; id: string } | null = null;
+export function useStore(s: Store, ref?: { kind: MapKind; id: string }): void {
+  store = s; store.watch(reloadFromDisk);
+  currentMap = ref ?? null;
+  if (ref) { setLastMap(ref.kind, ref.id); touchMap(ref.id); }
+}
+
+// Retarget the app at another on-device map. settleSave MUST come first — a straggling
+// autosave firing after the adapter retargets would write the old map's files into the new one.
+export async function switchToDeviceMap(ref: MapRef): Promise<void> {
+  await settleSave();
+  const s = await resolveOnDeviceStore();
+  s.openMap(ref.id, ref.name);
+  await s.pick();
+  useStore(s, { kind: 'device', id: ref.id });
 }
 
 // ---- import / export as .zip (move a map between devices / back it up) ----
@@ -56,6 +72,11 @@ export async function importFiles(files: File[]): Promise<void> {
   let md  = entries.filter(e => /\.(md|markdown)$/i.test(e.name) && !e.name.endsWith('/'));
   let img = entries.filter(e => e.bytes && IMG_RE.test(e.name) && !e.name.endsWith('/'));
   if (!md.length){ setStatus('No Markdown files found to import.'); return; }
+  // An import always ADDS a new on-device map, never merges into the current one — named
+  // after the .zip when there is one.
+  const zipBase = files.find(f => /\.zip$/i.test(f.name))?.name.replace(/\.zip$/i, '').trim();
+  const ref = await createDeviceMap(await resolveOnDeviceStore(), zipBase || 'Imported map');
+  await switchToDeviceMap(ref);
   // strip a single common top-level folder (e.g. a zip of "MyNotes/…") from notes AND attachments,
   // so the relative ![](attachments/…) links still resolve after import
   const slash = md[0].name.indexOf('/');
@@ -97,12 +118,13 @@ export async function exportZip(): Promise<void> {
   const attached = images.filter(Boolean).length;
   for (const img of images) if (img) files.push(img);
   if (state.strokes.length) files.push({ name: SKETCH_FILE, data: sketchJSON() });
+  const zipName = safeName(store.name || 'mindmap') + '.zip';   // the map's name, not a generic one
   const a = document.createElement('a');
   a.href = URL.createObjectURL(zipBlob(files));
-  a.download = 'mindmap.zip';
+  a.download = zipName;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  setStatus(`Exported ${nodes.length} notes${attached ? ` + ${attached} image${attached === 1 ? '' : 's'}` : ''} → mindmap.zip`);
+  setStatus(`Exported ${nodes.length} notes${attached ? ` + ${attached} image${attached === 1 ? '' : 's'}` : ''} → ${zipName}`);
 }
 
 export async function loadFromDir({ keepView = false }: { keepView?: boolean } = {}): Promise<void> {
@@ -160,12 +182,13 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   state.idSeq = seq + 1;
   // Auto-collapse a big map ONLY the very first time this folder is opened. After that we
   // always restore exactly the saved frontmatter state — reopening must look like you left it.
-  const firstEver = !seenFolders().includes(store.name);
+  const seenKey = store.seenKey;   // stable per map (names can be renamed / collide)
+  const firstEver = !seenFolders().includes(seenKey);
   if (!keepView && firstEver && state.nodes.size > 40) {
     collapseAtDepth(1);
     radialLayout();
   }
-  if (!keepView) markFolderSeen(store.name);
+  if (!keepView) markFolderSeen(seenKey);
   // Resolve layouts in three steps: paint once so every card has a real measured height, run
   // the line/fan layout against those true heights, then paint the resolved positions.
   paintAll();
@@ -177,7 +200,10 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   // the load actually moved something, so a stable reopen touches no files.
   if (!state.readOnly && [...state.nodes.values()].some(n => n.dirty || n.dirtyLayout))
     scheduleSave();
-  // show the loaded folder's name inside the home button (:empty hides it until loaded)
+  updateMapTitle();
+}
+// Show the open map's name in the home button (:empty hides it until loaded) + the tab title.
+export function updateMapTitle(): void {
   document.getElementById('folderName')!.textContent = store.name;
   document.title = 'Mindmap - ' + store.name;
 }
@@ -241,7 +267,8 @@ export async function saveAll(): Promise<void> {
 }
 
 // ---------- autosave (debounced) ----------
-let saveTimer: number | undefined, saving = false, saveAgain = false;
+let saveTimer: number | undefined, saveAgain = false;
+let savePromise: Promise<void> | null = null;   // non-null while a save chain is in flight
 export function scheduleSave(): void {
   if (state.readOnly) return;         // read-only mode never writes to disk
   if (!store.isOpen) return;          // demo mode: nothing to write
@@ -249,18 +276,30 @@ export function scheduleSave(): void {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, 400);
 }
-export async function flushSave(): Promise<void> {
-  if (!store.isOpen) return;
-  if (saving) { saveAgain = true; return; }   // coalesce overlapping writes
-  saving = true;
-  try {
-    await saveAll();
-  } catch (err) {
-    console.error('Save failed:', err);
-    setStatus('⚠ Save failed: ' + ((err as Error).message || (err as Error).name));
-  }
-  saving = false;
-  if (saveAgain) { saveAgain = false; flushSave(); }
+export function flushSave(): Promise<void> {
+  if (!store.isOpen) return Promise.resolve();
+  clearTimeout(saveTimer); saveTimer = undefined;
+  if (savePromise) { saveAgain = true; return savePromise; }   // coalesce overlapping writes
+  savePromise = (async () => {
+    try {
+      await saveAll();
+    } catch (err) {
+      console.error('Save failed:', err);
+      setStatus('⚠ Save failed: ' + ((err as Error).message || (err as Error).name));
+    }
+    savePromise = null;
+    if (saveAgain) { saveAgain = false; await flushSave(); }
+  })();
+  return savePromise;
+}
+// Write out everything still pending (debounced or in flight, notes AND sketch), awaiting
+// completion. MUST be called before retargeting the store at another map/folder — a straggling
+// autosave firing after the switch would write the old map's files into the new one.
+export async function settleSave(): Promise<void> {
+  const sketchPending = sketchTimer != null;
+  clearTimeout(sketchTimer); sketchTimer = undefined;
+  if (sketchPending) await flushSketch();
+  if (saveTimer != null || savePromise) await flushSave();
 }
 
 // ---------- sketch layer (freehand ink) ----------
@@ -303,7 +342,7 @@ export async function reloadFromDisk(): Promise<void> {
   // if we just wrote, the focus event is almost certainly our own round-trip — skip
   if (Date.now() - (state.lastSelfWrite || 0) < 600) return;
   clearTimeout(saveTimer);
-  if (saving) return;                 // a write is mid-flight; don't read torn state
+  if (savePromise) return;            // a write is mid-flight; don't read torn state
   const selBefore = state.selId;
   // Don't yank the rug out while the user is actively typing in the panel or renaming a card.
   if (ui.inlineEdit || ui.bodyEdit || isTypingInField()) return;

@@ -9,4 +9,4 @@ mm_y: 270
 mm_collapsed: true
 ---
 
-Where your notes live, how to keep them as real files, and how to carry a map between devices.
+You can have **many maps**. The 🧠 button opens the sidebar where they all live — switch, create, rename, export or delete them there.

@@ -3,7 +3,7 @@
 // the shared handle-store helpers (DRY); only handle acquisition is FSA-specific.
 import { idbGet, idbPut } from '../utils/idb.js';
 import { listMd, writeFile, removeFile, readFileBlob } from './handle-store.js';
-import { readRecents, writeRecents, notifyRecentsChanged } from './recents.js';
+import { rememberFolder, notifyRecentsChanged } from './recents.js';
 import { installWatch } from './watch.js';
 import type { Store, PickResult } from './types.js';
 
@@ -17,8 +17,13 @@ const showDirectoryPicker: ((opts?: { mode?: string }) => Promise<FileSystemDire
 
 export const fsaStore = {
   _dir: null as FileSystemDirectoryHandle | null,   // FSA directory handle
+  _key: null as string | null,                      // the open folder's registry/handle key
   get isOpen(){ return !!this._dir; },
   get name(){ return this._dir ? this._dir.name : ''; },
+  get seenKey(){ return this.name; },
+  // Which map (registry id) the last pick/openRecent/resume landed on — callers use this
+  // as the MapRef id instead of guessing it back out of the registry.
+  get currentKey(){ return this._key; },
 
   // Re-confirm READWRITE. The picker's mode:'readwrite' asks, but the grant can
   // sit in 'prompt' until requested — without it every write silently fails.
@@ -60,7 +65,7 @@ export const fsaStore = {
     try { handle = await idbGet(key); } catch {}
     if (!handle) return false;
     try { if ((await (handle as unknown as Permable).queryPermission({ mode:'readwrite' })) !== 'granted') return false; } catch { return false; }
-    this._dir = handle; return true;
+    this._dir = handle; this._key = key; return true;
   },
 
   list(){ return listMd(this._dir!); },
@@ -72,15 +77,13 @@ export const fsaStore = {
   // An Obsidian/Tauri build would register a real file watcher here instead.
   watch(cb: () => void){ installWatch(cb); },
 
-  // ---- recent sources: handles in IndexedDB, a tiny display list in localStorage ----
-  recents(){ return readRecents(); },
+  // ---- recent sources: handles in IndexedDB, folder-kind MapRefs in the unified registry ----
   async _remember(handle: FileSystemDirectoryHandle){
     const key = 'dir:' + handle.name + ':' + Date.now();
-    await idbPut(key, handle);                                       // store the actual handle
-    const list = readRecents().filter(r => r.name !== handle.name);  // de-dupe by name
-    list.unshift({ key, name: handle.name, when: Date.now() });
-    writeRecents(list);                                              // keep newest 5
-    notifyRecentsChanged();                                          // main re-renders the recents UI
+    await idbPut(key, handle);                 // store the actual handle
+    rememberFolder(key, handle.name);          // registry entry (de-dupes by folder name)
+    this._key = key;
+    notifyRecentsChanged();                    // main re-renders the recents UI
   },
 };
 fsaStore satisfies Store;   // compile-time contract check (extra _dir/_ensurePerm/_remember allowed on a reference)

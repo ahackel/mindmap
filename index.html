@@ -146,32 +146,24 @@
     <span>Drag to create a card</span>
   </div>
 
-  <!-- home screen: storage settings (the map itself opens straight onto the canvas) -->
+  <!-- home sidebar: slides in from the left (🧠 button). Tabs pick the storage backend,
+       "+" creates/opens a map there, the list below shows that backend's maps. Clicking
+       the space right of the sidebar closes it. -->
   <div id="startScreen" class="hidden">
-    <div class="start-card">
-      <button id="startClose" class="start-close" aria-label="Close" title="Close">✕</button>
-      <h2>Storage settings</h2>
-      <div class="store-tabs" role="tablist">
-        <button id="tabDevice" class="store-tab" role="tab">On device</button>
-        <button id="tabFolder" class="store-tab" role="tab">Local folder</button>
-      </div>
-      <div id="panelDevice" class="store-panel">
-        <p>Your map is saved <b>on this device</b> and opens automatically. It stays private to this browser.</p>
-        <div id="storeStatus" class="store-status"></div>
-      </div>
-      <div id="panelFolder" class="store-panel">
-        <p>Save your map to a real folder on disk. Needs Chrome or Edge.</p>
-        <button id="startOpen" class="primary"><span class="ic" data-icon="folder-open"></span> Open a local folder…</button>
-        <div id="recentWrap" style="display:none">
-          <div class="recent-label">Recent folders</div>
-          <div id="recentList"></div>
+    <aside id="storeSidebar" aria-label="Your maps">
+      <div class="side-head">
+        <div class="store-tabs" role="tablist">
+          <button id="tabDevice" class="store-tab" role="tab">On device</button>
+          <button id="tabFolder" class="store-tab" role="tab">Local folder</button>
         </div>
+        <button id="startClose" class="start-close" aria-label="Close" title="Close">✕</button>
       </div>
-      <div class="store-actions">
-        <button id="importBtn"><span class="ic" data-icon="import"></span> Import .zip</button>
-        <button id="exportBtn"><span class="ic" data-icon="export"></span> Export .zip</button>
+      <button id="newBtn" class="side-row"><span class="ic" data-icon="plus"></span><span id="newBtnLabel">New map</span></button>
+      <div id="mapList"></div>
+      <div class="side-footer">
+        <button id="importBtn" class="side-row" title="Import a .zip as a new map"><span class="ic" data-icon="import"></span> Import .zip</button>
       </div>
-    </div>
+    </aside>
   </div>
 
 <script type="module" src="/src/main.ts"></script>

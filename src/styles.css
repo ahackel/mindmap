@@ -180,6 +180,9 @@ input::placeholder { color:var(--panel); opacity:1; }
 #ctxMenu .cm-item:hover:not(:disabled) kbd {
   color:#fff; background:rgba(255,255,255,.16); border-color:rgba(255,255,255,.35); }
 #ctxMenu .cm-item:disabled { color:var(--muted); cursor:default; }
+/* destructive entries (delete / remove) read red before hover too */
+#ctxMenu .cm-item.cm-danger { color:#e0564f; }
+#ctxMenu .cm-item.cm-danger:hover:not(:disabled) { background:#e0564f; color:#fff; }
 #ctxMenu .cm-item kbd { font-family:inherit; font-size:11px; color:var(--muted); }
 #ctxMenu .cm-sep { height:1px; margin:4px 6px; background:var(--node-border); }
 
@@ -514,54 +517,59 @@ body.sketching #editor { display:none; }   /* the sketch panel takes the edit pa
 kbd { background:var(--node); border:1px solid var(--node-border); border-radius:6px;
   padding:0 5px; font-size:11px; }
 
-/* start screen */
-#startScreen { position:fixed; inset:0; z-index:40; display:flex;
-  align-items:center; justify-content:center; background:var(--bg); }
-#startScreen.hidden { display:none; }
-.start-card { width:min(440px, 90vw); background:var(--panel); border:1px solid var(--grid);
-  border-radius:20px; padding:28px; }
-.start-card h2 { margin:0 0 14px; font-size:20px; }
+/* home sidebar — slides in from the left edge, full window height, flat (deliberately NOT
+   the rounded floating-panel style of the editor sidebar). Clicking beside it closes it. */
+#startScreen { position:fixed; inset:0; z-index:40; }
+#startScreen.hidden { pointer-events:none; }
+#storeSidebar { position:absolute; top:0; left:0; bottom:0; width:290px; max-width:85vw;
+  background:var(--panel); border-right:1px solid var(--grid);
+  box-shadow:8px 0 24px rgba(0,0,0,.25);
+  display:flex; flex-direction:column; gap:8px; padding:12px;
+  transition:transform .22s ease; }
+#startScreen.hidden #storeSidebar { transform:translateX(calc(-100% - 30px)); }
+.side-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
 /* storage-backend tabs — segmented control, matching the sidebar layout pickers */
-.store-tabs { display:inline-flex; margin:0 0 16px; border-radius:var(--r-full); overflow:hidden; background:var(--bg); }
-.store-tab { padding:7px 16px; font-size:13px; background:transparent; border:0; border-radius:0; color:var(--muted); cursor:pointer; }
+.store-tabs { display:inline-flex; border-radius:var(--r-full); overflow:hidden; background:var(--bg); }
+.store-tab { padding:7px 14px; font-size:13px; background:transparent; border:0; border-radius:0; color:var(--muted); cursor:pointer; }
 .store-tab + .store-tab { border-left:1px solid var(--node-border); }   /* segment divider */
 .store-tab:hover:not(:disabled):not(.active) { color:var(--text); background:color-mix(in srgb, var(--text) 8%, transparent); }
 .store-tab.active { color:#fff; background:var(--accent); }
 .store-tab:disabled { opacity:.35; cursor:default; }
 .store-tab:disabled:hover { color:var(--muted); background:transparent; }
-.start-card p { margin:0 0 18px; color:var(--muted); font-size:13px; line-height:1.5; }
-.start-card .primary { width:100%; padding:11px; font-size:14px; margin-bottom:14px; }
-.start-card .ghost { width:100%; padding:9px; background:transparent; color:var(--muted);
-  margin-top:6px; }
-.recent-label { font-size:11px; text-transform:uppercase; letter-spacing:.5px;
-  color:var(--muted); margin:6px 0 8px; }
-/* recent folders read as a single framed list, not a stack of buttons */
-#recentList { border:1px solid var(--node-border); border-radius:var(--r-menu); overflow:hidden; }
-.recent-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left;
-  padding:9px 11px; margin:0; background:transparent; border:0; border-radius:0;
-  cursor:pointer; font-size:13px; color:var(--text); }
-.recent-item + .recent-item { border-top:1px solid var(--node-border); }   /* row dividers */
-.recent-item:hover:not(.selected) { background:color-mix(in srgb, var(--text) 6%, transparent); }
-/* the one selected row (the folder that will load on close) */
-.recent-item.selected { background:color-mix(in srgb, var(--accent) 16%, transparent); }
-.recent-item .ri-icon { width:16px; height:16px; flex:none; display:block; color:var(--muted); }
-.recent-item .ri-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.recent-item .ri-when { font-size:11px; color:var(--muted); }
-.recent-item .ri-check { flex:none; width:14px; text-align:center; color:var(--accent); opacity:0; }
-.recent-item.selected .ri-icon,
-.recent-item.selected .ri-name,
-.recent-item.selected .ri-check { color:var(--accent); }
-.recent-item.selected .ri-name { font-weight:600; }
-.recent-item.selected .ri-check { opacity:1; }
-.start-card { position:relative; }
-.start-close { position:absolute; top:10px; right:12px; width:28px; height:28px; padding:0;
+/* plain sidebar rows (the "+ New" action and the footer buttons) — Claude-desktop style */
+.side-row { display:flex; align-items:center; gap:8px; width:100%; padding:8px 10px;
+  background:transparent; border:0; border-radius:var(--r-ctl); color:var(--text);
+  font-size:13px; text-align:left; cursor:pointer; }
+.side-row:hover { background:color-mix(in srgb, var(--text) 7%, transparent); }
+.side-row .btn-icon { margin:0; }   /* the flex gap spaces the icon; drop its inline margin */
+/* full-bleed hairline divider — escape the sidebar's 12px padding on both sides */
+.side-footer { border-top:1px solid var(--grid); margin:0 -12px; padding:6px 12px 0; }
+.side-empty { margin:6px 10px; color:var(--muted); font-size:12px; }
+/* the map list — flat rows, one per map of the active tab */
+#mapList { flex:1; overflow:hidden auto; }
+.map-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+  padding:8px 10px; cursor:pointer; font-size:13px; color:var(--text); border-radius:var(--r-ctl); }
+.map-item:hover:not(.current) { background:color-mix(in srgb, var(--text) 6%, transparent); }
+/* the map currently open on the canvas */
+.map-item.current { background:color-mix(in srgb, var(--accent) 16%, transparent); }
+.map-item.current .mi-icon, .map-item.current .mi-name { color:var(--accent); }
+.map-item.current .mi-name { font-weight:600; }
+.mi-icon { width:16px; height:16px; flex:none; color:var(--muted); }
+.mi-icon svg { width:16px; height:16px; display:block; }
+.mi-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mi-when { font-size:11px; color:var(--muted); flex:none; margin-left:auto; }   /* right-aligned */
+/* inline rename input, swapped in for the name span */
+.mi-name-input { flex:1; min-width:0; font:inherit; font-size:13px; color:var(--text);
+  background:var(--bg); border:1px solid var(--accent); border-radius:6px; padding:3px 6px; }
+/* per-row ⋮ opens the map context menu — always visible (no hover UI: iPad) */
+.mi-more { flex:none; width:24px; height:24px; padding:0; margin:-3px 0;
+  background:transparent; border:0; border-radius:6px; color:var(--muted);
+  font-size:15px; line-height:1; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; }
+.mi-more:hover { color:var(--text); background:color-mix(in srgb, var(--text) 10%, transparent); }
+.start-close { flex:none; width:28px; height:28px; padding:0;
   background:transparent; border:none; color:var(--muted); font-size:18px; cursor:pointer; }
 .start-close:hover { color:var(--text); }
-.store-status { font-size:12px; color:var(--muted); margin:6px 0 12px; }
-.store-actions { display:flex; gap:8px; margin-top:12px; }
-.store-actions button { flex:1; padding:9px 10px; font-size:13px; cursor:pointer;
-  background:var(--node-border); color:var(--text); border:1px solid var(--node-border); border-radius:var(--r-full); }
-.store-actions button:hover { background:color-mix(in srgb, var(--text) 12%, var(--node-border)); border-color:var(--node-border); }
 /* inline icon inside text buttons (open / import / export) */
 .btn-icon { width:16px; height:16px; vertical-align:-3px; margin-right:5px; display:inline-block; }
 /* icon placeholders (filled by mountIcons): transparent to layout so the injected <svg> sits where it would have */

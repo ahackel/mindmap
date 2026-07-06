@@ -1,26 +1,28 @@
-// Recent folders backing store: directory handles live in IndexedDB (not serializable to
-// JSON), a small display list lives in localStorage. Plus the one-time "seen folders" set
-// (so the first-open auto-arrange never fires twice).
+// Recent FSA folders — now a thin view over the unified map registry (maps.ts): folder-kind
+// MapRefs ARE the recents list. Directory handles still live in IndexedDB (not serializable
+// to JSON) under the ref's id. Plus the one-time "seen" set (so the first-open auto-arrange
+// never fires twice).
 import { idbDel } from '../utils/idb.js';
-import type { RecentFolder } from './types.js';
+import { readMaps, upsertMap, removeMapRef } from './maps.js';
+import { readJSON, writeJSON } from '../utils/local-json.js';
 
-// Read/write a JSON value in localStorage, tolerating absent/corrupt entries and a missing API.
-function readJSON<T>(key: string, fallback: T): T {
-  try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : fallback; } catch { return fallback; }
+// Record a (re)opened FSA folder: de-dupe by folder name (a reopen mints a fresh handle key),
+// dropping the superseded refs' stored handles so they don't strand in IndexedDB.
+export function rememberFolder(key: string, name: string): void {
+  for (const m of readMaps()) if (m.kind === 'folder' && m.name === name && m.id !== key) {
+    removeMapRef(m.id);
+    void idbDel(m.id).catch(() => {});
+  }
+  upsertMap({ id: key, kind: 'folder', name, when: Date.now() });
 }
-function writeJSON(key: string, val: unknown): void { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
-
-const RECENT_KEY = 'mindmap.recentFolders';   // [{key, name, when}]  (localStorage)
-export function readRecents(): RecentFolder[] { return readJSON<RecentFolder[]>(RECENT_KEY, []); }
-export function writeRecents(list: RecentFolder[]): void { writeJSON(RECENT_KEY, list.slice(0, 5)); }
-// Drop a recent folder by its key (display list + its stored handle) when it can no longer be opened.
+// Drop a recent folder by its key (registry entry + its stored handle) when it can no longer be opened.
 export async function forgetRecent(key: string): Promise<void> {
-  writeRecents(readRecents().filter(r => r.key !== key));
+  removeMapRef(key);
   try { await idbDel(key); } catch {}
 }
 
-// Folders we've already auto-arranged once. Used so the one-time auto-collapse never
-// fires again — every later open restores the saved frontmatter state verbatim.
+// Maps we've already auto-arranged once (keyed by store.seenKey). Used so the
+// one-time auto-collapse never fires again — every later open restores the saved state verbatim.
 const SEEN_KEY = 'mindmap.seenFolders';
 export function seenFolders(): string[] { return readJSON<string[]>(SEEN_KEY, []); }
 export function markFolderSeen(name: string): void {

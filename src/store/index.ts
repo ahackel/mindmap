@@ -9,12 +9,17 @@
 // ============================================================
 import { opfsStore } from './opfs.js';
 import { idbStore } from './idb-store.js';
-import type { Store } from './types.js';
+import type { DeviceStore } from './types.js';
 
-export type { Store, NoteFile, RecentFolder, PickResult } from './types.js';
+export type { Store, DeviceStore, NoteFile, PickResult } from './types.js';
 export { opfsStore } from './opfs.js';
 export { fsaStore } from './fsa.js';
-export { readRecents, writeRecents, forgetRecent, seenFolders, markFolderSeen, setOnRecentsChanged } from './recents.js';
+export { forgetRecent, seenFolders, markFolderSeen, setOnRecentsChanged } from './recents.js';
+export {
+  readMaps, touchMap, getLastMap, setLastMap,
+  createDeviceMap, deleteDeviceMap, renameDeviceMap, ensureMapRegistry,
+  type MapRef, type MapKind,
+} from './maps.js';
 
 // OPFS write requires FileSystemWritableFileStream (createWritable), which Safari added in 17.2.
 // On iOS ≤16 we fall back to an IndexedDB store with the same interface.
@@ -31,8 +36,8 @@ async function opfsCanWrite(): Promise<boolean> {
 
 // Pick the on-device store once: the real OPFS where writes work, else the IndexedDB
 // fallback (Safari < 17.2). Cached so the capability probe runs at most once.
-let _onDeviceStore: Store | null = null;
-export async function resolveOnDeviceStore(): Promise<Store> {
+let _onDeviceStore: DeviceStore | null = null;
+export async function resolveOnDeviceStore(): Promise<DeviceStore> {
   if (_onDeviceStore) return _onDeviceStore;
   _onDeviceStore = await opfsCanWrite() ? opfsStore : idbStore;
   return _onDeviceStore;

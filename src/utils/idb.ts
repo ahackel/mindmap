@@ -12,29 +12,31 @@ export function openDB(name: string, store: string): Promise<IDBDatabase> {
   });
 }
 
-const IDB_DB = 'mindmap', IDB_STORE = 'handles';
-const idb = (): Promise<IDBDatabase> => openDB(IDB_DB, IDB_STORE);
-export async function idbPut(key: IDBValidKey, val: unknown): Promise<void> {
-  const db = await idb();
+// Promise-wrapped single-op transactions over any db/store (shared with store/idb-store.ts).
+export function dbPut(db: IDBDatabase, store: string, key: IDBValidKey, val: unknown): Promise<void> {
   return new Promise((res, rej) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(val, key);
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(val, key);
     tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
   });
 }
-export async function idbGet(key: IDBValidKey): Promise<any> {
-  const db = await idb();
+export function dbGet(db: IDBDatabase, store: string, key: IDBValidKey): Promise<any> {
   return new Promise((res, rej) => {
-    const tx = db.transaction(IDB_STORE, 'readonly');
-    const g = tx.objectStore(IDB_STORE).get(key);
+    const tx = db.transaction(store, 'readonly');
+    const g = tx.objectStore(store).get(key);
     g.onsuccess = () => res(g.result); g.onerror = () => rej(g.error);
   });
 }
-export async function idbDel(key: IDBValidKey): Promise<void> {
-  const db = await idb();
+export function dbDel(db: IDBDatabase, store: string, key: IDBValidKey): Promise<void> {
   return new Promise((res, rej) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).delete(key);
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).delete(key);
     tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
   });
 }
+
+const IDB_DB = 'mindmap', IDB_STORE = 'handles';
+const idb = (): Promise<IDBDatabase> => openDB(IDB_DB, IDB_STORE);
+export async function idbPut(key: IDBValidKey, val: unknown): Promise<void> { return dbPut(await idb(), IDB_STORE, key, val); }
+export async function idbGet(key: IDBValidKey): Promise<any> { return dbGet(await idb(), IDB_STORE, key); }
+export async function idbDel(key: IDBValidKey): Promise<void> { return dbDel(await idb(), IDB_STORE, key); }
