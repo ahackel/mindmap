@@ -181,10 +181,11 @@ stage.addEventListener('wheel', (e) => {
   applyView();
 }, { passive:false });
 
-// Safari fires native gesture events for pinch instead of ctrl+wheel.
+// Safari fires native gesture events for pinch instead of ctrl+wheel. These only APPLY the
+// canvas zoom — cancelling the browser's page zoom happens once, in the window guards below
+// (gesture events bubble there from anywhere, including the stage).
 stage.addEventListener('gesturestart', (ev) => {
   const e = ev as GestureEvt;
-  e.preventDefault();
   if (gPointers.size) return;   // touchscreen pinch is handled via pointer events instead
   ui.gestureStartK = state.view.k;
   const r = stage.getBoundingClientRect();
@@ -192,10 +193,16 @@ stage.addEventListener('gesturestart', (ev) => {
 });
 stage.addEventListener('gesturechange', (ev) => {
   const e = ev as GestureEvt;
-  e.preventDefault();
   if (gPointers.size) return;   // …so we don't double-apply zoom on iPad
   const k0 = state.view.k;
   const target = Math.min(2.5, Math.max(0.2, ui.gestureStartK * e.scale));
   zoomAt(ui.gestureMid.x, ui.gestureMid.y, target / k0);
 });
-stage.addEventListener('gestureend', (e) => e.preventDefault());
+
+// ---- block BROWSER page zoom globally (canvas AND toolbar, editor panel, search, …).
+// The stage handlers above turn the gesture into canvas zoom; here the page zoom is cancelled.
+// Trackpad pinch arrives as wheel+ctrlKey (Chrome/Edge/Firefox) …
+window.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive:false });
+// … and as native gesture events on Safari.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend'] as const)
+  window.addEventListener(type, (e) => e.preventDefault());
