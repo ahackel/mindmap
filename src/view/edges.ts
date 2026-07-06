@@ -150,7 +150,7 @@ export function paintEdges(): void {
   // Collect edges first so they can be painted furthest-first: softened (faint) long edges go
   // down before crisp short ones, so a close, opaque connector never gets dulled by a faint one
   // crossing over it.
-  const entries: { dist: number; path: string; top: boolean }[] = [];
+  const entries: { dist: number; path: string }[] = [];
   // Every parent's occupied sides — a socket disk marks each one, at the point its children's
   // edges converge (see anchorPoint), tinted to match the PARENT card (its own socket).
   const occupiedSides = new Map<string, Set<LayoutSide>>();
@@ -164,12 +164,11 @@ export function paintEdges(): void {
     // While Alt-dragging this node we're previewing detach-to-root, so drop its parent
     // edge entirely (no line, not even a dotted one).
     if (ui.drag && ui.drag.alt && !ui.drag.shift && ui.drag.n.id === n.id) continue;
-    // Poised over a valid new parent (the dragged subtree is hidden behind the landing
-    // ghost): hide every edge whose CHILD end is in that subtree — covers both the root's
-    // own parent edge and any internal parent→child edges among its dragged descendants
-    // (the subtree is closed under descendants, so checking `n` alone is enough) — so
-    // nothing dangles off cards that are no longer visible.
-    if (ui.drag && ui.drag.dropTarget && ui.drag.targets.has(n.id)) continue;
+    // Poised over a valid new parent: hide the edge to the OLD parent of each dragged root
+    // (child in the dragged set, parent outside it) — the dashed preview edge replaces it.
+    // Internal parent→child edges among the dragged cards keep drawing; the cards stay
+    // visible while dragging, so their subtree must not fall apart visually.
+    if (ui.drag && ui.drag.dropTarget && ui.drag.targets.has(n.id) && !ui.drag.targets.has(parent.id)) continue;
     // While Shift-cloning, the dragged copies aren't placed yet — don't draw their parent edges.
     if (ui.drag && ui.drag.cloned && ui.drag.targets.has(n.id)) continue;
     // Rip threshold reached: it's about to detach, so drop its parent edge entirely — same
@@ -181,15 +180,15 @@ export function paintEdges(): void {
     const style = `stroke:${tint ?? 'var(--edge)'};opacity:${edgeOpacity(dist).toFixed(2)}`;
     const side = sideOf(parent, n);
     const path = `<path style="${style}" d="${edgePathBox(parent, { x:n.x, y:n.y, h:nodeH(n) }, side)}"/>`;
-    // edges of the dragged subtree ride in the top overlay so they're never hidden behind cards
-    entries.push({ dist, path, top: !!(ui.drag && ui.drag.targets.has(n.id)) });
+    // dragged-subtree edges stay in the normal behind-cards layer too — the cards themselves
+    // remain visible while dragging, so nothing should overdraw other cards
+    entries.push({ dist, path });
     let sides = occupiedSides.get(parent.id); if (!sides) occupiedSides.set(parent.id, sides = new Set());
     sides.add(side);
   }
   entries.sort((a, b) => b.dist - a.dist);   // furthest (faintest) first, crispest on top
-  let svg = '';    // normal edges, behind the cards
-  let top = '';    // drag-time edges (dragged subtree + reparent preview), in the top overlay
-  for (const e of entries) { if (e.top) top += e.path; else svg += e.path; }
+  let svg = entries.map(e => e.path).join('');   // all connectors, behind the cards
+  let top = '';    // reparent-preview overlay (dashed would-be edge + anchor dot)
   for (const [pid, sides] of occupiedSides) {
     const p = state.nodes.get(pid); if (!p) continue;
     const tint = branchTint(p);

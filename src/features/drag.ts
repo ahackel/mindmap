@@ -26,9 +26,7 @@ function editorEl(): HTMLElement | null { return _editor ??= document.getElement
 
 // Lazily-created phantom card that previews where the dragged card will actually LAND once
 // dropped (not where the cursor currently is) while poised over a valid reparent target. The
-// whole dragged subtree (the card + every descendant coming along with it) is hidden for the
-// duration (see showLandingGhost/hideLandingGhost) so only the landing preview is visible —
-// avoids overlapping copies of the same cards on screen.
+// dragged cards stay visible and keep following the cursor; the ghost is an additional preview.
 let _landingGhost: HTMLElement | null = null;
 function landingGhostEl(): HTMLElement {
   if (_landingGhost) return _landingGhost;
@@ -38,13 +36,7 @@ function landingGhostEl(): HTMLElement {
   world.appendChild(el);
   return _landingGhost = el;
 }
-function setSubtreeVisibility(ids: Iterable<string>, visible: boolean): void {
-  for (const id of ids) {
-    const el = state.nodes.get(id)?.el;
-    if (el) el.style.visibility = visible ? '' : 'hidden';
-  }
-}
-function showLandingGhost(x: number, y: number, h: number, draggedIds: Iterable<string>): void {
+function showLandingGhost(x: number, y: number, h: number): void {
   const el = landingGhostEl();
   el.style.left = x + 'px'; el.style.top = y + 'px';
   el.style.width = NODE_W + 'px'; el.style.height = h + 'px';
@@ -54,12 +46,10 @@ function showLandingGhost(x: number, y: number, h: number, draggedIds: Iterable<
   el.style.borderColor = 'white';   // matches the highlighted anchor dot/ghost edge
   el.style.display = '';
   if (_insertLine) _insertLine.style.display = 'none';   // ghost and reorder bar never coexist
-  setSubtreeVisibility(draggedIds, false);
 }
-function hideLandingGhost(draggedIds?: Iterable<string> | null): void {
+function hideLandingGhost(): void {
   if (_landingGhost) _landingGhost.style.display = 'none';
   if (_insertLine) _insertLine.style.display = 'none';
-  if (draggedIds) setSubtreeVisibility(draggedIds, true);
 }
 // Lazily-created insertion indicator for an in-parent REORDER: a thin bar in the CURRENT gap
 // between the two siblings the dragged card would slot between (horizontal for a vertical
@@ -68,9 +58,8 @@ function hideLandingGhost(draggedIds?: Iterable<string> | null): void {
 // following the cursor. Hidden by hideLandingGhost alongside the reparent ghost.
 let _insertLine: HTMLElement | null = null;
 const INSERT_LINE_W = 3;   // bar thickness (world px) — reads like the ghost's 2px dashed border
-function showInsertLine(seg: Seg, draggedIds: Iterable<string>): void {
+function showInsertLine(seg: Seg): void {
   if (_landingGhost) _landingGhost.style.display = 'none';   // bar and ghost never coexist
-  setSubtreeVisibility(draggedIds, false);   // only the bar previews the slot; the card hides
   const el = _insertLine ??= (() => {
     const d = document.createElement('div');
     d.className = 'insert-line';
@@ -293,11 +282,10 @@ function dragPointerUp(): void {
     const drag = ui.drag;
     if (drag) {
       const n = drag.n;
-      // Clear compositor transforms so paintAll()/paintNode() can commit final left/top cleanly,
-      // and undo any landing-ghost visibility hide left over from updateDropTarget.
+      // Clear compositor transforms so paintAll()/paintNode() can commit final left/top cleanly.
       for (const id of new Set([...drag.targets.keys(), ...drag.start.keys()])){
         const m2 = state.nodes.get(id);
-        if (m2?.el){ m2.el.style.transform = ''; m2.el.style.willChange = ''; m2.el.style.visibility = ''; m2.el.classList.remove('dragging'); }
+        if (m2?.el){ m2.el.style.transform = ''; m2.el.style.willChange = ''; m2.el.classList.remove('dragging'); }
       }
       const act = drag.active;
       if (!drag.moved) {
@@ -324,7 +312,7 @@ function dragPointerUp(): void {
         const tgt = drag.dropTarget;
         const { cloned, targets, alt, shift, clones, rip, dropMode, dropSide, dropAfter, selRoots } = drag;
         clearDropTarget();
-        hideLandingGhost(targets.keys());
+        hideLandingGhost();
         // Null drag NOW so every paintAll/paintEdges in the commit phase sees no active drag
         // and draws all edges. (Previously edges remained hidden because drag was still set
         // when paintAll was called, and nothing repainted after drag = null.)
@@ -451,10 +439,10 @@ export function abortDrag(): void {
   const drag = ui.drag;
   if (!drag) return;
   clearDropTarget();
-  hideLandingGhost(drag.targets.keys());
+  hideLandingGhost();
   for (const id of new Set([...drag.targets.keys(), ...drag.start.keys()])){
     const m = state.nodes.get(id);
-    if (m?.el){ m.el.style.transform = ''; m.el.style.willChange = ''; m.el.style.visibility = ''; m.el.classList.remove('dragging'); }
+    if (m?.el){ m.el.style.transform = ''; m.el.style.willChange = ''; m.el.classList.remove('dragging'); }
   }
   ui.drag = null;
   document.body.classList.remove('grabbing');
@@ -469,9 +457,8 @@ function applyDragClone(): void {
     drag.cloned = true;
     for (const [id, s] of drag.start){             // pin the original subtree(s) back to start
       const m = state.nodes.get(id); if (m){ m.x = s.x; m.y = s.y; m.dirtyLayout = false; }
-      // revert their compositor transforms and undo any landing-ghost visibility hide —
-      // `drag.active` is about to switch to the clone, so the original must stay visible
-      if (m?.el) { m.el.style.transform = ''; m.el.style.visibility = ''; }
+      // revert their compositor transforms — `drag.active` is about to switch to the clone
+      if (m?.el) { m.el.style.transform = ''; }
     }
     // clone each dragged ROOT (just the card, not its subtree) at its own start spot
     const rootIds = drag.selRoots;
@@ -635,20 +622,21 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
     const targetNode = state.nodes.get(target)!;
     if (mode !== 'reorder') targetNode.el?.classList.add(mode === 'sibling' ? 'drop-sibling' : 'drop-target');
     // One preview at a time, never both: joining/reordering a managed branch with existing
-    // children shows ONLY the insertion bar in the sibling gap (the dragged subtree hides, its
-    // edge is dropped by paintEdges via drag.dropTarget, and the dashed would-be-edge preview
-    // stands down via drag.dropLine); everything else shows ONLY the landing-ghost card.
+    // children shows ONLY the insertion bar in the sibling gap (the dragged subtree's edge is
+    // dropped by paintEdges via drag.dropTarget, and the dashed would-be-edge preview stands
+    // down via drag.dropLine); everything else shows ONLY the landing-ghost card. The dragged
+    // cards themselves stay visible under the cursor throughout.
     if (line) {
       // Runs on every pointermove — skip the DOM writes while the segment stays in the same gap
       // (the bar marks the SIBLINGS' gap, which only moves when the anchor flips).
       if (!(prevLine && prevLine.x0 === line.x0 && prevLine.y0 === line.y0 && prevLine.x1 === line.x1 && prevLine.y1 === line.y1))
-        showInsertLine(line, sub);
+        showInsertLine(line);
     } else {
       const land = dropLanding(dragged, targetNode, mode, side, after);
-      showLandingGhost(land.x, land.y, nodeH(dragged), sub);
+      showLandingGhost(land.x, land.y, nodeH(dragged));
     }
   } else {
-    hideLandingGhost(sub);
+    hideLandingGhost();
   }
 }
 function clearDropTarget(): void {

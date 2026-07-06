@@ -243,8 +243,9 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
 /* while editing a title/body in place, drop the card's selection ring so only the editor's
    own outline shows */
 .node.sel:has(.title.editing), .node.sel:has(.body.editing) { box-shadow:none; }
-/* the dragged card (and its subtree) floats above every other card while moving */
-.node.dragging { z-index:5; }
+/* the dragged card (and its subtree) floats above every other card — including the
+   landing ghost / insert bar (z-index:5) — and goes translucent while moving */
+.node.dragging { z-index:6; opacity:.75; }
 /* while poised over a valid parent the dragged card becomes just a dotted outline,
    so the parent underneath stays visible. Border colour is set inline to match the
    dragged card's branch colour (see features/drag.ts showLandingGhost). */
@@ -252,7 +253,7 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
   border:2px dashed var(--node-sel); }
 .node.reparent-ghost > * { visibility:hidden; }
 /* landing-spot preview: where the dragged card will actually land once dropped onto a
-   valid reparent target — renders on top of all other cards (z-index:5) */
+   valid reparent target — above resting cards (z-index:5) but below the dragged ones (6) */
 .node.landing-ghost { pointer-events:none; transition:none; z-index:5; }
 /* in-parent reorder indicator: a bar in the gap between the two siblings the dragged card
    would slot between (horizontal for a vertical stack, vertical for a horizontal spread).
