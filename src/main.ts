@@ -30,7 +30,7 @@ import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInp
 import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
 import { searchBox } from './features/search.js';
-import { copySelection, cutSelection } from './features/clipboard.js';
+import { copySelection, cutSelection, bindCardFileDrag } from './features/clipboard.js';
 import { toggleSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
 import { touch, commitStep, record, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
@@ -65,6 +65,7 @@ function nodeEl(n: MindNode): HTMLElement {
   world.appendChild(el);
   n.el = el;
   bindNodeDrag(n);
+  bindCardFileDrag(n);   // ⌥-drag out of the window = save as .md file(s)
   const addnote = el.querySelector('.addnote')!;
   addnote.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); });
   addnote.addEventListener('click', (e)=>{ e.stopPropagation(); startBodyEdit(n); });
@@ -583,6 +584,7 @@ function updateNodeActions(): void {
   const set = (id: string, on: boolean) => { byId<HTMLButtonElement>(id).disabled = !on; };
   set('edRename', one); set('edDuplicate', one);
   set('edDelete', any);
+  set('edDragOut', state.sel.size > 0);   // exporting mutates nothing → allowed in read-only too
 }
 function updateEditor(): void {
   const n = state.sel.size;

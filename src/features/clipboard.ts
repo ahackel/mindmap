@@ -18,8 +18,11 @@
 import { state, setStatus, type MindNode, type LayoutType, type LayoutSide } from '../core/state.js';
 import { serializeMd, parseMd, type ParsedNote } from '../utils/frontmatter.js';
 import { isAncestor } from '../utils/model.js';
+import { zipBytes, zipBlob } from '../utils/zip.js';
 import { mkNode, uniqueTitle, deleteSelection } from './crud.js';
 import { touch, record } from './history.js';
+import { cancelDragRestore } from './drag.js';
+import { downloadBlob } from '../utils/download.js';
 import { screenToWorld } from '../view/camera.js';
 import { applyLayouts } from '../view/layout.js';
 import { scheduleSave } from '../data/persistence.js';
@@ -38,23 +41,36 @@ function withParentRef(md: string, parentName: string | null): string {
   return `---\n${fm.join('\n')}\n---\n${m[2]}`;
 }
 
+// One card as a would-be .md file: its filename (title) + its exact file content.
+export interface CardFile { name: string; text: string }
+
+// The given cards INCLUDING their subtrees as one .md file per card, parent refs payload-local.
+// Shared by copy (clipboard), the drag-out chip and ⌥-dragging a card out (files via DownloadURL).
+export function filesFor(ids: string[]): CardFile[] {
+  // dedupe: a card inside another given card's subtree is already covered
+  const roots = ids.filter(id => !ids.some(a => a !== id && isAncestor(a, id)));
+  const all = roots.flatMap(id => subtreeIds(id));   // preorder per root → parents precede kids
+  const inPayload = new Set(all);
+  return all.map(id => {
+    const n = state.nodes.get(id)!;
+    const p = n.parent && inPayload.has(n.parent) ? state.nodes.get(n.parent) : null;
+    return { name: `${n.title}.md`, text: withParentRef(serializeMd(n), p ? `${p.title}.md` : null) };
+  });
+}
+export function selectionFiles(): CardFile[] { return filesFor(selectedIds()); }
+// Files → the marker-separated text payload tryPasteCards understands. Also used by the
+// .md-file drop importer (a dropped note IS one of these chunks).
+export const cardsToPayload = (files: CardFile[]): string =>
+  files.map(f => `${MARK}${f.name} -->\n${f.text}`).join('\n');
+
 // Copy the selected cards INCLUDING their subtrees to the system clipboard. Allowed in
 // read-only mode (copying mutates nothing). Resolves true iff the clipboard write succeeded.
 export async function copySelection(): Promise<boolean> {
-  const ids = selectedIds();
-  // dedupe: a selected node inside another selected node's subtree is already covered
-  const roots = ids.filter(id => !ids.some(a => a !== id && isAncestor(a, id)));
-  const all = roots.flatMap(id => subtreeIds(id));   // preorder per root → parents precede kids
-  if (!all.length) return false;
-  const inPayload = new Set(all);
-  const text = all.map(id => {
-    const n = state.nodes.get(id)!;
-    const p = n.parent && inPayload.has(n.parent) ? state.nodes.get(n.parent) : null;
-    return `${MARK}${n.title}.md -->\n` + withParentRef(serializeMd(n), p ? `${p.title}.md` : null);
-  }).join('\n');
+  const files = selectionFiles();
+  if (!files.length) return false;
   try {
-    await navigator.clipboard.writeText(text);
-    setStatus(`Copied ${all.length} card${all.length === 1 ? '' : 's'}`);
+    await navigator.clipboard.writeText(cardsToPayload(files));
+    setStatus(`Copied ${files.length} card${files.length === 1 ? '' : 's'}`);
     return true;
   } catch {
     setStatus('Couldn’t copy');
@@ -135,3 +151,55 @@ export function tryPasteCards(text: string, at: { sx: number | null; sy: number 
   setStatus(`Pasted ${cards.length} card${cards.length === 1 ? '' : 's'}`);
   return true;
 }
+
+// ---------- drag cards OUT of the app as .md files ----------
+// The sidebar's export chip (#edDragOut) is natively draggable; dropping it on the OS file
+// manager creates real files. That uses Chrome/Edge's non-standard `DownloadURL` flavour,
+// which allows ONE entry per drag — a single card ships as its .md, a bigger selection as
+// one .zip (the store-only writer is synchronous, so it can run inside dragstart). Browsers
+// without DownloadURL still carry the text payload — dropping into an editor lands markdown.
+function b64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+// A multi-card export .zip is named after its first (root) card.
+const zipName = (files: CardFile[]): string => files[0].name.replace(/\.md$/, '') + '.zip';
+// The selection as ONE downloadable file: a single card is its .md, more become a .zip.
+function exportFile(files: CardFile[]): { mime: string; name: string; bytes: Uint8Array } {
+  return files.length === 1
+    ? { mime: 'text/markdown', name: files[0].name, bytes: new TextEncoder().encode(files[0].text) }
+    : { mime: 'application/zip', name: zipName(files),
+        bytes: zipBytes(files.map(f => ({ name: f.name, data: f.text }))) };
+}
+// ⌥/Alt-drag a CARD out of the window → the same OS file drag as the chip. The card's plain
+// drag gesture belongs to the pointer-based canvas move (drag.ts), and a native drag can only
+// begin at gesture start — so ⌥ at dragstart is the fork: without it the native drag is
+// suppressed (canvas move proceeds untouched); with it the already-started pointer drag is
+// cancelled (positions snap back) and the browser's drag takes over, carrying the DownloadURL.
+export function bindCardFileDrag(n: MindNode): void {
+  const el = n.el!;
+  el.draggable = true;
+  el.addEventListener('dragstart', (e: DragEvent) => {
+    if (!e.altKey || !e.dataTransfer){ e.preventDefault(); return; }
+    // the pointer machinery grabbed this gesture at pointerdown — take it back cleanly
+    cancelDragRestore();
+    const ids = state.sel.has(n.id) && state.sel.size > 1 ? [...state.sel] : [n.id];
+    const f = exportFile(filesFor(ids));
+    e.dataTransfer.effectAllowed = 'copy';
+    // ONLY DownloadURL — Chrome ignores it when other formats are set alongside (crbug 55071)
+    e.dataTransfer.setData('DownloadURL', `${f.mime}:${f.name}:data:${f.mime};base64,${b64(f.bytes)}`);
+    setStatus(`Drop to save ${f.name}`);
+  });
+}
+
+// The sidebar's export button: download the selected cards (with their subtrees) as one .zip.
+// A plain download works in every browser; for drag-to-Finder use ⌥-drag on the card itself.
+document.getElementById('edDragOut')?.addEventListener('click', () => {
+  const files = selectionFiles();
+  if (!files.length) return;
+  const name = zipName(files);
+  downloadBlob(zipBlob(files.map(f => ({ name: f.name, data: f.text }))), name);
+  setStatus(`Saved ${name}`);
+});

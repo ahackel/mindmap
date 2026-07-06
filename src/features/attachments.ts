@@ -11,7 +11,7 @@ import { paintAll, selectNode } from '../main.js';
 import { createNode, uniqueTitle, newCardTitle } from './crud.js';
 import { autosizeBody } from './inline-edit.js';
 import { touch, record } from './history.js';
-import { tryPasteCards } from './clipboard.js';
+import { tryPasteCards, cardsToPayload } from './clipboard.js';
 
 const IMG_EXT: Record<string, string> = { 'image/png':'.png', 'image/jpeg':'.jpg', 'image/gif':'.gif', 'image/webp':'.webp',
                   'image/svg+xml':'.svg', 'image/avif':'.avif', 'image/bmp':'.bmp' };
@@ -219,6 +219,13 @@ document.addEventListener('drop', async (e) => {
   const onEditor = !!t.closest?.('.body-edit');
   const cardEl   = t.closest?.('#world [data-id]') as HTMLElement | null;
   setImgDropTarget(null);
+  // dropped .md notes reconstruct as cards (parent links WITHIN the dropped set are kept);
+  // a dropped-on card adopts them as children, the canvas takes them at the drop point
+  const mds = [...e.dataTransfer!.files].filter(f => /\.md$/i.test(f.name));
+  if (mds.length){
+    const cards = await Promise.all(mds.map(async f => ({ name: f.name, text: await f.text() })));
+    tryPasteCards(cardsToPayload(cards), { sx: e.clientX, sy: e.clientY, parent: cardEl?.dataset.id ?? null });
+  }
   const imgs = imageFiles(e.dataTransfer!.files);
   if (!imgs.length) return;
   if (onEditor && ui.bodyEdit){ await insertImagesAtCursor(imgs); }   // drop on the open editor → at the caret

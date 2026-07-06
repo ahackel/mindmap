@@ -18,7 +18,9 @@ function crc32(bytes: Uint8Array): number {
   for (let i=0;i<bytes.length;i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
   return (c ^ 0xFFFFFFFF) >>> 0;
 }
-export function zipBlob(files: ZipInput[]): Blob {
+// The archive as raw bytes — synchronous (store, no compression), so callers that need the
+// data inside a single event handler (e.g. a dragstart's DownloadURL) can build it inline.
+export function zipBytes(files: ZipInput[]): Uint8Array {
   const enc = new TextEncoder();
   const u16 = (v: number) => [v & 0xFF, (v>>>8) & 0xFF];
   const u32 = (v: number) => [v & 0xFF, (v>>>8) & 0xFF, (v>>>16) & 0xFF, (v>>>24) & 0xFF];
@@ -44,7 +46,14 @@ export function zipBlob(files: ZipInput[]): Blob {
     ...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length),
     ...u32(centralSize), ...u32(offset), ...u16(0),
   ]);
-  return new Blob([...body, ...central, eocd] as BlobPart[], { type:'application/zip' });
+  const parts = [...body, ...central, eocd];
+  let size = 0; for (const p of parts) size += p.length;
+  const out = new Uint8Array(size);
+  let at = 0; for (const p of parts){ out.set(p, at); at += p.length; }
+  return out;
+}
+export function zipBlob(files: ZipInput[]): Blob {
+  return new Blob([zipBytes(files) as BlobPart], { type:'application/zip' });
 }
 export async function unzip(buf: ArrayBuffer): Promise<ZipEntry[]> {
   const u8 = new Uint8Array(buf), dv = new DataView(buf), dec = new TextDecoder();

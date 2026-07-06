@@ -88,6 +88,10 @@ function trueRoots(ids: string[]): string[] {
 
 const RIP_THRESHOLD = 200; // screen-space px dragged from THIS gesture's start before edge hides/detaches on drop
 
+// Is a screen point outside the browser window? True once a drag has left for another app.
+const outsideWindow = (x: number, y: number): boolean =>
+  x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight;
+
 // Recompute whether the dragged card has been pulled past the rip threshold DURING THIS DRAG —
 // measured from where the gesture started (drag.start), not from the parent's position. Using the
 // parent as the reference meant a child already sitting far from its parent (a common layout,
@@ -156,10 +160,14 @@ function autoPanStep(): void {
   const M = 56, MAX = 16;   // edge band (px) and max pan speed (px/frame)
   let vx = 0, vy = 0;
   const x = drag.cx, y = drag.cy;
-  if (x < r.left + M)     vx =  Math.min(1, (r.left + M - x) / M);
-  else if (x > right - M) vx = -Math.min(1, (x - (right - M)) / M);
-  if (y < r.top + M)        vy =  Math.min(1, (r.top + M - y) / M);
-  else if (y > r.bottom - M) vy = -Math.min(1, (y - (r.bottom - M)) / M);
+  // Pan only while the pointer is still INSIDE the browser window: once it crosses out
+  // (e.g. a drag heading for another app), scrolling on would carry the map away under it.
+  if (!outsideWindow(x, y)){
+    if (x < r.left + M)     vx =  Math.min(1, (r.left + M - x) / M);
+    else if (x > right - M) vx = -Math.min(1, (x - (right - M)) / M);
+    if (y < r.top + M)        vy =  Math.min(1, (r.top + M - y) / M);
+    else if (y > r.bottom - M) vy = -Math.min(1, (y - (r.bottom - M)) / M);
+  }
   if (vx || vy){
     cancelViewAnim();
     vx *= MAX; vy *= MAX;
@@ -288,6 +296,14 @@ function dragPointerUp(): void {
         if (m2?.el){ m2.el.style.transform = ''; m2.el.style.willChange = ''; m2.el.classList.remove('dragging'); }
       }
       const act = drag.active;
+      // Released OUTSIDE the browser window → cancel the whole gesture, OS-style snap-back.
+      // Committing here would strand the card far off-canvas (and rip-detach it), which reads
+      // as "my card got deleted". Everything returns to where the drag started.
+      if (drag.moved && outsideWindow(drag.cx, drag.cy)){
+        cancelDragRestore();
+        setStatus('Drag cancelled — released outside the window');
+        return;
+      }
       if (!drag.moved) {
         if (drag.meta) toggleSel(n.id);                 // ⌘/Ctrl-click: add/remove from selection
         else if (state.selId !== n.id || state.sel.size !== 1) {
@@ -446,6 +462,23 @@ export function abortDrag(): void {
   }
   ui.drag = null;
   document.body.classList.remove('grabbing');
+}
+// Cancel the live drag AND put everything back where the gesture started, OS-style snap-back:
+// Shift-clones are removed (they never existed), every dragged card returns to its start
+// position, and the pending undo step nets out. Shared by the released-outside-the-window
+// cancel and the ⌥-drag file-export takeover (clipboard.ts).
+export function cancelDragRestore(): void {
+  const drag = ui.drag;
+  if (!drag) return;
+  for (const clone of (drag.cloned && drag.clones) || []){
+    state.nodes.delete(clone.id); clone.el?.remove();
+  }
+  for (const [id, s] of drag.start){
+    const m = state.nodes.get(id); if (m){ m.x = s.x; m.y = s.y; m.dirtyLayout = true; }
+  }
+  abortDrag();
+  applyLayouts(); paintAll();   // no new cards to measure — one layout + paint suffices
+  commitStep();   // nothing changed → the pending step nets out and is discarded
 }
 // Bring the Shift-clone state in line with the live `drag.shift` flag. Shift down (and moved past
 // the threshold) leaves a clone of each dragged card at its start spot and drags the COPIES away;

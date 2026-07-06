@@ -20,6 +20,7 @@ mm_collapsed: true
 - `⌘/Ctrl C` — copy card + subtree
 - `⌘/Ctrl X` — cut
 - `⌘/Ctrl V` — paste (as child of the selected card, else at the pointer)
+- `⌥/Alt` + drag a card — save it as a `.md` file (drop on your file manager)
 
 ## Edit
 - `F2` — rename

@@ -7,6 +7,7 @@
 import { state, world, setStatus, type MindNode, type LayoutType, type LayoutSide } from '../core/state.js';
 import { parseMd, serializeMd } from '../utils/frontmatter.js';
 import { zipBlob, unzip } from '../utils/zip.js';
+import { downloadBlob } from '../utils/download.js';
 import { childrenOf } from '../utils/model.js';
 import { applyLayouts, radialLayout, collapseAtDepth, deriveSide } from '../view/layout.js';
 import { fit } from '../view/camera.js';
@@ -119,11 +120,7 @@ export async function exportZip(): Promise<void> {
   for (const img of images) if (img) files.push(img);
   if (state.strokes.length) files.push({ name: SKETCH_FILE, data: sketchJSON() });
   const zipName = safeName(store.name || 'mindmap') + '.zip';   // the map's name, not a generic one
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(zipBlob(files));
-  a.download = zipName;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  downloadBlob(zipBlob(files), zipName);
   setStatus(`Exported ${nodes.length} notes${attached ? ` + ${attached} image${attached === 1 ? '' : 's'}` : ''} → ${zipName}`);
 }
 
