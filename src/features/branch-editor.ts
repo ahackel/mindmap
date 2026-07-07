@@ -1,21 +1,21 @@
-// ---------- outline branch editor ----------
-// Tapping a row in the outline opens THIS card + all its siblings (same parent; roots if it has
-// none — no children) as a vertical scrolling list of full, editable cards. Each card shows just
-// its title + note, styled like the canvas cards — NOT the sidebar form. It renders into #olCards
-// inside the outline panel and toggles `body.ol-editing` (instant, no slide-in). Selecting a card
-// slides a properties sheet up from the bottom (#branchProps): colour / tags / checklist / group
-// background, the same controls as the canvas sidebar (features/properties.ts). Duplicate / delete
-// still live in the row's ⋯ menu. Editing reuses the in-card editors' contract: one undo step per
-// focus→blur session, and ui.panelEdit freezes the file rename while typing.
+// ---------- outline single-card editor ----------
+// The outline's "deep edit" surface for ONE card: its title + note, styled like the canvas card —
+// NOT the sidebar form. Opened from a row (the › open button), or whenever something needs the
+// note editor while in outline mode (slow-click the row / E / ↓ from the title — see
+// features/inline-edit.ts's startBodyEdit). Renders into #olCards inside the outline panel and
+// toggles `body.ol-editing` (instant, no slide-in). The open card slides up a properties sheet from
+// the bottom (#branchProps): colour / tags / checklist / group background, the same controls as the
+// canvas sidebar (features/properties.ts). Duplicate / delete still live in the row's ⋯ menu; the
+// "+" button here adds a CHILD of the open card and drills straight into it, so you can build out a
+// branch card-by-card. Editing reuses the in-card editors' contract: one undo step per focus→blur
+// session, and ui.panelEdit freezes the file rename while typing.
 import { state, type MindNode } from '../core/state.js';
 import { ui } from '../core/ui-state.js';
-import { childrenOf } from '../utils/model.js';
-import { orderedKids, applyLayouts } from '../view/layout.js';
+import { applyLayouts } from '../view/layout.js';
 import { scheduleSave } from '../data/persistence.js';
-import { paintAll, selectNode, effectiveColor } from '../main.js';
+import { paintAll, effectiveColor } from '../main.js';
 import { titleProblem, autosizeBody } from './inline-edit.js';
-import { sortedRoots } from './outline.js';
-import { createSibling } from './crud.js';
+import { addChild } from './crud.js';
 import { touch, commitStep } from './history.js';
 import { createProperties, type PropertyControls } from './properties.js';
 
@@ -49,7 +49,8 @@ function markActiveCard(id: string | null): void {
 // when a card in the branch editor is focused or tapped, and for the anchor when the editor opens.
 function setActiveCard(n: MindNode): void {
   activeId = n.id;
-  selectNode(n.id);
+  // No selectNode() — the properties sheet targets `activeId` directly (see props() above), and
+  // the outliner never touches canvas selection (see features/outline.ts's row click handler).
   markActiveCard(n.id);
   props().sync();
   document.body.classList.add('branch-props-open');
@@ -95,16 +96,10 @@ bpHandle.addEventListener('keydown', (e) => {
 });
 
 export function branchEditorOpen(): boolean { return document.body.classList.contains('ol-editing'); }
-// The + button, while the branch editor is open, adds a new card to THIS group (a sibling of the
-// anchor). createSibling re-opens the branch editor on the new card — same group, now focused on it.
-export function addToBranch(): void { if (anchorId && !state.readOnly) createSibling(anchorId); }
-
-// The sibling group of n in the outline's order (roots sorted by y,x — matching renderOutline).
-function siblingGroup(n: MindNode): MindNode[] {
-  const parent = n.parent ? state.nodes.get(n.parent) : null;
-  if (parent) return orderedKids(parent, childrenOf(parent.id));
-  return sortedRoots();
-}
+// The + button, while the single-card editor is open, adds a CHILD of the open card. addChild
+// (via startInlineEdit's outlineActive+branchEditorOpen branch) re-opens the editor on the new
+// child, so tapping + repeatedly drills a branch deeper, one card at a time.
+export function addToBranch(): void { if (anchorId && !state.readOnly) addChild(anchorId); }
 
 // ---- one edit session (focus→blur) per field, mirroring the in-card / panel editors ----
 function beginEdit(n: MindNode): void {
@@ -164,26 +159,26 @@ function cardFor(n: MindNode): HTMLElement {
   return card;
 }
 
-export function openBranchEditor(id: string, focus: 'title' | 'body' = 'title'): void {
+// Open the single-card editor on `id`. `focus` picks what grabs the keyboard: the title (default,
+// select-all so typing replaces it), the note (revealing it first if still empty), or 'none' to
+// just show the card without stealing focus (the › open button on a row).
+export function openBranchEditor(id: string, focus: 'title' | 'body' | 'none' = 'title'): void {
   const n = state.nodes.get(id); if (!n || state.readOnly) return;
   anchorId = id;
-  selectNode(id);                          // keep the row selected for the return to the list
   cardsEl.textContent = '';
-  for (const s of siblingGroup(n)) cardsEl.appendChild(cardFor(s));
+  const card = cardFor(n);
+  cardsEl.appendChild(card);
   document.body.classList.add('ol-editing');
   cardsEl.querySelectorAll<HTMLTextAreaElement>('.oc-note').forEach(autosizeBody);   // size notes to content
-  setActiveCard(n);   // open the props sheet on the tapped card
-  const mine = cardsEl.querySelector<HTMLElement>(`.oc-card[data-id="${id}"]`);
-  if (mine) {
-    mine.scrollIntoView({ block: 'nearest' });
-    if (focus === 'body') {
-      // reveal the note (its textarea, or the "Add note…" bubble if it's still empty) and focus it
-      (mine.querySelector<HTMLElement>('.oc-note') ?? mine.querySelector<HTMLElement>('.oc-addnote'))?.click?.();
-      mine.querySelector<HTMLTextAreaElement>('.oc-note')?.focus();
-    } else {
-      const t = mine.querySelector<HTMLInputElement>('.oc-title');
-      t?.focus(); t?.select();
-    }
+  setActiveCard(n);   // open the props sheet on the card
+  card.scrollIntoView({ block: 'nearest' });
+  if (focus === 'body') {
+    // reveal the note (its textarea, or the "Add note…" bubble if it's still empty) and focus it
+    (card.querySelector<HTMLElement>('.oc-note') ?? card.querySelector<HTMLElement>('.oc-addnote'))?.click?.();
+    card.querySelector<HTMLTextAreaElement>('.oc-note')?.focus();
+  } else if (focus === 'title') {
+    const t = card.querySelector<HTMLInputElement>('.oc-title');
+    t?.focus(); t?.select();
   }
 }
 export function closeBranchEditor(): void {

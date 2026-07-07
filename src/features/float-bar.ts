@@ -250,17 +250,41 @@ window.addEventListener('resize', () => { closePopovers(); positionBar(); });
 // Outline mode only hides the bar on a narrow/phone screen, where the outliner replaces the
 // canvas entirely (no card left to anchor to). On a wide screen the outliner is a drawer over a
 // still-visible canvas, so a selected card can keep its bar.
+//
+// Showing the bar is debounced a touch (SHOW_DELAY) — hiding is not. A double-click both selects
+// (click 1) AND folds the card (the dblclick itself, which doesn't touch selection) in quick
+// succession; without the delay the bar would flash on right on click 1 only to have nothing
+// change it back off, which reads as a flicker since it appears for a beat and then the fold
+// yanks the layout under it. Any hide/re-show request within the delay window (including a
+// genuine selection change) just reschedules or cancels this timer, so only the settled state
+// after a short pause ever actually shows the bar — repositioning/control updates on an ALREADY
+// open bar stay instant, so switching the selected card never feels laggy.
+let showTimer: number | null = null;
+const SHOW_DELAY = 180;
 export function syncFloatBar(): void {
   closePopovers();
   const visible = state.sel.size > 0 && !state.readOnly && !(outlineActive() && NARROW_MQ.matches);
-  bar.classList.toggle('open', visible);
-  if (visible){
+  if (showTimer != null) { clearTimeout(showTimer); showTimer = null; }
+  if (!visible) {
+    bar.classList.remove('open');
+    if (raf != null) { cancelAnimationFrame(raf); raf = null; }
+    return;
+  }
+  if (bar.classList.contains('open')) {   // already showing — update in place, no delay needed
     syncControls();
     positionBar();
     if (raf == null) followLoop();
-  } else if (raf != null){
-    cancelAnimationFrame(raf); raf = null;
+    return;
   }
+  showTimer = window.setTimeout(() => {
+    showTimer = null;
+    // the selection this was scheduled for may already be gone by the time the delay elapses
+    if (!(state.sel.size > 0 && !state.readOnly && !(outlineActive() && NARROW_MQ.matches))) return;
+    bar.classList.add('open');
+    syncControls();
+    positionBar();
+    if (raf == null) followLoop();
+  }, SHOW_DELAY);
 }
 // Crossing the narrow breakpoint (resize/rotate) can flip the outline+selection combo above
 // without any selection change of its own, so re-run the visibility check directly.

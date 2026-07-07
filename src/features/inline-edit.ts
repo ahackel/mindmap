@@ -7,12 +7,12 @@
 import { state, setStatus, type MindNode } from '../core/state.js';
 import { ui } from '../core/ui-state.js';
 import { takenTitles } from '../utils/model.js';
-import { outlineActive } from './outline.js';
+import { outlineActive, startRowTitleEdit } from './outline.js';
 import { applyLayouts } from '../view/layout.js';
 import { scheduleSave } from '../data/persistence.js';
 import { onBodyPaste } from './attachments.js';
 import { paintAll, selectNode } from '../main.js';
-import { openBranchEditor } from './branch-editor.js';
+import { openBranchEditor, branchEditorOpen } from './branch-editor.js';
 import { extractToChild, deleteNode } from './crud.js';
 import { touch, commitStep } from './history.js';
 
@@ -34,10 +34,16 @@ export function titleProblem(title: string, selfId: string): string {
 export function startInlineEdit(n: MindNode | undefined, { isNew = false }: { isNew?: boolean } = {}): void {
   if (state.readOnly || !n) return;
   // In outline mode (which includes every phone-width screen — outline is forced on below
-  // that breakpoint) the card lives only in the side panel, so editing happens in the panel's
-  // title field. This is the single choke point, so F2 / slow-click / add child / add sibling
-  // / context menu all follow.
-  if (outlineActive()) { openBranchEditor(n.id, 'title'); return; }
+  // that breakpoint) the title is renamed right on its row (features/outline.ts), mirroring the
+  // canvas' in-place rename. This is the single choke point, so F2 / slow-click / add child / add
+  // sibling / context menu all follow. The one exception: the single-card editor is already open
+  // (e.g. "+" while viewing a card adds a child) — its row doesn't exist in the (hidden) list, so
+  // the rename happens on the open card itself instead.
+  if (outlineActive()) {
+    if (branchEditorOpen()) openBranchEditor(n.id, 'title');
+    else startRowTitleEdit(n, { isNew });
+    return;
+  }
   if (!n.el) return;
   if (ui.inlineEdit) endInlineEdit();                              // close any other open editor first
   touch(n.id);   // the whole edit session becomes ONE undo step (for a fresh card, incl. its creation)

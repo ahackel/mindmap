@@ -145,6 +145,10 @@ button:disabled { opacity:.45; cursor:default; }
 #sketchBtn { top:12px; right:12px; }
 /* reads as "on" with a solid accent fill, like the .primary buttons */
 #sketchBtn.active, #sketchBtn.active:hover { background:var(--accent); color:#fff; }
+/* outline toggle — its own floating button (not part of #toolbar), sitting immediately to the
+   left of the sketch button: two separate circles, not a shared bar. */
+#outlineBtn { top:12px; right:calc(12px + var(--bar-btn) + 8px); }
+#outlineBtn.active, #outlineBtn.active:hover { background:var(--accent); color:#fff; }
 body.sketching #stage { cursor:crosshair; }
 body.sketching #ghostCard { display:none; }    /* the drag-to-create card would fight the pen */
 body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag / edit while sketching */
@@ -460,7 +464,8 @@ body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit 
 /* ---- floating selection bar: a compact pill of icon buttons anchored next to the selected
    card (position set by features/float-bar.ts's rAF follow loop, tracking pan/zoom/drag) ---- */
 #floatBar {
-  position:fixed; top:0; left:0; z-index:22;   /* left/top overwritten per-frame in JS; above #outline (21) — see its comment */
+  position:fixed; top:0; left:0; z-index:20;   /* left/top overwritten per-frame in JS; BELOW #outline (21) —
+    the outline drawer covers it where they overlap, same as #toolbar/#homeBar/#searchWrap (also z:20) */
   display:flex; align-items:center; gap:2px; padding:4px;
   background:var(--panel); border-radius:var(--r-full);
   opacity:0; pointer-events:none; transition:opacity .15s ease;
@@ -666,8 +671,10 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
 /* Sketch + help are canvas tools, so hide them in outline mode at every width. The floating edit
    bar stays canvas-only too, but on a WIDE screen the outliner is a drawer over a still-visible
    canvas, so a card can stay selected there — only hide it once the canvas itself is gone (the
-   narrow/phone treatment below), not just because outline is active. */
-body.outline #sketchBtn, body.outline #helpBtn { display:none !important; }
+   narrow/phone treatment below), not just because outline is active. #outlineBtn joins them here
+   too: once open, #olCloseBtn (top-right of the drawer) is the way to close it, and on wide
+   screens the drawer sits right over this corner anyway. */
+body.outline #sketchBtn, body.outline #helpBtn, body.outline #outlineBtn { display:none !important; }
 
 @media (max-width: 700px) {
   body.outline #stage, body.outline #ghostCard, body.outline #ghostHint,
@@ -676,7 +683,9 @@ body.outline #sketchBtn, body.outline #helpBtn { display:none !important; }
      the header — so cards scroll UP UNDER the floating home / + buttons (iOS-style) rather than
      being clipped at a fixed top edge. */
   #outline { top:0; left:0; right:0; bottom:0; display:none; }
-  .ol-scroll { padding:calc(58px + env(safe-area-inset-top)) 10px calc(80px + env(safe-area-inset-bottom)); }
+  /* top clearance (for the floating home / + buttons) moves onto .ol-heading below instead of
+     living here as blank padding — the heading now occupies that reserved band. */
+  .ol-scroll { padding:0 10px calc(80px + env(safe-area-inset-bottom)); }
   body.outline #outline { display:block; }
 }
 
@@ -687,7 +696,9 @@ body.outline #sketchBtn, body.outline #helpBtn { display:none !important; }
     box-shadow:-8px 0 24px rgba(0,0,0,.25);
     transform:translateX(calc(100% + 30px)); transition:transform .22s ease;
     pointer-events:none; }
-  .ol-scroll { padding:60px 12px 16px; }
+  /* top clearance (for #olCloseBtn) moves onto .ol-heading below instead of living here as blank
+     padding — the heading now occupies that reserved band. */
+  .ol-scroll { padding:0 12px 16px; }
   body.outline #outline { transform:translateX(0); pointer-events:auto; }
 }
 @media (prefers-reduced-motion: reduce) { #outline { transition:none; } }
@@ -700,6 +711,12 @@ body.outline #sketchBtn, body.outline #helpBtn { display:none !important; }
 /* hide the row list while editing; the + button (in .ol-head) stays — it adds a card to the group */
 body.ol-editing .ol-rows { display:none; }
 body.ol-editing .ol-cards { display:flex; flex-direction:column; gap:12px; }
+/* #olScroll's own top padding was moved onto .ol-heading (see its comment) so the row list could
+   reuse that reserved band — but .ol-heading hides in THIS view, so the top card needs its own
+   clearance again here, for #ocBack (top-left) and #olClose (top-right), both still floating over
+   this same band. Same numbers .ol-scroll used to carry for both views. */
+@media (max-width: 700px) { .ol-cards { padding-top:calc(58px + env(safe-area-inset-top)); } }
+@media (min-width: 701px) { .ol-cards { padding-top:60px; } }
 /* on a phone the branch editor is full-screen with its own back arrow (top-left) — the home button
    would collide with it, so hide the home bar while editing here (desktop keeps it: the editor is
    a right drawer, well clear of the top-left home button). */
@@ -783,15 +800,34 @@ body.branch-props-open #branchProps { transform:translateY(0); }
 #branchProps input[type="text"]:focus { outline:none; box-shadow:0 0 0 2px var(--accent); }
 /* keep the tail of the card list reachable above the raised sheet */
 body.branch-props-open #olCards { padding-bottom:42vh; }
+/* scrolls away with the list — a plain sibling of #olRows inside #olScroll, not a sticky header.
+   padding-top reclaims the space #olScroll used to reserve (blank) for the floating home/close
+   buttons above it (see the two @media blocks above), so the heading fills a band that was
+   already there rather than pushing the first row further down. On wide screens that band is
+   shared with #olCloseBtn (top:10px, height:var(--bar-btn)) — line-height is set explicitly so
+   padding-top can be solved to put the text's vertical centre exactly on the button's, i.e. on
+   the same line at scrollTop 0: 10 + btn/2 = padding-top + line-height/2. */
+.ol-heading { max-width:640px; margin:0 auto; padding:0 6px 14px; font-size:16px; line-height:20px; font-weight:700; color:var(--text); }
+@media (max-width: 700px)  { .ol-heading { padding-top:calc(24px + env(safe-area-inset-top)); } }
+@media (min-width: 701px)  { .ol-heading { padding-top:16px; } }   /* centres on a 32px #olCloseBtn (fine-pointer --bar-btn) */
+body.ol-editing .ol-heading { display:none; }
 .ol-rows { max-width:640px; margin:0 auto; }
 /* Rows read like the canvas cards: same --card palette background (via the shared .c-* classes),
    white text on coloured cards, theme-dependent text on none/white/grey — mirrors .node. */
-.ol-row { display:flex; align-items:center; min-height:32px; margin-bottom:8px;
+/* Content-hugging (no forced min-height) — a list row, not a full-size card. Vertical padding
+   sets the row's height (160% of the original compact pass); horizontal padding stays tight so
+   the title keeps most of the width. */
+/* position:relative so .ol-count can straddle the top-right corner, like .node .hidden-count on
+   the canvas. margin-bottom is deliberately generous — the reorder insert line (.ol-insert) needs
+   real room in the gap between rows to read clearly, not squeeze in behind the row above/below. */
+.ol-row { display:flex; align-items:center; box-sizing:border-box; position:relative;
+  padding:8px 6px 8px 12px; margin-bottom:12px; cursor:grab;
   border-radius:var(--r-card); background:var(--card, transparent); color:#fff; }
+body.readonly .ol-row { cursor:default; }   /* no drag-to-reorder in read-only */
 .ol-row.c-none { color:var(--text); }
 .ol-row.c-white { color:#2b3645; }
 body.light .ol-row:not(.c-none):not(.c-white):not(.c-grey) { color:#000; }
-.ol-row.sel { box-shadow:0 0 0 2px var(--node-sel); }
+.ol-row.done .ol-title { text-decoration:line-through; opacity:.65; }
 .ol-row.flash { animation:ol-flash 1.2s ease-out; }
 @keyframes ol-flash {
   0%, 55% { box-shadow:0 0 0 3px #fff; }
@@ -799,7 +835,7 @@ body.light .ol-row:not(.c-none):not(.c-white):not(.c-grey) { color:#000; }
 }
 @media (prefers-reduced-motion: reduce) { .ol-row.flash { animation:none; } }
 /* the row being drag-reordered floats above its siblings and rides the pointer (transform) */
-.ol-row.ol-dragging { position:relative; z-index:10; opacity:.85; }
+.ol-row.ol-dragging { position:relative; z-index:10; opacity:.85; cursor:grabbing; }
 /* the row a dragged card would NEST under (middle-of-row hover) */
 .ol-row.ol-drop { box-shadow:0 0 0 2px var(--accent); }
 /* insertion indicator while drag-reordering — the SAME white dashed bar the canvas draws for a
@@ -807,43 +843,69 @@ body.light .ol-row:not(.c-none):not(.c-white):not(.c-grey) { color:#000; }
    with a repeating gradient along the bar's long axis. */
 .ol-insert { position:fixed; height:3px; z-index:30; pointer-events:none;
   background:repeating-linear-gradient(90deg, #fff 0 6px, transparent 6px 11px); }
-/* disclosure triangle — view-local fold, never writes mm_collapsed (see features/outline.ts) */
-.ol-disc { flex:none; width:26px; height:32px; padding:0; border:0; border-radius:var(--r-ctl);
-  background:transparent; color:inherit; opacity:.65; display:flex; align-items:center; justify-content:center; }
-.ol-disc svg { width:12px; height:12px; display:block; transition:transform .15s; }
-.ol-disc.open svg { transform:rotate(90deg); }
-.ol-disc.leaf { visibility:hidden; }
 /* colour dot — used by the Move-to picker rows (outline rows carry the card colour as their bg) */
 .ol-dot { flex:none; width:11px; height:11px; border-radius:50%; margin-right:10px;
   background:var(--ol-c, var(--node-border)); }
-.ol-title { flex:1 1 auto; min-width:0; padding:6px 0; font-size:15px; font-weight:600;
-  color:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
-/* "has a note" marker: an empty white disc, matching the canvas collapsed-leaf bubble (.hidden-count) */
-.ol-note { flex:none; margin:0 5px; width:10px; height:10px; border-radius:50%; background:#fff; }
-/* hidden-descendant count on a folded row — same white bubble as the canvas card corner */
-.ol-count { flex:none; min-width:18px; height:18px; padding:0 5px; margin:0 2px;
-  border-radius:9px; background:#fff; color:#000;
-  font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
-.ol-drag, .ol-more { flex:none; width:28px; height:32px; padding:0; border:0;
+.ol-title { flex:1 1 auto; min-width:0; padding:2px 4px; margin:-2px -4px; font-size:14px; font-weight:600;
+  color:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:inherit; border-radius:4px; }
+body.readonly .ol-title { cursor:pointer; }   /* the only click-through left in read-only: view the note sheet */
+/* inline rename (⋯ menu → Rename, F2, or on-create) — same treatment as the canvas' .node .title.editing */
+.ol-title.editing { outline:2px solid var(--accent); outline-offset:0; cursor:text;
+  white-space:pre-wrap; overflow:visible; background:rgba(0,0,0,.5); }
+.ol-title.editing.invalid { outline-color:#e0564a; }
+/* checklist item: the same donebox the canvas shows next to a checklist parent's children */
+.ol-done { -webkit-appearance:none; appearance:none; width:14px; height:14px; margin:0 5px 0 0;
+  border:none; outline:none; border-radius:3px; background:#fff; cursor:pointer; flex:none; position:relative; }
+.ol-done:checked { background:var(--accent); }
+.ol-done:checked::after { content:""; position:absolute; left:4px; top:1px; width:4px; height:8px;
+  border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
+/* checklist owner: this row's own "n/m" progress over its direct children — mirrors .node .progress */
+.ol-progress { flex:none; margin:0 4px; font-size:11px; font-weight:600; opacity:.7; }
+/* open the single-card editor (note / colour / tags / …) — a right-pointing chevron */
+.ol-open { flex:none; width:26px; height:32px; padding:0; border:0; border-radius:var(--r-ctl);
+  background:transparent; color:inherit; opacity:.5; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.ol-open svg { width:15px; height:15px; display:block; }
+.ol-open:hover { opacity:1; }
+body.readonly .ol-open { display:none; }
+/* hidden-descendant count on a folded row — straddles the top-right corner, same position/size as
+   the canvas' .node .hidden-count (fold is now double-click/double-tap only, no disc button, so
+   this bubble is also the only visual "this row has hidden children" indicator). */
+.ol-count { position:absolute; right:0; top:0; transform:translate(50%,-50%);
+  box-sizing:border-box; min-width:16px; height:16px; padding:0 5px;
+  background:#fff; color:#000; font-size:11px; font-weight:700; border-radius:8px;
+  line-height:1; display:inline-flex; align-items:center; justify-content:center; }
+.ol-more { flex:none; width:26px; height:32px; padding:0; border:0;
   border-radius:var(--r-ctl); background:transparent; color:inherit; opacity:.6;
-  font-size:19px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
-.ol-drag svg { width:16px; height:16px; display:block; }
-.ol-drag { touch-action:none; cursor:grab; }   /* pointer drags reorder; never scrolls the list */
-.ol-drag:hover, .ol-more:hover { opacity:1; }
-body.readonly .ol-drag, body.readonly .ol-more { display:none; }
-/* create button — always an icon-only floating circle pinned to the TOP-RIGHT corner (where the
-   sketch button sits on the canvas), on every screen size. On wide screens the outline is a
-   transformed drawer, so `position:fixed` resolves against it → the button lands in the drawer's
-   own top-right corner. The empty .ol-head just gates visibility (outline & not read-only). */
+  font-size:20px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.ol-more:hover { opacity:1; }
+body.readonly .ol-more { display:none; }
+/* create button — always an icon-only floating circle pinned to the BOTTOM-RIGHT corner (where
+   the help button sits on the canvas — hidden in outline mode, so no clash), on every screen
+   size. On wide screens the outline is a transformed drawer, so `position:fixed` resolves against
+   it → the button lands in the drawer's own bottom-right corner. The empty .ol-head just gates
+   visibility (outline & not read-only). */
 .ol-head { display:none; }
 body.outline:not(.readonly) .ol-head { display:block; }
-#olAddBtn { position:fixed; top:10px; right:12px; z-index:22;
+#olAddBtn { position:fixed; bottom:12px; right:12px; z-index:22;
   width:36px; height:36px; padding:0; border:none; border-radius:var(--r-full);
   display:inline-flex; align-items:center; justify-content:center;
   background:var(--accent); color:#fff; cursor:pointer; }
 #olAddBtn:hover { filter:brightness(1.08); }
 .ol-add-plus { font-size:24px; font-weight:400; line-height:1; }
 .ol-add-label { display:none; }   /* icon only — the aria-label / title carry the name */
+/* close outline — top-right, the same spot the create button used to sit. Visible in read-only
+   too (unlike .ol-head above), AND while the single-card editor is open (body.ol-editing) — unlike
+   #ocBack (that screen's own top-left "back to list" arrow), this is the one control that always
+   gets you all the way out to the canvas from anywhere in the outliner. Hidden on narrow screens,
+   where outline is forced/non-closable (matches the toolbar's own outline toggle, hidden there via
+   #toolbar's display:none) — there's nothing to close back TO on a phone. */
+.ol-close { display:none; position:fixed; top:10px; right:12px; z-index:22;
+  width:var(--bar-btn); height:var(--bar-btn); padding:0; border:none; border-radius:var(--r-full);
+  align-items:center; justify-content:center;
+  background:var(--node); color:var(--muted); font-size:16px; cursor:pointer; }
+body.outline .ol-close { display:flex; }
+.ol-close:hover { color:var(--text); }
+@media (max-width: 700px) { .ol-close { display:none !important; } }
 
 /* ---- full-screen editor sheet (phone / outline): title + note body + explicit Done.
    Replaces the in-card editors where they fight the on-screen keyboard — see

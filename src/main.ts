@@ -348,7 +348,8 @@ export function toggleCollapseSelection(ids: Iterable<string>): void {
 }
 // Flip a checklist item's done mark (mm_done) and persist. Independent of any body task list.
 // Also repaints the parent so its "n/m" checklist progress readout stays in sync.
-function toggleDone(n: MindNode): void {
+// Exported: the outline row list shows the same donebox/progress readout (features/outline.ts).
+export function toggleDone(n: MindNode): void {
   if (state.readOnly) return;
   record([n.id], () => { n.done = !n.done; n.dirty = true; });
   paintNode(n);

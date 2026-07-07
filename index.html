@@ -29,8 +29,6 @@
       <span class="ic" data-icon="redo"></span></button>
     <button id="fitBtn" title="Focus selected card · fit whole map if none (F)" aria-label="Focus selected or fit map">
       <span class="ic" data-icon="fit"></span></button>
-    <button id="outlineBtn" title="Outline view (O) — browse & edit the map as a list" aria-label="Toggle outline view">
-      <span class="ic" data-icon="outline"></span></button>
     <button id="edgeBtn" title="Edge style — click to cycle" aria-label="Cycle edge style">
       <span class="ic" data-icon="edge-orthogonal"></span></button>
     <span class="sep"></span>
@@ -66,13 +64,19 @@
     </div>
   </div>
 
-  <!-- New-card button: fixed top-right. Kept OUTSIDE #outline so its position:fixed resolves
+  <!-- New-card button: fixed bottom-right. Kept OUTSIDE #outline so its position:fixed resolves
        against the viewport — inside the drawer (which has a transform) it would scroll with the
        list instead of staying put. -->
   <div class="ol-head">
     <button id="olAddBtn" title="New card — child of the selected card (Tab)" aria-label="New card">
       <span class="ol-add-plus">+</span><span class="ol-add-label">New card</span></button>
   </div>
+
+  <!-- Close outline (wide screens only — on a phone the outline is forced full-screen and can't be
+       closed, same as the toolbar's own outline toggle). Kept OUTSIDE #outline for the same
+       position:fixed-vs-drawer-transform reason as #olAddBtn above; visible in read-only too, since
+       closing isn't a mutating action. -->
+  <button id="olCloseBtn" class="ol-close" aria-label="Close outline" title="Close outline">✕</button>
 
   <!-- outline mode: the map as a collapsible tree list (body.outline; features/outline.ts) -->
   <div id="outline">
@@ -84,6 +88,9 @@
     <button id="ocBack" class="oc-back" title="Back to list" aria-label="Back to list">
       <span class="ic" data-icon="back"></span></button>
     <div class="ol-scroll" id="olScroll">
+      <!-- scrolls away with the list (a normal sibling of #olRows inside the scroll box), not a
+           sticky header — hidden with the row list while the single-card editor is open. -->
+      <h1 class="ol-heading">Outliner</h1>
       <div class="ol-rows" id="olRows"></div>
       <!-- branch editor: tapping a row shows this card + its siblings as full editable cards
            (title + note), rendered by features/branch-editor.ts. Toggled via body.ol-editing. -->
@@ -146,6 +153,11 @@
     </div>
     <textarea id="shBody" spellcheck="false" placeholder="Add note…" aria-label="Card note"></textarea>
   </div>
+
+  <!-- outline toggle: floating top-right, next to the sketch button — two separate buttons,
+       not a shared bar (see their individual positioning in styles.css). -->
+  <button id="outlineBtn" class="floating-btn" title="Outline view (O) — browse & edit the map as a list" aria-label="Toggle outline view">
+    <span class="ic" data-icon="outline"></span></button>
 
   <!-- sketch toggle: floating top-right, outside the toolbar -->
   <button id="sketchBtn" class="floating-btn" title="Sketch (S) — draw freehand on the canvas" aria-label="Toggle sketch mode">

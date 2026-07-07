@@ -14,19 +14,20 @@ import { NARROW_MQ } from '../core/ui-state.js';
 import { childrenOf, isRoot, isAncestor, descendantCount } from '../utils/model.js';
 import { orderedKids, sideOf, deriveSide, orderAxisIsX, applyLayouts } from '../view/layout.js';
 import { scheduleSave } from '../data/persistence.js';
-import { paintAll, selectNode, focusNode, effectiveColor, subtreeIds, nodeH, NODE_W, toggleCollapse } from '../main.js';
+import { paintAll, selectNode, focusNode, effectiveColor, subtreeIds, nodeH, NODE_W, toggleCollapse, toggleDone } from '../main.js';
 import { openBranchEditor, closeBranchEditor, branchEditorOpen, addToBranch } from './branch-editor.js';
 import { openEditorSheet } from './editor-sheet.js';
-import { addChild, createNode, deleteNode, duplicateSelection } from './crud.js';
+import { titleProblem } from './inline-edit.js';
+import { createNode, deleteNode, duplicateSelection } from './crud.js';
 import { reparentOnly } from './drag.js';
 import { openMenu } from './context-menu.js';
 import { touch, commitStep } from './history.js';
 import TRI from '../assets/icons/chevron.svg?raw';
-import GRIP from '../assets/icons/grip.svg?raw';
 
 const outlineScrollEl = document.getElementById('olScroll') as HTMLElement;
 const rowsEl = document.getElementById('olRows') as HTMLElement;
 const outlineBtn = document.getElementById('outlineBtn') as HTMLButtonElement;
+const olCloseBtn = document.getElementById('olCloseBtn') as HTMLButtonElement;
 
 // ---- view-local fold state (browsing-only reveals — see the header comment) ----
 // Keyed by the node's FILE (ids are re-minted on every disk reload), falling back to the id
@@ -38,6 +39,62 @@ const foldKey = (n: MindNode): string => n.file ?? n.id;
 const isFolded = (n: MindNode): boolean => outlineFold.get(foldKey(n)) ?? n.collapsed;
 const unfold = (n: MindNode): void => { outlineFold.set(foldKey(n), false); };
 
+// ---- inline title rename, right on the row (mirrors features/inline-edit.ts's canvas version) ----
+// A second click/tap on the already-selected row's title (or F2 / new-card creation, routed via
+// startInlineEdit) turns the title span into a contenteditable, exactly like the canvas card. Kept
+// here (rather than reusing the canvas editor) because it targets a row's `.ol-title`, not `.node
+// .title`, and the row list must NOT rebuild out from under the caret while typing.
+let rowEditId: string | null = null;
+let rowEditIsNew = false;
+function findRowTitle(id: string): HTMLElement | null {
+  return rowsEl.querySelector<HTMLElement>(`.ol-row[data-id="${id}"] .ol-title`);
+}
+export function startRowTitleEdit(n: MindNode, { isNew = false }: { isNew?: boolean } = {}): void {
+  if (state.readOnly) return;
+  const titleEl = findRowTitle(n.id); if (!titleEl) return;
+  if (rowEditId && rowEditId !== n.id) endRowTitleEdit();
+  touch(n.id);   // the whole edit session becomes ONE undo step (incl. a fresh card's creation)
+  // Deliberately no selectNode() here — clicking a row in the outliner never touches canvas
+  // selection (no sel ring here, and nothing to carry back when switching to the canvas view).
+  rowEditId = n.id; rowEditIsNew = isNew;
+  titleEl.setAttribute('contenteditable', 'plaintext-only');
+  titleEl.classList.add('editing'); titleEl.classList.remove('invalid');
+  titleEl.focus();
+  const r = document.createRange(); r.selectNodeContents(titleEl);   // select-all so typing replaces
+  const s = window.getSelection()!; s.removeAllRanges(); s.addRange(r);
+}
+function onRowTitleInput(n: MindNode, titleEl: HTMLElement): void {
+  if (rowEditId !== n.id) return;
+  const problem = titleProblem(titleEl.textContent ?? '', n.id);
+  titleEl.classList.toggle('invalid', !!problem);
+}
+function onRowTitleKeydown(e: KeyboardEvent, n: MindNode): void {
+  if (rowEditId !== n.id) return;
+  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); endRowTitleEdit(); }
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endRowTitleEdit({ cancel: true }); }
+}
+function endRowTitleEdit({ cancel = false }: { cancel?: boolean } = {}): void {
+  const id = rowEditId; if (!id) return;
+  rowEditId = null;                                    // null first → the blur handler becomes a no-op
+  const isNew = rowEditIsNew; rowEditIsNew = false;
+  const titleEl = findRowTitle(id);
+  const n = state.nodes.get(id);
+  if (titleEl) { titleEl.removeAttribute('contenteditable'); titleEl.classList.remove('editing', 'invalid'); titleEl.blur(); }
+  if (!n) { commitStep(); return; }
+  if (cancel && isNew) {                               // Esc on a freshly-created row = cancel creation
+    deleteNode(n.id);
+    commitStep();
+    setStatus('Cancelled new card');
+    return;
+  }
+  const val = (titleEl?.textContent ?? '').replace(/[\r\n]+/g, ' ').trim();   // titles map to filenames
+  if (!cancel && !titleProblem(val, n.id)) n.title = val;
+  n.dirty = true;
+  scheduleSave();
+  commitStep();                                        // one undo step per rename session
+  renderOutline();                                      // restore the canonical (plain-text) row
+}
+
 // The node's ancestor chain, nearest parent first. Shared by the reveal (unfold up the chain)
 // and the picker breadcrumb.
 function* ancestors(n: MindNode): Generator<MindNode> {
@@ -45,8 +102,7 @@ function* ancestors(n: MindNode): Generator<MindNode> {
     yield p;
 }
 // Roots in the outline's canonical top-level order (canvas y, then x; filename as a stable tie).
-// Exported: branch-editor.ts's root sibling group uses the same order.
-export function sortedRoots(exclude?: string): MindNode[] {
+function sortedRoots(exclude?: string): MindNode[] {
   return [...state.nodes.values()].filter(n => isRoot(n) && n.id !== exclude)
     .sort((a, b) => a.y - b.y || a.x - b.x || (a.file ?? a.title).localeCompare(b.file ?? b.title));
 }
@@ -72,6 +128,7 @@ function setOutline(on: boolean, persist = true): void {
   else if (state.selId) focusNode(state.nodes.get(state.selId), true);
 }
 outlineBtn.onclick = toggleOutlineView;
+olCloseBtn.onclick = toggleOutlineView;   // a no-op when forced (narrow) — CSS hides the button there too
 // The effective mode for the current width: forced on when narrow, else the saved preference.
 function wantOutline(): boolean {
   try { return outlineForced() || localStorage.getItem(VIEW_KEY) === 'outline'; }
@@ -93,8 +150,9 @@ if (wantOutline()) { document.body.classList.add('outline'); outlineBtn.classLis
 export function renderOutline(): void {
   if (!outlineActive()) return;
   if (rowDragActive) return;   // a rebuild would replace the row mid-drag (e.g. autosave's paintAll)
-  // #olRows is display:none while the branch editor is open (styles.css), and every keystroke in
-  // its cards/props sheet already calls paintAll() — skip the wasted full rebuild while it's hidden.
+  if (rowEditId) return;       // a rebuild would blow away the contenteditable mid-rename
+  // #olRows is display:none while the single-card editor is open (styles.css), and every keystroke
+  // in its card/props sheet already calls paintAll() — skip the wasted full rebuild while it's hidden.
   if (branchEditorOpen()) return;
   const scroll = outlineScrollEl.scrollTop;
   rowsEl.textContent = '';
@@ -107,69 +165,117 @@ function walk(n: MindNode, depth: number): void {
   if (isFolded(n)) return;
   for (const k of orderedKids(n, kids)) walk(k, depth + 1);
 }
+// A row shows a done checkbox only if its PARENT has `checklist` on — same Trello-style rule as
+// the canvas (main.ts's showsDoneCheckbox): the setting lives on the parent, not the item.
+function showsDoneCheckbox(n: MindNode): boolean {
+  const p = n.parent ? state.nodes.get(n.parent) : undefined;
+  return !!(p && p.checklist);
+}
+// Elements inside a row with their own click behaviour — a pointerdown/dblclick/touchstart on
+// one of these must NOT also be read as "press the card" (drag-start / fold-on-double-tap).
+const ROW_CONTROLS = '.ol-done, .ol-open, .ol-more';
 function rowFor(n: MindNode, depth: number, kids: MindNode[]): HTMLElement {
   const folded = isFolded(n);
+  const showDone = showsDoneCheckbox(n);
   const row = document.createElement('div');
-  // rows carry the card's colour as their background via the shared .c-* classes (like .node)
-  row.className = `ol-row c-${effectiveColor(n)}` + (state.sel.has(n.id) ? ' sel' : '');
+  // rows carry the card's colour as their background via the shared .c-* classes (like .node).
+  // Deliberately no selection ring here — clicking in the outliner never selects; rows only ever
+  // show colour / fold / done state, nothing selection-shaped.
+  row.className = `ol-row c-${effectiveColor(n)}` + (showDone && n.done ? ' done' : '');
   row.dataset.id = n.id;
-  row.style.marginLeft = (depth * 18) + 'px';   // indent the whole card, not just its content
+  row.style.marginLeft = (depth * 14) + 'px';   // indent the whole card, not just its content
 
-  const disc = document.createElement('button');
-  disc.className = 'ol-disc' + (kids.length ? (folded ? '' : ' open') : ' leaf');
-  disc.innerHTML = TRI;
-  disc.title = folded ? 'Expand' : 'Collapse';
-  disc.setAttribute('aria-label', (folded ? 'Expand' : 'Collapse') + ` “${n.title}”`);
-  // an EXPLICIT collapse/expand toggle mirrors the canvas (unlike the ancestor-reveal unfolds
-  // below, which stay view-local) — toggleCollapse mutates n.collapsed and persists, then
-  // paintAll's renderOutline() call repaints this row. Drop any stale local override so the row
-  // reflects that fresh canvas truth rather than a shadow left over from a browsing-reveal.
-  disc.onclick = () => { outlineFold.delete(foldKey(n)); toggleCollapse(n.id); };
+  // checklist item: same donebox the canvas shows on a checklist parent's children (main.ts)
+  if (showDone) {
+    const done = document.createElement('input');
+    done.type = 'checkbox'; done.className = 'ol-done'; done.checked = n.done;
+    done.title = 'Mark done';
+    done.addEventListener('pointerdown', (e) => e.stopPropagation());
+    done.addEventListener('click', (e) => e.stopPropagation());
+    done.addEventListener('change', () => toggleDone(n));
+    row.appendChild(done);
+  }
 
   const title = document.createElement('span');
   title.className = 'ol-title';
   title.textContent = n.title;
-  // tapping a row opens the branch editor (this card + siblings as full cards, see branch-editor.ts);
-  // read-only sessions can't edit, so they fall back to the sheet as a viewer for the note.
-  title.onclick = () => { if (state.readOnly) { selectNode(n.id); openEditorSheet(n); } else openBranchEditor(n.id); };
+  // No click-to-rename any more — renaming is a ⋯-menu action (see openRowMenu) so a plain press
+  // on the card is unambiguously "start a drag", never "start typing". Read-only sessions still
+  // tap through to the sheet as a read-only viewer, since that's not an edit.
+  if (state.readOnly) title.onclick = () => openEditorSheet(n);
+  title.addEventListener('input', () => onRowTitleInput(n, title));
+  title.addEventListener('keydown', (e) => onRowTitleKeydown(e, n));
+  title.addEventListener('blur', () => { if (rowEditId === n.id) endRowTitleEdit(); });
 
-  row.append(disc, title);
-  if (n.body && n.body.trim()) {
-    // "has a note" marker = the same empty white disc a collapsed leaf shows on the canvas
-    // (main.ts paintNode: the hidden-count bubble with no number), not a burger icon.
-    const note = document.createElement('span');
-    note.className = 'ol-note'; note.title = 'Has a note';
-    row.appendChild(note);
+  row.appendChild(title);
+  // checklist owner: this row's own "n/m" progress over its direct children, same as the canvas
+  if (n.checklist && kids.length) {
+    const progress = document.createElement('span');
+    progress.className = 'ol-progress';
+    progress.textContent = `${kids.filter(k => k.done).length}/${kids.length}`;
+    row.appendChild(progress);
   }
   if (folded && kids.length) {
+    // straddles the row's top-right corner, same spot/size as the canvas' own hidden-count bubble
+    // (main.ts paintNode) — the only "this is folded, double-click/-tap to expand" indicator now
+    // that there's no disc button.
     const count = document.createElement('span');
     count.className = 'ol-count'; count.textContent = String(descendantCount(n.id));
+    count.title = `${descendantCount(n.id)} hidden — double-click to expand`;
     row.appendChild(count);
   }
   if (!state.readOnly) {
-    const drag = document.createElement('button');
-    drag.className = 'ol-drag'; drag.innerHTML = GRIP; drag.title = 'Drag to reorder';
-    drag.setAttribute('aria-label', `Drag “${n.title}” to reorder`);
-    drag.addEventListener('pointerdown', (e) => startRowDrag(e, n, row, drag));
+    const open = document.createElement('button');
+    open.className = 'ol-open'; open.innerHTML = TRI; open.title = 'Open card';
+    open.setAttribute('aria-label', `Open “${n.title}” for editing`);
+    open.onclick = () => openBranchEditor(n.id, 'none');
     const more = document.createElement('button');
     more.className = 'ol-more'; more.textContent = '⋮'; more.title = 'Card actions';
     more.setAttribute('aria-label', `Actions for “${n.title}”`);
     more.onclick = () => { const r = more.getBoundingClientRect(); openRowMenu(n, r.left, r.bottom + 4); };
-    row.append(drag, more);
+    row.append(open, more);
+
+    // press-and-drag anywhere on the card (outside its own buttons) reorders it — see
+    // startRowDrag's header comment for how a plain tap/scroll is told apart from a real drag.
+    // An edit action, so read-only skips it entirely (unlike the fold gestures below).
+    row.addEventListener('pointerdown', (e) => {
+      if ((e.target as HTMLElement).closest(ROW_CONTROLS)) return;
+      if (rowEditId === n.id) return;         // placing the caret while renaming, not a drag
+      if (rowEditId) endRowTitleEdit();       // pressing elsewhere commits any other open rename
+      startRowDrag(e, n, row);
+    });
   }
+  // double-click / double-tap anywhere on the card folds it (like the disc's single-click toggle,
+  // just a bigger target for the same action) — collapsing is allowed in read-only, so this isn't
+  // gated behind it the way the drag-start above is.
+  row.addEventListener('dblclick', (e) => {
+    if ((e.target as HTMLElement).closest(ROW_CONTROLS) || rowEditId === n.id) return;
+    e.preventDefault();
+    outlineFold.delete(foldKey(n)); toggleCollapse(n.id);
+  });
+  let lastTap = 0;
+  row.addEventListener('touchstart', (e) => {
+    if ((e.target as HTMLElement).closest(ROW_CONTROLS) || rowEditId === n.id) { lastTap = 0; return; }
+    const now = performance.now();
+    if (e.touches.length === 1 && now - lastTap < 300) {
+      e.preventDefault();   // stop double-tap zoom / a synthetic dblclick firing too
+      outlineFold.delete(foldKey(n)); toggleCollapse(n.id);
+      lastTap = 0;
+      return;
+    }
+    lastTap = now;
+  }, { passive: false });
   return row;
 }
 
-// New-card button (floating +): in the branch editor it adds a card to the open group (a sibling
-// of the anchor); in the list it adds a child of the selected card, else a fresh root card.
-// Either way the routed startInlineEdit opens the new card for editing.
+// New-card button (floating +): while the single-card editor is open it adds a child of the open
+// card (see addToBranch); in the row list — which carries no selection to be contextual about —
+// it's always a fresh root card. The routed startInlineEdit opens the new card for editing.
 const olAddBtn = document.getElementById('olAddBtn') as HTMLButtonElement;
 olAddBtn.onclick = () => {
   if (state.readOnly) return;
   if (branchEditorOpen()) { addToBranch(); return; }
-  const sel = state.selId ? state.nodes.get(state.selId) : undefined;
-  if (sel) { unfold(sel); addChild(sel.id); }
-  else createNode();
+  createNode();
 };
 
 // Unfold the hit's ancestors, select it and scroll it into view — the outline counterpart of
@@ -183,10 +289,12 @@ export function revealInOutline(id: string): void {
 }
 
 // ---- row actions (⋯ menu — reuses the canvas context menu surface) ----
-// Deliberately minimal: rename/add/move all have direct affordances (tap to edit, the + button,
-// the ⠿ drag handle), so the menu is just Duplicate + Delete.
+// Rename lives ONLY here — a card is a drag surface now (see startRowDrag), so there's no click
+// left free to double as "start typing". Add/move still have their own direct affordances (the +
+// button, drag-to-reorder-or-reparent).
 function openRowMenu(n: MindNode, x: number, y: number): void {
   openMenu([
+    { label: 'Rename', run: () => startRowTitleEdit(n) },
     { label: 'Duplicate', shortcut: 'D', run: () => { selectNode(n.id); duplicateSelection({ edit: false }); } },
     { label: 'Delete', shortcut: 'Del', run: () => deleteNode(n.id), danger: true },
   ], x, y);
@@ -253,45 +361,52 @@ export function reorderSibling(id: string, dir: -1 | 1): void {
   setStatus(`Moved “${n.title}” ${dir < 0 ? 'up' : 'down'}`);
 }
 
-// ---- drag rows: reorder, reparent, or move between parents (the ⠿ handle) ----
-// The handle is touch-action:none, so a pointer drag on it never scrolls the list. The dragged
-// row rides the pointer (transform). Drop targets, computed against every visible row EXCEPT
-// the dragged subtree's own:
+// ---- drag rows: reorder, reparent, or move between parents (press anywhere on the card) ----
+// There's no dedicated handle any more — a press-and-drag ANYWHERE on the row (except its
+// buttons/checkbox, filtered by the pointerdown listener in rowFor) starts a reorder. To keep
+// that from fighting a plain tap (fold via double-tap, or just touch-scrolling the list), the
+// gesture only actually ENGAGES — row lifts, .ol-dragging applies, native touch scroll is
+// suppressed — once it's clearly a drag, not a tap:
+//   · mouse  → a small pixel threshold (same idea as the canvas' own drag-vs-click test)
+//   · touch  → a short press-and-hold (long-press), so a normal swipe still scrolls the list;
+//     moving too far before the hold fires cancels it and leaves scrolling alone
+// The dragged row rides the pointer (transform) once engaged. Drop targets, computed against
+// every visible row EXCEPT the dragged subtree's own:
 //   · middle of a row  → become a CHILD of that card (the row highlights)
 //   · row edges / gaps → insert BEFORE/AFTER that row under ITS parent (accent bar, indented
 //     to the target's depth) — reparenting on the way when that parent differs
-// Move/up listen on `window`, not the handle: pointer capture on the button is best-effort
-// only (a mouse can outrun it, and any repaint would replace the row and break the capture) —
-// same rationale as the ghost-card drag in main.ts. renderOutline is paused while dragging.
+// Move/up listen on `window`: pointer capture on the row is best-effort only (a mouse can
+// outrun it, and any repaint would replace the row and break the capture) — same rationale as
+// the ghost-card drag in main.ts. renderOutline is paused while actually dragging.
 let rowDragActive = false;
+const ROW_DRAG_PX = 4;         // mouse: pixels of movement before a press becomes a drag
+const ROW_LONGPRESS_MS = 350;  // touch: hold time before a press becomes a drag
+const ROW_LONGPRESS_SLOP = 10; // touch: movement past this before the hold fires = a scroll, not a drag
 type RowDrop = { kind: 'child'; target: MindNode } | { kind: 'before' | 'after'; ref: MindNode };
-function startRowDrag(e: PointerEvent, n: MindNode, row: HTMLElement, handle: HTMLElement): void {
+function startRowDrag(e: PointerEvent, n: MindNode, row: HTMLElement): void {
   if (state.readOnly || rowDragActive) return;
   if (e.button !== 0) return;                    // primary button / touch only
-  e.preventDefault();
-  const subtree = new Set(subtreeIds(n.id));     // can't drop into itself
-  const rows = [...rowsEl.querySelectorAll<HTMLElement>('.ol-row')]
-    .filter(r => !subtree.has(r.dataset.id!))
-    .map(r => ({ el: r, node: state.nodes.get(r.dataset.id!)!, rect: r.getBoundingClientRect() }))
-    .filter(r => !!r.node);
-  if (!rows.length) return;
-  const startY = e.clientY;
-  const listRect = rowsEl.getBoundingClientRect();
-  const line = document.createElement('div');
-  line.className = 'ol-insert';
-  document.body.appendChild(line);
+  const touchInput = e.pointerType === 'touch';
+  const startX = e.clientX, startY = e.clientY;
+  let curY = startY;
+  let engaged = false;
+  let longPressTimer: number | undefined;
   let drop: RowDrop | null = null;
   let hi: HTMLElement | null = null;             // row highlighted as the would-be parent
+  let rows: { el: HTMLElement; node: MindNode; rect: DOMRect }[] = [];
+  let listRect: DOMRect;
+  let line: HTMLElement;
   const setHi = (el: HTMLElement | null): void => {
     if (hi) hi.classList.remove('ol-drop');
     hi = el;
     if (el) el.classList.add('ol-drop');
   };
   const EDGE = 0.3;   // top/bottom 30% of a row = insert in that gap; the middle 40% = nest
-  const GAP = 8;      // inter-row spacing — MUST match .ol-row margin-bottom
+  const GAP = 12;     // inter-row spacing — MUST match .ol-row margin-bottom
   const update = (cy: number): void => {
     row.style.transform = `translateY(${cy - startY}px)`;
     drop = null; setHi(null); line.style.display = 'none';
+    if (!rows.length) return;
     // Pick the row whose band — its rect expanded by half the inter-row gap — contains cy. The
     // bands tile the list contiguously, so hovering in the literal gap between two rows resolves
     // to the nearer row's edge rather than falling through to the end of the list.
@@ -307,21 +422,53 @@ function startRowDrag(e: PointerEvent, n: MindNode, row: HTMLElement, handle: HT
     const edge = drop.kind === 'before' ? refRow.rect.top - GAP / 2 : refRow.rect.bottom + GAP / 2;
     line.style.top = (edge - 1.5) + 'px';
   };
-  rowDragActive = true;
-  row.classList.add('ol-dragging');
-  update(e.clientY);
-  // best-effort: keeps the handle's own button behaviour quiet; window listeners do the work
-  try { handle.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
-  const move = (ev: PointerEvent): void => update(ev.clientY);
+  const engage = (): void => {
+    if (engaged) return;
+    engaged = true;
+    rowDragActive = true;
+    const subtree = new Set(subtreeIds(n.id));   // can't drop into itself
+    rows = [...rowsEl.querySelectorAll<HTMLElement>('.ol-row')]
+      .filter(r => !subtree.has(r.dataset.id!))
+      .map(r => ({ el: r, node: state.nodes.get(r.dataset.id!)!, rect: r.getBoundingClientRect() }))
+      .filter(r => !!r.node);
+    listRect = rowsEl.getBoundingClientRect();
+    line = document.createElement('div');
+    line.className = 'ol-insert';
+    document.body.appendChild(line);
+    row.classList.add('ol-dragging');
+    if (touchInput) row.style.touchAction = 'none';   // only now grab the gesture from native scroll
+    try { row.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+    update(curY);
+  };
+  if (touchInput) {
+    longPressTimer = window.setTimeout(engage, ROW_LONGPRESS_MS);
+  }
+  const move = (ev: PointerEvent): void => {
+    curY = ev.clientY;
+    if (!engaged) {
+      const dx = ev.clientX - startX, dy = ev.clientY - startY;
+      if (touchInput) {
+        if (Math.abs(dx) + Math.abs(dy) > ROW_LONGPRESS_SLOP) clearTimeout(longPressTimer);   // it's a scroll
+        return;
+      }
+      if (Math.abs(dx) + Math.abs(dy) < ROW_DRAG_PX) return;
+      engage();
+      return;
+    }
+    update(ev.clientY);
+  };
   const finish = (commit: boolean): void => {
-    rowDragActive = false;
+    clearTimeout(longPressTimer);
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', cancel);
+    if (!engaged) return;   // a plain tap/click — nothing was touched, nothing to repaint
+    rowDragActive = false;
     line.remove();
     setHi(null);
     row.classList.remove('ol-dragging');
     row.style.transform = '';
+    if (touchInput) row.style.touchAction = '';
     if (!commit || !drop || !commitRowDrop(n, drop))
       renderOutline();   // nothing changed → catch up on any repaint skipped while dragging
   };
