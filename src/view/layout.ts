@@ -215,7 +215,8 @@ const SIDE_RANK: Record<LayoutSide, number> = { right: 0, down: 1, left: 2, up: 
 // Whether ordering along `side` under this layout reads the X coordinate (else Y): a fan orders
 // along the CROSS axis of the side, a line along the growth axis. Shared by the position sort
 // below and the live reorder-anchor computation (reorderTarget).
-function orderAxisIsX(node: MindNode, side: LayoutSide): boolean {
+// Exported: the outline view packs reordered siblings along this same axis (features/outline.ts).
+export function orderAxisIsX(node: MindNode, side: LayoutSide): boolean {
   const horiz = side === 'left' || side === 'right';
   return effectiveLayout(node).type === 'fan' ? !horiz : horiz;
 }
@@ -224,7 +225,12 @@ function kidsByPosition(node: MindNode, kids: MindNode[]): string[] {
   // subtree visually occupies its whole box, so that's the order the user perceives.
   const coord = (k: MindNode): number => {
     const b = subtreeBox(k);
-    return orderAxisIsX(node, sideOf(node, k)) ? (b.x0 + b.x1) / 2 : (b.y0 + b.y1) / 2;
+    const useX = orderAxisIsX(node, sideOf(node, k));
+    const mid = useX ? (b.x0 + b.x1) / 2 : (b.y0 + b.y1) / 2;
+    // A fully HIDDEN subtree (its governor is collapsed) has an empty box — fall back to the
+    // card's own saved position, so an outline reorder under a collapsed parent still seeds
+    // the same order on the next load instead of degrading to the filename tie-break.
+    return Number.isFinite(mid) ? mid : (useX ? k.x + NODE_W / 2 : k.y + nodeH(k) / 2);
   };
   const tie = (n: MindNode) => n.file || n.title || n.id;
   return kids.slice()
@@ -234,7 +240,8 @@ function kidsByPosition(node: MindNode, kids: MindNode[]): string[] {
 // A parent's child order is STORED (in memory) and only changes when a child is directly
 // dragged — never on an incidental relayout. So moving a parent, editing text, or collapsing
 // never reshuffles children; order is seeded from saved positions the first time it's needed.
-function orderedKids(node: MindNode, kids: MindNode[]): MindNode[] {
+// Exported: the outline view renders siblings in exactly this order (features/outline.ts).
+export function orderedKids(node: MindNode, kids: MindNode[]): MindNode[] {
   const have = new Set(kids.map(k => k.id));
   let order = (node.kidOrder || []).filter(id => have.has(id));   // drop removed children
   const known = new Set(order);

@@ -29,14 +29,17 @@ import './features/context-menu.js';   // registers the custom right-click menu 
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInput, onInlineKeydown } from './features/inline-edit.js';
 import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
-import { searchBox } from './features/search.js';
+import { openSearch } from './features/search.js';
+import { renderOutline, toggleOutlineView, outlineActive } from './features/outline.js';   // also wires the outline toggle button
+import { refreshSwatches } from './features/properties.js';
+import { syncFloatBar } from './features/float-bar.js';   // also registers the float bar's own listeners
 import { copySelection, cutSelection, bindCardFileDrag } from './features/clipboard.js';
 import { toggleSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
-import { touch, commitStep, record, undo, redo, updateUndoButtons } from './features/history.js';
+import { commitStep, record, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
 import { showStart, openHelpTab, boot } from './boot.js';
-import type { MindNode, LayoutType, EdgeStyle } from './core/state.js';
+import type { MindNode, EdgeStyle } from './core/state.js';
 import { ui, isTypingInField, type Pt, type Drag } from './core/ui-state.js';
 
 declare global {
@@ -215,6 +218,7 @@ export function paintAll(): void {
   for (const n of state.nodes.values()) paintNode(n);
   paintEdges();
   updateEmptyHints();
+  renderOutline();   // keep the outline list in sync (no-op while the canvas view is active)
 }
 
 // First-run hints ("Drag to create a card" / "Click for help") show only on an empty canvas.
@@ -417,181 +421,26 @@ function focusOrFit(): void {
 // ---------- selection + editor ----------
 // Selection and the edit panel are decoupled: a node can stay selected while the
 // panel is closed (press Esc). That closed-but-selected state is when Delete works.
-const editor = byId('editor');
-export const edName = byId('edName');   // read-only node name at the top of the sidebar
-const edTags  = byId<HTMLInputElement>('edTags');
-const edLayoutTypes = byId('edLayoutTypes');
-const edColors = byId('edColors');
-const edChecklist = byId<HTMLInputElement>('edChecklist');
-const edBg = byId<HTMLInputElement>('edBg');
 
 // colour palette (keys match the .c-* CSS classes); 'grey' is the old neutral "none" look.
 // The hexes themselves live in ONE place — the --pal-* custom properties in styles.css's
 // :root/body.light — so CSS (.c-*, #ghostCard) and JS (edges/backgrounds fills, swatch dots
 // below) can never drift apart. Read from document.body (not documentElement) so the
 // body.light overrides are picked up; re-read on every theme toggle (see refreshPalette).
-const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey','white'];
+export const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey','white'];
 const pal = (name: string): string => getComputedStyle(document.body).getPropertyValue(`--pal-${name}`).trim();
 export const SWATCH_BG: Record<string, string> = Object.fromEntries(PALETTE.map(c => [c, pal(c)]));
 // re-derive the palette hexes after a theme switch (light/dark have different --pal-* values)
 // and repaint everything that bakes them in as literal hex (edges, group backgrounds, swatches).
 export function refreshPalette(): void {
   for (const c of PALETTE) SWATCH_BG[c] = pal(c);
-  buildSwatches();
+  refreshSwatches();
   paintAll();
 }
-// build the swatch row: inherit (default) + the palette colours + explicit "none".
-// '' = inherit the nearest coloured ancestor (effectiveColor walks up); 'none' = no colour, terminal.
-function buildSwatches(){
-  let html = `<div class="swatch inherit" data-color="" title="inherit colour from parent (default)"></div>`;
-  for (const c of PALETTE)
-    html += `<div class="swatch" data-color="${c}" title="${c}" style="--sw:${SWATCH_BG[c]}"></div>`;
-  html += `<div class="swatch nofill" data-color="none" title="no colour — don’t inherit"></div>`;
-  edColors.innerHTML = html;
-  edColors.querySelectorAll<HTMLElement>('.swatch').forEach(sw => {
-    sw.addEventListener('click', () => {
-      const ids = selectedIds();
-      if (!ids.length) return;
-      record(ids, () => {
-        for (const id of ids){ const n = state.nodes.get(id); if (n){ n.color = sw.dataset.color ?? ''; n.dirty = true; } }
-      });
-      markActiveSwatch(sw.dataset.color);
-      paintAll(); scheduleSave();
-    });
-  });
-}
-buildSwatches();
-function markActiveSwatch(color: string | undefined): void {
-  edColors.querySelectorAll<HTMLElement>('.swatch').forEach(sw =>
-    sw.classList.toggle('active', sw.dataset.color === (color || '')));
-}
-
-// ---------- layout pickers (icon chips, like the colour swatches) ----------
-const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
-const DOT = (cx: number, cy: number, r = 2.2) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="currentColor" stroke="none"/>`;
-const LAYOUT_TYPES = [
-  { key:'none', label:'None — inherit layout from the parent (default)',
-    icon: SVG_OPEN + '<rect x="5" y="7" width="14" height="10" rx="2" stroke-dasharray="3 2.5"/></svg>' },
-  { key:'free', label:'Free — children stay where you drag them',
-    icon: SVG_OPEN + DOT(6,7) + DOT(17,8) + DOT(11,17) + '</svg>' },
-  { key:'line', label:'Line — children chained one after another, each on whichever side it sits on',
-    icon: SVG_OPEN + DOT(4,12) + '<path d="M6.5 12h3"/>' + DOT(12,12) + '<path d="M14.5 12h3"/>' + DOT(20,12) + '</svg>' },
-  { key:'fan', label:'Fan — children spread out, each to whichever side it’s placed on',
-    icon: SVG_OPEN + DOT(4,12) + '<path d="M6 12l6-6M6 12h6M6 12l6 6"/>' + DOT(14,6,1.8) + DOT(14,12,1.8) + DOT(14,18,1.8) + '</svg>' },
-];
-// the ids currently being edited (one or many) — layout applies to all of them
+// the ids currently being edited (one or many) — colour/layout/checklist/bg apply to all of them
 export function selectedIds(): string[] { return state.sel.size ? [...state.sel] : (state.selId ? [state.selId] : []); }
-// build the chip row once
-(function buildLayoutChips(){
-  edLayoutTypes.innerHTML = LAYOUT_TYPES.map(t =>
-    `<div class="layoutchip" data-type="${t.key}" title="${t.label}">${t.icon}</div>`).join('');
-  edLayoutTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-    c.addEventListener('click', () => setLayout({ type: c.dataset.type as LayoutType })));
-})();
-// apply a type to every selected card, then re-snap their children
-function setLayout({ type }: { type?: LayoutType }): void {
-  const ids = selectedIds(); if (!ids.length) return;
-  record(ids, () => {
-    for (const id of ids){
-      const n = state.nodes.get(id); if (!n) continue;
-      if (type != null) n.layoutType = type;
-      n.dirty = true;
-    }
-  });
-  markLayoutChips();
-  applyLayouts(); paintAll(); scheduleSave();
-}
-// reflect the selection's current layout: a chip is active when ALL selected share that value
-// (mixed → none active).
-function markLayoutChips(): void {
-  const ids = selectedIds();
-  const types = new Set(ids.map(id => state.nodes.get(id)?.layoutType || 'none'));
-  const t = types.size === 1 ? [...types][0] : null;
-  edLayoutTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-    c.classList.toggle('active', c.dataset.type === t));
-}
-
-// ---------- checklist toggle: off (default) / on — Trello-style, set on the PARENT. Turning it
-// on gives each of its direct children a done checkbox and shows their "n/m" progress on this
-// card; it does not cascade further down (see showsDoneCheckbox).
-edChecklist.addEventListener('change', () => setChecklist(edChecklist.checked));
-function setChecklist(on: boolean): void {
-  const ids = selectedIds(); if (!ids.length) return;
-  record(ids, () => {
-    for (const id of ids){ const n = state.nodes.get(id); if (n){ n.checklist = on; n.dirty = true; } }
-  });
-  markChecklistBox();
-  paintAll(); scheduleSave();
-}
-// mixed selection (some on, some off) shows as indeterminate rather than picking a side
-function markChecklistBox(): void {
-  const ids = selectedIds();
-  const vals = new Set(ids.map(id => !!state.nodes.get(id)?.checklist));
-  edChecklist.indeterminate = vals.size > 1;
-  edChecklist.checked = vals.size === 1 && [...vals][0];
-}
-
-// ---------- group background toggle: encloses a card + all its visible descendants in a
-// translucent tint (see view/edges.ts paintBackgrounds), coloured by the card's effective colour.
-edBg.addEventListener('change', () => setBg(edBg.checked));
-function setBg(on: boolean): void {
-  const ids = selectedIds(); if (!ids.length) return;
-  record(ids, () => {
-    for (const id of ids){ const n = state.nodes.get(id); if (n){ n.bg = on; n.dirty = true; } }
-  });
-  markBgBox();
-  paintAll(); scheduleSave();
-}
-function markBgBox(): void {
-  const ids = selectedIds();
-  const vals = new Set(ids.map(id => !!state.nodes.get(id)?.bg));
-  edBg.indeterminate = vals.size > 1;
-  edBg.checked = vals.size === 1 && [...vals][0];
-}
-
-function openEditor(n: MindNode | undefined): void {
-  if (!n) return;
-  editor.classList.remove('multi');
-  edName.textContent = n.title;             // name is read-only here — rename on the canvas
-  edTags.value = n.tags.join(', ');
-  markActiveSwatch(n.color);
-  markLayoutChips();
-  markChecklistBox();
-  markBgBox();
-  editor.classList.add('has-selection');   // show fields instead of the empty hint
-}
-// many nodes selected → show just the colour picker + a count; swatches recolour all of them
-function openMultiEditor(): void {
-  const ids = [...state.sel];
-  byId('edMulti').textContent =
-    `${ids.length} cards selected — colour & layout apply to all`;
-  const colors = new Set(ids.map(id => state.nodes.get(id)?.color || ''));
-  markActiveSwatch(colors.size === 1 ? [...colors][0] : '');  // none active when mixed
-  markLayoutChips();
-  markChecklistBox();
-  markBgBox();
-  editor.classList.add('has-selection', 'multi');
-}
-// no node selected → keep the sidebar open but show the empty hint
-function showEmptyEditor(): void { editor.classList.remove('has-selection', 'multi'); }
-// reflect state.sel in the canvas + the editor panel
-export function applySelection(): void { paintAll(); updateEditor(); updateNodeActions(); applySidebar(); }
-
-// Enable/disable the toolbar's selected-card actions to match the current selection & mode.
-function updateNodeActions(): void {
-  const one = !!state.selId && !state.readOnly;   // single-target actions
-  const any = state.sel.size > 0 && !state.readOnly;
-  const set = (id: string, on: boolean) => { byId<HTMLButtonElement>(id).disabled = !on; };
-  set('edRename', one); set('edDuplicate', one);
-  set('edDelete', any);
-  set('edDragOut', state.sel.size > 0);   // exporting mutates nothing → allowed in read-only too
-}
-function updateEditor(): void {
-  const n = state.sel.size;
-  if (n === 0) showEmptyEditor();
-  else if (n === 1) openEditor(state.selId ? state.nodes.get(state.selId) : undefined);
-  else openMultiEditor();
-}
+// reflect state.sel in the canvas + the floating edit bar (features/float-bar.ts)
+export function applySelection(): void { paintAll(); syncFloatBar(); }
 // Replace the whole selection with `ids` (a Set or array), recomputing the primary.
 export function setSelectionSet(ids: Iterable<string>): void {
   state.sel = new Set(ids);
@@ -611,14 +460,7 @@ export function toggleSel(id: string): void {
   applySelection();
 }
 
-// The floating edit panel only appears when it's actually needed — i.e. something is
-// selected (and not in read-only). The toolbar button toggles the user's preference.
-function applySidebar(): void {
-  const wanted = state.sidebarOpen && !state.readOnly;   // user pref, ignoring selection
-  const open = wanted && state.sel.size > 0;             // only show when there's a selection
-  editor.classList.toggle('open', open);
-}
-applySidebar();
+syncFloatBar();
 
 // ---------- read-only mode ----------
 // View & collapse only: nothing saves, the sidebar hides, editing icons grey out, and the
@@ -636,7 +478,7 @@ export function applyReadOnly(): void {
   roBtn.title = ro ? 'Read-only — click to unlock & edit (R)' : 'Lock to read-only (R) — view & collapse only';
   // ghost card visibility is driven by body.readonly CSS rule
   updateUndoButtons();
-  applySidebar();
+  syncFloatBar();
   setStatus(ro ? 'Read-only — nothing is saved' : 'Editing enabled');
 }
 applyReadOnly();   // set the initial open-padlock icon
@@ -662,22 +504,9 @@ export function selectNode(id: string | null): void {
   else { state.sel = new Set([id]); state.selId = id; }
   applySelection();
 }
-// Tags / colour apply live from the sidebar. The TITLE and BODY are edited on the canvas
-// (F2 / slow-click → inline edit), so the sidebar only handles tags, colour, and layout.
-function applyRest(): void {
-  const n = state.selId ? state.nodes.get(state.selId) : undefined; if (!n) return;
-  n.tags = edTags.value.split(',').map(s=>s.trim()).filter(Boolean);
-  n.dirty = true;
-  // paint first so the card's height is up to date, then reflow: a taller/shorter card pushes
-  // its siblings (and its own children) under any non-free parent. Order is untouched.
-  paintAll(); applyLayouts(); paintAll(); scheduleSave();
-}
-edTags.addEventListener('input', applyRest);
-// Tags edit live per keystroke (applyRest), but the undo step spans the whole focus→blur
-// session — mirroring the one-step-per-session rule of the inline title/body editors.
-edTags.addEventListener('focus', () => touch(...selectedIds()));
-edTags.addEventListener('blur', () => commitStep());
-// (layout is set via the icon chips above — see setLayout / buildLayoutChips)
+// Colour / checklist / group-background / layout all apply live via the floating bar
+// (features/float-bar.ts). The TITLE and BODY are edited on the canvas (F2 / slow-click → inline edit).
+
 
 // ---------- image attachments live in features/attachments.ts ----------
 // ---------- inline title/body editing lives in features/inline-edit.ts ----------
@@ -717,8 +546,9 @@ window.addEventListener('keydown', (e) => {
   }
   if (typing) return;
   if (e.key === 'r' || e.key === 'R'){ e.preventDefault(); setReadOnly(!state.readOnly); return; }
-  if ((e.key === 's' || e.key === 'S') && !e.metaKey && !e.ctrlKey){ e.preventDefault(); toggleSketchMode(); return; }   // Sketch mode
-  if (e.key === '/'){ e.preventDefault(); searchBox.focus(); searchBox.select(); return; }   // find a card
+  if ((e.key === 's' || e.key === 'S') && !e.metaKey && !e.ctrlKey){ e.preventDefault(); if (!outlineActive()) toggleSketchMode(); return; }   // Sketch mode (canvas only)
+  if ((e.key === 'o' || e.key === 'O') && !e.metaKey && !e.ctrlKey){ e.preventDefault(); toggleOutlineView(); return; }   // Outline view
+  if (e.key === '/'){ e.preventDefault(); openSearch(); return; }   // find a card
   // Space = hand-tool to pan while held; a quick tap (released without panning) makes a node.
   if (e.key === ' '){ e.preventDefault(); if (!e.repeat){ ui.spaceHeld = true; ui.spaceUsedForPan = false; } return; }
   if (e.key === 'f' || e.key === 'F'){ e.preventDefault(); focusOrFit(); return; }
@@ -753,6 +583,7 @@ window.addEventListener('keyup', (e) => {
   const wasPan = ui.spaceUsedForPan;
   ui.spaceHeld = false; ui.spaceUsedForPan = false;
   if (isTypingInField() || wasPan || ui.pan || state.sel.size !== 0) return;
+  if (outlineActive()) return;   // no invisible cards onto the hidden canvas
   if (ui.lastMouse){         // tap = new card under the cursor (centre when the mouse hasn't moved yet)
     const p = screenToWorld(ui.lastMouse.x, ui.lastMouse.y);
     createNode({ x: p.x - 100, y: p.y - 32 });
@@ -818,12 +649,8 @@ byId('edgeBtn').onclick = cycleEdgeStyle;
 byId('homeBtn').onclick = showStart;   // icon + folder name → home screen
 byId('helpBtn').onclick = openHelpTab;  // same as F1 — opens the help mindmap in a new tab
 
-// ---- edit-panel action buttons: on-screen equivalents of the keyboard shortcuts,
-// so every editing action is reachable on a touch device with no keyboard ----
-byId('edRename').onclick = () => { if (state.selId) startInlineEdit(state.nodes.get(state.selId)); };
-byId('edDuplicate').onclick = () => duplicateSelection();
-byId('edDelete').onclick = () => { if (state.sel.size) deleteSelection(); };
-
+// (rename/duplicate/export/delete on-screen actions now live in the floating bar's kebab menu —
+// features/float-bar.ts)
 
 // keyboard shortcuts: ⌘S force-save, ⌘Z/⇧⌘Z/⌘Y undo-redo  (duplicate = D, new node = Space)
 window.addEventListener('keydown', (e) => {

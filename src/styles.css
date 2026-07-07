@@ -1,6 +1,10 @@
 /* App styles. Extracted from index.html. Vite bundles this (imported from main.ts) and
    vite-plugin-singlefile inlines it back into dist/index.html, keeping the single-file build. */
 :root {
+  /* tells the browser what colour to paint the viewport with BEFORE our own CSS/JS catches up
+     (e.g. the newly-exposed strip while dragging the window edge to resize) — without this the
+     browser defaults to white, which flashes at the growing edge on a dark theme. */
+  color-scheme: dark;
   --bg: #11151c;
   --grid: #1b212c;
   --node: #1e2733;
@@ -33,9 +37,21 @@
   --r-menu: 12px;   /* dropdowns / context menus */
   --r-ctl: 10px;    /* inputs, list rows, small controls */
   --r-full: 999px;  /* pills + fully round icon buttons */
+
+  /* every toolbar-style bar (#toolbar, #floatBar, .floating-btn, .oc-back) shares one icon-button
+     size — redefined below for coarse pointers, so every consumer picks up the bigger touch
+     target automatically with no per-selector overrides. The layout popover's chips use this same
+     scale (see .layoutchip below) so it's the same height as #floatBar itself; the colour popover's
+     swatches stay their own smaller, fixed scale (matching the sketch sidebar's colour dots). */
+  --bar-btn: 32px;
+  --bar-icon: 21px;
+}
+@media (pointer: coarse) {
+  :root { --bar-btn: 36px; --bar-icon: 22px; }
 }
 /* ---- light theme: override the base variables ---- */
 body.light {
+  color-scheme: light;
   --bg: #d7dbe2;
   --grid: #c3c9d4;
   --node: #ffffff;
@@ -86,7 +102,7 @@ input, textarea, [contenteditable] { user-select:text; -webkit-user-select:text;
 
 /* floating "island" toolbar — no border, rounded, soft shadow (Excalidraw-style) */
 #toolbar {
-  position: fixed; top:10px; left:50%; transform:translateX(-50%); z-index:20;
+  position: fixed; top:12px; left:50%; transform:translateX(-50%); z-index:20;
   width:max-content; max-width:calc(100% - 20px);
   display:flex; align-items:center; gap:7px; padding:4px 8px;
   background: var(--panel); border-radius:var(--r-full);
@@ -104,60 +120,60 @@ button:disabled { opacity:.45; cursor:default; }
 /* toolbar buttons are borderless, monochrome clickable icons (icon = currentColor) */
 #toolbar button {
   display:inline-flex; align-items:center; justify-content:center;
-  width:28px; height:28px; padding:0; border-radius:50%;
+  width:var(--bar-btn); height:var(--bar-btn); padding:0; border-radius:var(--r-full);
   background:transparent; border:none; color:var(--muted);
   flex:none;   /* icons never squash — a narrow window shrinks the search box / folder name instead */
 }
-#toolbar button:hover { background:var(--node); color:var(--text); }
+#toolbar button:hover { background:color-mix(in srgb, var(--text) 8%, transparent); color:var(--text); }
 #toolbar button.primary { color:var(--accent); }
 #toolbar button.active { color:var(--accent); }
 #toolbar button#roBtn.locked { color:#e0564f; }   /* red while read-only is locked */
-#toolbar button#roBtn.locked:hover { color:#e0564f; background:var(--node); }
+#toolbar button#roBtn.locked:hover { color:#e0564f; background:color-mix(in srgb, var(--text) 8%, transparent); }
 /* .ic is display:contents, so the svg itself is the flex item — flex:none keeps icons from
    squashing when a shrinking neighbour (folder name / search box) fights for space */
-#toolbar button svg { width:15px; height:15px; display:block; flex:none; }
+#toolbar button svg { width:var(--bar-icon); height:var(--bar-icon); display:block; flex:none; }
 #status { display:none; }   /* transient log messages are not shown in the toolbar */
 /* floating toolbar-less buttons pinned to the canvas corners (sketch / home / help) */
 .floating-btn {
   position:fixed; z-index:20;
-  width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center;
-  padding:0; border:none; border-radius:50%; background:var(--panel); color:var(--muted); cursor:pointer;
+  width:var(--bar-btn); height:var(--bar-btn); display:inline-flex; align-items:center; justify-content:center;
+  padding:0; border:none; border-radius:var(--r-full); background:var(--panel); color:var(--muted); cursor:pointer;
 }
-.floating-btn:hover { color:var(--text); }
-.floating-btn svg { width:16px; height:16px; display:block; }
+.floating-btn:hover { color:var(--text); background:color-mix(in srgb, var(--text) 8%, var(--panel)); }
+.floating-btn svg { width:var(--bar-icon); height:var(--bar-icon); display:block; }
 /* sketch toggle — top-right corner */
-#sketchBtn { top:10px; right:12px; }
+#sketchBtn { top:12px; right:12px; }
 /* reads as "on" with a solid accent fill, like the .primary buttons */
 #sketchBtn.active, #sketchBtn.active:hover { background:var(--accent); color:#fff; }
 body.sketching #stage { cursor:crosshair; }
 body.sketching #ghostCard { display:none; }    /* the drag-to-create card would fight the pen */
 body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag / edit while sketching */
 /* home / storage — floating bar in the top-left; the loaded-folder name sits BESIDE the button */
-#homeBar { position:fixed; top:10px; left:12px; z-index:20; display:flex; align-items:center; gap:8px; max-width:calc(100% - 24px); }
+#homeBar { position:fixed; top:12px; left:12px; z-index:20; display:flex; align-items:center; gap:8px; max-width:calc(100% - 24px); }
 #homeBar #homeBtn { position:static; flex:none; }   /* .floating-btn styles the box; the bar owns positioning */
 #folderName { font-size:13px; font-weight:600; color:var(--text);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #folderName:empty { display:none; }   /* icon-only until a folder is loaded */
 @media (max-width:480px){ #folderName { display:none; } }   /* icon-only on narrow screens */
-/* find / jump-to-card */
-/* the search field yields first when the toolbar runs out of room (down to min-width),
-   so it can never stick out of the bar; focus widens the wrap, not the input */
-#searchWrap { position:relative; display:flex; align-items:center; flex:0 1 auto; width:130px; min-width:78px; }
-#searchWrap:focus-within { width:180px; }
-#searchIcon { position:absolute; left:7px; width:13px; height:13px; display:block;
-  color:var(--muted); pointer-events:none; flex:none; }
-#searchBox { width:100%; min-width:0; box-sizing:border-box; height:26px; padding:0 8px 0 24px;
-  border-radius:var(--r-full); font-size:12px; background:var(--bg); border:none; color:var(--text); }
+/* find / jump-to-card — a floating bar dropped below the toolbar, opened by #searchBtn */
+#searchWrap { position:fixed; top:52px; left:50%; transform:translateX(-50%); z-index:20;
+  display:none; align-items:center; width:260px; max-width:calc(100% - 20px);
+  padding:4px 6px; background:var(--panel); border-radius:var(--r-full); }
+#searchWrap.open { display:flex; }
+#searchWrap > .ic svg, #searchWrap > [data-icon] svg { position:absolute; left:14px; width:14px; height:14px;
+  display:block; color:var(--muted); pointer-events:none; flex:none; }
+#searchBox { width:100%; min-width:0; box-sizing:border-box; height:30px; padding:0 8px 0 30px;
+  border-radius:var(--r-full); font-size:13px; background:var(--bg); border:none; color:var(--text); }
 #searchBox:focus { outline:none; box-shadow:0 0 0 2px var(--accent); }
-#searchBox.has-value { padding-right:22px; }
-#toolbar button#searchClear { display:none; position:absolute; right:5px; width:18px; height:18px; padding:0;
-  border:none; background:transparent; color:var(--muted); cursor:pointer; }
-#toolbar button#searchClear:hover { color:var(--text); }
+#searchBox.has-value { padding-right:30px; }
+button#searchClear { display:none; position:absolute; right:10px; width:20px; height:20px; padding:0;
+  border:none; border-radius:50%; background:transparent; color:var(--muted); cursor:pointer; }
+button#searchClear:hover { color:var(--text); background:color-mix(in srgb, var(--text) 8%, transparent); }
 #searchClear svg { width:11px; height:11px; display:block; }
-#toolbar #searchBox.has-value ~ #searchClear { display:flex; align-items:center; justify-content:center; }
-/* placeholder hint tinted with the bar surface so it reads as a faint label, not real input */
-input::placeholder { color:var(--panel); opacity:1; }
-#searchResults { position:absolute; top:30px; left:0; min-width:200px; max-height:50vh; overflow:auto;
+#searchBox.has-value ~ #searchClear { display:flex; align-items:center; justify-content:center; }
+/* placeholder hint reads as a faint label, not real input */
+input::placeholder { color:var(--muted); opacity:1; }
+#searchResults { position:absolute; top:42px; left:0; right:0; max-height:50vh; overflow:auto;
   background:var(--panel); border:1px solid var(--grid); border-radius:var(--r-menu); padding:4px;
   display:none; z-index:30; }
 #searchResults.open { display:block; }
@@ -184,7 +200,8 @@ input::placeholder { color:var(--panel); opacity:1; }
 #ctxMenu .cm-item.cm-danger { color:#e0564f; }
 #ctxMenu .cm-item.cm-danger:hover:not(:disabled) { background:#e0564f; color:#fff; }
 #ctxMenu .cm-item kbd { font-family:inherit; font-size:11px; color:var(--muted); }
-#ctxMenu .cm-sep { height:1px; margin:4px 6px; background:var(--node-border); }
+/* negative side margin cancels the menu's own padding + border so the line touches both edges */
+#ctxMenu .cm-sep { height:1px; margin:4px -5px; background:var(--node-border); }
 
 /* touch-action:none → the browser never steals pan/zoom gestures; we drive them ourselves */
 #stage { position:fixed; inset:0; overflow:hidden; cursor:default; touch-action:none; }
@@ -266,8 +283,10 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
 /* break long words / URLs and clip anything that still overflows the card horizontally */
 .node .title { font-weight:600; font-size:14px; margin-bottom:9px; padding-right:16px;
   overflow-wrap:anywhere; overflow:hidden; }
-/* inline title rename (slow-click / F2 / on-create): edit the card's title in place */
-.node .title.editing { outline:2px solid var(--accent); outline-offset:2px; border-radius:0;
+/* inline title rename (slow-click / F2 / on-create): edit the card's title in place.
+   border-radius a touch smaller than --r-card so it still reads as sitting INSIDE the card
+   corners — same treatment (and radius) as .oc-title/.oc-note in the outliner below. */
+.node .title.editing { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;
   cursor:text; white-space:pre-wrap; overflow:visible; background:rgba(0,0,0,.5);
   box-shadow:0 0 0 2px rgba(0,0,0,.5); }   /* fill the outline-offset gap so the dark reaches the border */
 .node .title.editing.invalid { outline-color:#e0564a; }
@@ -277,7 +296,7 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
 .node .body.editing { overflow:visible; opacity:1; }
 .node .body-edit { display:block; width:100%; box-sizing:border-box; margin:0;
   font:inherit; font-size:12px; line-height:1.4; color:inherit;
-  background:rgba(0,0,0,.5); border:none; border-radius:0; padding:2px 4px;
+  background:rgba(0,0,0,.5); border:none; border-radius:4px; padding:2px 4px;
   box-shadow:0 0 0 2px rgba(0,0,0,.5);   /* fill the outline-offset gap so the dark reaches the border */
   outline:2px solid var(--accent); outline-offset:2px; resize:none; overflow:hidden;
   white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -363,7 +382,7 @@ body.light .swatch.inherit { background:repeating-linear-gradient(45deg,#fff,#ff
    fallback, same --card value as .c-grey), not a generic dashed placeholder, so it previews
    the real result. */
 #ghostCard {
-  position:fixed; left:18px; bottom:18px; z-index:20;
+  position:fixed; left:12px; bottom:12px; z-index:20;
   width:96px; height:48px;
   display:flex; align-items:center; justify-content:center;
   background:var(--pal-grey); border:none; border-radius:var(--r-card);
@@ -385,10 +404,10 @@ body.readonly #ghostCard { opacity:.35; pointer-events:none; }
 }
 body.empty-canvas:not(.readonly) .emptyhint { opacity:1; }
 @media (prefers-reduced-motion: reduce) { .emptyhint { transition:none; } }
-#ghostHint { left:126px; bottom:29px; }                 /* right of the ghost card */
+#ghostHint { left:120px; bottom:23px; }                 /* right of the ghost card */
 #ghostHint span { position:relative; top:-5px; }        /* nudge only the label up, arrow stays */
 /* help toggle — bottom-right corner */
-#helpBtn { right:12px; bottom:18px; overflow:visible; }
+#helpBtn { right:12px; bottom:12px; overflow:visible; }
 /* help hint lives INSIDE the help button, so it tracks it with no JS — sits ABOVE the
    bottom-right button and points down at it */
 #helpHint {
@@ -399,19 +418,8 @@ body.empty-canvas:not(.readonly) .emptyhint { opacity:1; }
 /* override #toolbar button svg (15×15) so the in-button help arrow keeps its real size */
 #helpHint .hint-arrow { width:24px; height:46px; }
 
-/* floating edit panel — sits below the toolbar, off the right edge, hugs its content */
-#editor {
-  position:fixed; top:50px; right:10px; width:240px; z-index:15;
-  max-height:calc(100vh - 60px); overflow:auto;
-  background:var(--panel); border-radius:var(--r-panel); padding:12px;
-  display:flex; flex-direction:column; gap:8px;
-  transform:translateX(calc(100% + 10px)); opacity:0;  /* parked off-screen when closed */
-  transition:transform .25s cubic-bezier(.4,0,.2,1), opacity .2s ease;
-  pointer-events:none;
-}
-#editor.open { transform:translateX(0); opacity:1; pointer-events:auto; }  /* slide in from the right */
-
-/* sketch sidebar — same slot as #editor, shown only in sketch mode (replaces the edit panel) */
+/* sketch sidebar — a fixed right-hand panel, shown only in sketch mode (the floating edit bar
+   hides itself in that mode instead — see features/sketch.ts) */
 #sketchPanel {
   position:fixed; top:50px; right:10px; width:240px; z-index:15;
   max-height:calc(100vh - 60px); overflow:auto;
@@ -419,7 +427,7 @@ body.empty-canvas:not(.readonly) .emptyhint { opacity:1; }
   flex-direction:column; gap:12px; display:none;
 }
 body.sketching #sketchPanel { display:flex; }
-body.sketching #editor { display:none; }   /* the sketch panel takes the edit panel's place */
+body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit bar's place */
 #sketchPanel .sk-title { font-size:16px; font-weight:600; color:var(--text);
   padding-bottom:8px; border-bottom:1px solid var(--grid); }
 #sketchPanel .fgroup { display:flex; flex-direction:column; gap:6px; }
@@ -445,48 +453,61 @@ body.sketching #editor { display:none; }   /* the sketch panel takes the edit pa
 .sketch-dots.widths .dot::after {
   content:""; position:absolute; inset:0; margin:auto; border-radius:50%;
   width:var(--d); height:var(--d); background:var(--text); }
-#edFields { flex:1; display:flex; flex-direction:column; gap:10px; min-height:0; }
-#edFields .fgroup { display:flex; flex-direction:column; gap:6px; }
-/* empty state vs. fields: only one shows at a time, driven by .has-selection */
-#editor #edFields { display:none; }
-#editor.has-selection #edFields { display:flex; }
-#editor.has-selection #edEmpty { display:none; }
-/* selected-card actions row, pinned at the bottom of the panel; shown only with a selection */
-#editor #edActions { display:none; flex-direction:column; gap:6px; }
-#editor.has-selection #edActions { display:flex; }
-#edActions .actionrow { display:flex; gap:6px; }
-#edActions button {
-  flex:1; display:inline-flex; align-items:center; justify-content:center;
-  height:34px; padding:0; border-radius:var(--r-full);
-  background:var(--node-border); border:1px solid var(--node-border); color:var(--muted); cursor:pointer;
-}
-#edActions button:hover:not(:disabled) { color:var(--text); background:var(--accent); border-color:var(--accent); }
-#edActions button:disabled { opacity:.4; cursor:default; }
-#edActions button svg { width:18px; height:18px; display:block; }
-#edActions button#edDelete:not(:disabled):hover { color:#fff; background:#e0564f; border-color:#e0564f; }
-/* multi-select: only the colour picker applies; hide single-node fields, show the count */
-#edMulti { display:none; }
-#editor.multi #edMulti { display:block; }
-#editor.multi #edName, #editor.multi .fg-tags { display:none; }
-/* read-only node name shown at the top of the sidebar (renaming happens on the canvas) */
-#editor .ed-name { font-size:16px; font-weight:600; color:var(--text); line-height:1.3;
-  overflow-wrap:anywhere; padding-bottom:8px; border-bottom:1px solid var(--grid); }
 /* rubber-band marquee drawn over the canvas while drag-selecting */
 #marquee { position:absolute; display:none; z-index:5; pointer-events:none;
   border:1px dotted var(--accent); background:color-mix(in srgb, var(--accent) 15%, transparent); }
-#editor label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
-#editor label.checkbox-label { display:flex; align-items:center; gap:6px; cursor:pointer; }
-#editor label.checkbox-label input[type="checkbox"] { width:14px; height:14px; margin:0; cursor:pointer; }
-#editor input, #editor textarea, #editor select {
-  background:var(--bg); color:var(--text); border:none;
-  border-radius:var(--r-ctl); padding:8px 10px; font-size:13px; font-family:inherit; width:100%;
+
+/* ---- floating selection bar: a compact pill of icon buttons anchored next to the selected
+   card (position set by features/float-bar.ts's rAF follow loop, tracking pan/zoom/drag) ---- */
+#floatBar {
+  position:fixed; top:0; left:0; z-index:22;   /* left/top overwritten per-frame in JS; above #outline (21) — see its comment */
+  display:flex; align-items:center; gap:2px; padding:4px;
+  background:var(--panel); border-radius:var(--r-full);
+  opacity:0; pointer-events:none; transition:opacity .15s ease;
 }
-#editor input:focus, #editor textarea:focus, #editor select:focus {
-  outline:none; box-shadow:0 0 0 2px var(--accent);
+#floatBar.open { opacity:1; pointer-events:auto; }
+/* hides instantly the moment a drag/pan/zoom starts (features/float-bar.ts's follow loop),
+   then fades back in via the base transition above once the pointer lifts */
+#floatBar.hide-interact { opacity:0; pointer-events:none; transition:none; }
+/* shared sizing only — background/colour live on .fb-icon so they never fight .swatch's own
+   background on the colour trigger (an ID+type rule here would otherwise beat a plain class). */
+#floatBar button, #floatBar label {
+  flex:none; width:var(--bar-btn); height:var(--bar-btn); padding:0; display:flex;
+  align-items:center; justify-content:center;
+  border-radius:var(--r-full); border:0; cursor:pointer;
 }
-#editor textarea { flex:1; resize:none; font-family: ui-monospace, "SF Mono", Menlo, monospace; line-height:1.5; }
-#editor .row { display:flex; gap:8px; }
-#editor .editnote { font-size:11px; color:var(--muted); line-height:1.5; }
+.fb-icon { background:transparent; color:var(--muted); }
+.fb-icon svg { width:var(--bar-icon); height:var(--bar-icon); display:block; }
+.fb-icon:hover { color:var(--text); background:color-mix(in srgb, var(--text) 8%, transparent); }
+/* checklist / group-bg toggles: a real (visually hidden) checkbox drives the icon's state */
+.fb-toggle input { position:absolute; opacity:0; width:0; height:0; pointer-events:none; }
+.fb-toggle:has(input:checked) { color:#fff; background:var(--accent); }
+.fb-toggle:has(input:indeterminate) { color:var(--accent); }
+/* stretches past the bar's own padding (align-self:stretch + negative margin) so it touches the
+   bar's top/bottom edges instead of floating as a short centred tick */
+.fb-sep { flex:none; width:1px; align-self:stretch; margin:-4px 2px; background:var(--node-border); }
+#floatBar .fb-swatch { width:24px; height:24px; margin:0 4px; }   /* .swatch already sizes to 22px */
+
+/* small popover anchored under/over its trigger button (colour / layout pickers) — borderless,
+   same "floating island" style as #toolbar/#floatBar, no shadow either. Explicit height (MUST
+   match #floatBar's own: --bar-btn content + 2×4px padding) rather than one derived from the
+   popover's own content/padding — the colour swatches (22px) and layout chips (--bar-btn, since
+   the latest change) are different scales, so equal CONTENT height doesn't fall out on its own;
+   this pins both popovers, and the bar itself, to one shared height regardless. */
+.fb-pop { position:fixed; top:0; left:0; display:none; z-index:23; padding:0 8px;
+  height:calc(var(--bar-btn) + 8px); align-items:center;
+  background:var(--panel); border-radius:var(--r-full);
+  transition:opacity .15s ease; }
+.fb-pop.open { display:flex; }
+/* hides instantly while #floatBar itself does (see float-bar.ts's followLoop) — a stale popover
+   position mid-pan/drag/zoom would otherwise float away from its (now-moved) trigger button. */
+.fb-pop.hide-interact, .fb-pop-connector.hide-interact { opacity:0; pointer-events:none; transition:none; }
+/* thin stem bridging the short gap between the bar and an open popover, in the bar's own
+   background colour so the two read as one connected shape (position/size set in float-bar.ts) */
+.fb-pop-connector { position:fixed; top:0; left:0; display:none; z-index:23; width:2px;
+  background:var(--panel); }
+.fb-pop-connector.open { display:block; }
+
 /* colour picker = a row of individual round bubbles; the selection outline sits AROUND one */
 .swatches { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
 /* fixed size so colour chips match the sketch sidebar's colour dots (.sketch-dots .dot) exactly */
@@ -500,15 +521,15 @@ body.sketching #editor { display:none; }   /* the sketch panel takes the edit pa
 .swatch.nofill { background:
   linear-gradient(to top right, transparent calc(50% - 1.2px), #e0564a calc(50% - 1.2px),
     #e0564a calc(50% + 1.2px), transparent calc(50% + 1.2px)), var(--bg); }
-/* layout pickers: each row is one segmented toolbar (joined icon buttons) */
-.layoutrow { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-.layoutchips { display:inline-flex; border:none;
-  border-radius:var(--r-full); overflow:hidden; background:var(--bg); }
-.layoutchip { width:40px; height:30px; cursor:pointer;
-  display:flex; align-items:center; justify-content:center;
+/* layout picker: separate icon buttons (no joined/grey group background), same size + look as
+   the floating bar's own icon buttons (--bar-btn/--bar-icon) — just the selected one reads
+   blue/white. Its popover is the same height as the colour popover (and #floatBar itself) via
+   .fb-pop's explicit height above, despite the chips being a bigger scale than the swatches. */
+.layoutchips { display:flex; gap:6px; align-items:center; }
+.layoutchip { width:var(--bar-btn); height:var(--bar-btn); cursor:pointer; flex:none;
+  display:flex; align-items:center; justify-content:center; border-radius:var(--r-full);
   background:transparent; color:var(--muted); border:0; }
-.layoutchip + .layoutchip { border-left:1px solid var(--node-border); }   /* segment dividers */
-.layoutchip svg { width:20px; height:20px; }
+.layoutchip svg { width:var(--bar-icon); height:var(--bar-icon); }
 .layoutchip:hover { color:var(--text); background:color-mix(in srgb, var(--text) 8%, transparent); }
 .layoutchip.active { color:#fff; background:var(--accent); }
 .layoutchip.disabled { opacity:.35; cursor:default; }
@@ -583,19 +604,289 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
 
 /* ---- toolbar section for editing the selected card(s) ---- */
 #toolbar button:disabled, #toolbar button:disabled:hover { background:transparent; opacity:.3; cursor:default; }
-#toolbar button#edDelete:not(:disabled):hover { color:#e0564f; }
 
-/* ---- coarse pointer (touch) : slightly larger hit targets than desktop ---- */
+/* ---- coarse pointer (touch) : slightly larger hit targets than desktop ----
+   Bar/icon-button sizing itself comes from --bar-btn/--bar-icon being redefined at :root above —
+   every bar (#toolbar, #floatBar, .floating-btn, .oc-back, .layoutchip) picks that up for free. */
 @media (pointer: coarse) {
-  #toolbar button { width:34px; height:34px; }
-  #toolbar button svg { width:18px; height:18px; }
   #toolbar { gap:8px; padding:5px 10px; }
-  #homeBar #homeBtn { width:40px; height:40px; }
-  #editor { top:58px; width:240px; padding:12px; }
   .node .addnote { height:28px; line-height:28px; bottom:-14px; padding:0 11px; border-radius:14px; font-size:12px; }
   /* explicit flex:none so flex-basis doesn't override width and stretch them tall */
   .swatch { flex:none; width:22px; height:22px; }
   /* wrap so swatches never escape the sidebar on narrow panels */
   .swatches { flex-wrap:wrap; }
-  .layoutchip { padding:4px 8px; }
+  /* context-menu rows big enough for a finger (also used by the outline's ⋯ menu) */
+  #ctxMenu .cm-item { padding:10px 12px; font-size:14px; }
 }
+
+/* ---- narrow screens: the floating bar docks to the BOTTOM EDGE instead of floating next to
+   the card (floating next to a small card on a touch screen clips off-screen too easily) ----
+   The 700px breakpoint MUST match NARROW_MQ in core/ui-state.ts (float-bar.ts skips the JS
+   position math here and lets this block own left/top/bottom; frameBox also treats the docked
+   bar as a bottom obstruction instead of a right one — see view/camera.ts). */
+@media (max-width: 700px) {
+  #sketchPanel {
+    top:auto; bottom:0; left:10px; right:10px; width:auto;
+    max-height:55vh;
+    border-radius:var(--r-panel) var(--r-panel) 0 0;
+    padding-bottom:calc(12px + env(safe-area-inset-bottom));
+  }
+  #floatBar {
+    top:auto; bottom:0; left:10px; right:10px; width:auto; justify-content:center;
+    border-radius:var(--r-panel) var(--r-panel) 0 0;
+    padding-bottom:calc(4px + env(safe-area-inset-bottom));
+    transform:translateY(calc(100% + 10px));   /* parked BELOW the screen when closed */
+  }
+  /* above the corner ghost-card/help buttons (z 20) — they'd float over the bar otherwise */
+  #floatBar.open { transform:translateY(0); z-index:25; }
+  /* phone: outline is forced full-screen, so the canvas toolbar has nothing to act on — hide it.
+     The home (top-left) + New-card (top-right) corner buttons are all that's needed here. */
+  #toolbar { display:none; }
+  /* the map name sits beside the home button in the top-left — it would overlap other UI on a
+     narrow bar, so hide it here (the home sidebar still shows which map is open).
+     (the New-card button's phone treatment lives after its base rule below, for source order.) */
+  #folderName { display:none; }
+}
+
+/* ---- outline mode: the map as a collapsible tree list (body.outline, toggled in
+   features/outline.ts). Rows render into #outline. Two treatments, split at the same 700px
+   breakpoint as the bottom-sheet panel:
+     · narrow (phone)  → full-screen; the canvas + its chrome hide entirely
+     · wide  (desktop) → a drawer sliding in from the right OVER a still-visible canvas,
+                         mirroring the storage sidebar's left drawer. */
+/* above #toolbar/#homeBar/#searchWrap (z:20): the drawer covers them where it overlaps, rather
+   than the app chrome floating over its edge. */
+#outline { position:fixed; z-index:21; }
+/* the ACTUAL scrolling box, filling #outline — kept separate so #ocBack (a sibling, see index.html)
+   can sit fixed at the panel's own top edge without scrolling away with the list (a position:fixed
+   descendant of a transformed ancestor that's ALSO the scroll container scrolls right along with
+   it — this is what bit #ocBack when it lived inside here; #olAddBtn dodges the same trap by not
+   living in #outline's subtree at all). */
+.ol-scroll { position:absolute; inset:0; overflow:hidden auto; -webkit-overflow-scrolling:touch; }
+/* Sketch + help are canvas tools, so hide them in outline mode at every width. The floating edit
+   bar stays canvas-only too, but on a WIDE screen the outliner is a drawer over a still-visible
+   canvas, so a card can stay selected there — only hide it once the canvas itself is gone (the
+   narrow/phone treatment below), not just because outline is active. */
+body.outline #sketchBtn, body.outline #helpBtn { display:none !important; }
+
+@media (max-width: 700px) {
+  body.outline #stage, body.outline #ghostCard, body.outline #ghostHint,
+  body.outline #fitBtn, body.outline #edgeBtn, body.outline #floatBar { display:none !important; }
+  /* fill the whole screen and inset the content from the top instead of parking the panel below
+     the header — so cards scroll UP UNDER the floating home / + buttons (iOS-style) rather than
+     being clipped at a fixed top edge. */
+  #outline { top:0; left:0; right:0; bottom:0; display:none; }
+  .ol-scroll { padding:calc(58px + env(safe-area-inset-top)) 10px calc(80px + env(safe-area-inset-bottom)); }
+  body.outline #outline { display:block; }
+}
+
+@media (min-width: 701px) {
+  /* full-height right drawer; parked off-screen (and click-through) until outline is active */
+  #outline { top:0; right:0; bottom:0; width:380px; max-width:90vw;
+    background:var(--panel); border-left:1px solid var(--grid);
+    box-shadow:-8px 0 24px rgba(0,0,0,.25);
+    transform:translateX(calc(100% + 30px)); transition:transform .22s ease;
+    pointer-events:none; }
+  .ol-scroll { padding:60px 12px 16px; }
+  body.outline #outline { transform:translateX(0); pointer-events:auto; }
+}
+@media (prefers-reduced-motion: reduce) { #outline { transition:none; } }
+
+/* ---- outline branch editor: this card + its siblings as full editable cards (features/
+   branch-editor.ts) ---- Rendered into #olCards inside the outline panel; body.ol-editing swaps
+   the row list for it INSTANTLY (no slide). Colour/tags/checklist/group-bg live in the bottom
+   properties sheet (#branchProps); duplicate/delete stay in the row ⋯ menu. */
+.ol-cards { display:none; max-width:640px; margin:0 auto; }
+/* hide the row list while editing; the + button (in .ol-head) stays — it adds a card to the group */
+body.ol-editing .ol-rows { display:none; }
+body.ol-editing .ol-cards { display:flex; flex-direction:column; gap:12px; }
+/* on a phone the branch editor is full-screen with its own back arrow (top-left) — the home button
+   would collide with it, so hide the home bar while editing here (desktop keeps it: the editor is
+   a right drawer, well clear of the top-left home button). */
+@media (max-width: 700px) { body.ol-editing #homeBar { display:none; } }
+/* back arrow — a persistent element (index.html), NOT inside .ol-scroll (see its comment above),
+   pinned to the panel's own top-left corner regardless of scroll; returns to the row view. Only
+   shown while the branch editor is open. */
+.oc-back { display:none; position:absolute; top:10px; left:12px; z-index:5;
+  width:var(--bar-btn); height:var(--bar-btn); padding:0;
+  align-items:center; justify-content:center;
+  border:none; border-radius:var(--r-full); background:var(--node); color:var(--text); cursor:pointer; }
+body.ol-editing .oc-back { display:inline-flex; }
+.oc-back:hover { background:color-mix(in srgb, var(--text) 8%, var(--node)); }
+.oc-back svg { width:var(--bar-icon); height:var(--bar-icon); display:block; }
+/* each card looks like a canvas card: the palette tint via the shared .c-* classes, white text on
+   coloured cards (theme-dependent on none/white/grey — mirrors .node / .ol-row). */
+.oc-card { display:flex; flex-direction:column; gap:6px; padding:12px 14px;
+  border-radius:var(--r-card); background:var(--card, var(--node)); color:#fff; }
+.oc-card.c-none { background:var(--node); color:var(--text); }
+.oc-card.c-white { color:#2b3645; }
+body.light .oc-card:not(.c-none):not(.c-white):not(.c-grey) { color:#000; }
+/* title + note edit in place; transparent fields so the card's own tint shows through */
+.oc-title, .oc-note { width:100%; background:transparent; border:none; color:inherit;
+  font-family:inherit; padding:2px 4px; border-radius:4px; }
+.oc-title { font-size:16px; font-weight:600; }
+/* editing a field darkens its background + shows an accent ring — the same treatment as the
+   in-card title/body editors on the canvas (.node .title.editing / .body-edit). */
+.oc-title:focus, .oc-note:focus { outline:2px solid var(--accent); outline-offset:1px;
+  background:rgba(0,0,0,.5); }
+.oc-title.invalid:focus { outline-color:#e0564a; }
+.oc-title.invalid { text-decoration:underline wavy #e0564a; }
+.oc-note { resize:none; overflow:hidden; min-height:1.4em; line-height:1.5; font-size:13px;
+  opacity:.92; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.oc-note::placeholder { color:inherit; opacity:.5; }
+/* empty-note affordance: the same accent pill the canvas card shows (.node .addnote) */
+.oc-addnote { align-self:flex-start; height:22px; line-height:22px; padding:0 10px; border:none;
+  border-radius:11px; background:var(--accent); color:#fff; font-size:11px; font-weight:600; cursor:pointer; }
+.oc-addnote:hover { filter:brightness(1.08); }
+/* the branch card the properties sheet is currently targeting */
+.oc-card.active { box-shadow:0 0 0 2px var(--accent); }
+
+/* ---- branch-view properties sheet (features/branch-editor.ts + properties.ts) ----
+   Colour / tags / checklist / group background for the active card. Kept OUTSIDE #outline so its
+   position:fixed pins to the VIEWPORT bottom (a fixed child of the transformed, scrolling drawer
+   rides the scroll instead of staying put). Phone → spans the screen bottom; desktop → aligned to
+   the outliner drawer (see the min-width:701 rule below). Parked below (translateY) until
+   body.branch-props-open; the handle drags it down to dismiss. Swatch/checkbox base styles are
+   shared with the canvas sidebar (.swatches / .swatch above). */
+#branchProps {
+  position:fixed; left:0; right:0; bottom:0; z-index:22;   /* above #outline (21) — it's the branch editor's own sheet */
+  display:flex; flex-direction:column; gap:10px;
+  padding:6px 16px calc(14px + env(safe-area-inset-bottom));
+  background:var(--panel); border-top:1px solid var(--grid);
+  border-radius:var(--r-panel) var(--r-panel) 0 0;
+  box-shadow:0 -8px 28px rgba(0,0,0,.28);
+  transform:translateY(110%); transition:transform .2s ease;
+}
+/* desktop: sit within the outliner drawer (matches #outline's width/right in the min-width:701
+   block) instead of spanning the whole viewport. */
+@media (min-width: 701px) {
+  #branchProps { left:auto; right:0; width:380px; max-width:90vw;
+    border-left:1px solid var(--grid); }
+}
+body.branch-props-open #branchProps { transform:translateY(0); }
+#branchProps.bp-dragging { transition:none; }   /* track the finger while dragging the handle */
+@media (prefers-reduced-motion: reduce) { #branchProps { transition:none; } }
+/* grab handle: a centred pill (mirrors the phone edit-sheet handle) */
+#branchProps .bp-handle { align-self:center; flex:none; width:40px; height:5px; margin:2px 0 4px;
+  border:none; padding:0; border-radius:3px; background:var(--muted); opacity:.5;
+  cursor:grab; touch-action:none; }
+#branchProps .bp-handle:hover { opacity:.8; }
+#branchProps.bp-dragging .bp-handle { cursor:grabbing; }
+#branchProps .fgroup { display:flex; flex-direction:column; gap:6px; }
+#branchProps label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+#branchProps .bp-toggles { display:flex; gap:16px; flex-wrap:wrap; }
+#branchProps label.checkbox-label { display:flex; align-items:center; gap:6px; cursor:pointer;
+  font-size:13px; color:var(--text); text-transform:none; letter-spacing:0; }
+#branchProps label.checkbox-label input[type="checkbox"] { width:14px; height:14px; margin:0; cursor:pointer; }
+#branchProps input[type="text"] { background:var(--bg); color:var(--text); border:none;
+  border-radius:var(--r-ctl); padding:8px 10px; font-size:13px; font-family:inherit; width:100%; }
+#branchProps input[type="text"]:focus { outline:none; box-shadow:0 0 0 2px var(--accent); }
+/* keep the tail of the card list reachable above the raised sheet */
+body.branch-props-open #olCards { padding-bottom:42vh; }
+.ol-rows { max-width:640px; margin:0 auto; }
+/* Rows read like the canvas cards: same --card palette background (via the shared .c-* classes),
+   white text on coloured cards, theme-dependent text on none/white/grey — mirrors .node. */
+.ol-row { display:flex; align-items:center; min-height:32px; margin-bottom:8px;
+  border-radius:var(--r-card); background:var(--card, transparent); color:#fff; }
+.ol-row.c-none { color:var(--text); }
+.ol-row.c-white { color:#2b3645; }
+body.light .ol-row:not(.c-none):not(.c-white):not(.c-grey) { color:#000; }
+.ol-row.sel { box-shadow:0 0 0 2px var(--node-sel); }
+.ol-row.flash { animation:ol-flash 1.2s ease-out; }
+@keyframes ol-flash {
+  0%, 55% { box-shadow:0 0 0 3px #fff; }
+  100%    { box-shadow:none; }
+}
+@media (prefers-reduced-motion: reduce) { .ol-row.flash { animation:none; } }
+/* the row being drag-reordered floats above its siblings and rides the pointer (transform) */
+.ol-row.ol-dragging { position:relative; z-index:10; opacity:.85; }
+/* the row a dragged card would NEST under (middle-of-row hover) */
+.ol-row.ol-drop { box-shadow:0 0 0 2px var(--accent); }
+/* insertion indicator while drag-reordering — the SAME white dashed bar the canvas draws for a
+   reorder drop (see features/drag.ts showInsertLine): a div can't dash a background, so fake it
+   with a repeating gradient along the bar's long axis. */
+.ol-insert { position:fixed; height:3px; z-index:30; pointer-events:none;
+  background:repeating-linear-gradient(90deg, #fff 0 6px, transparent 6px 11px); }
+/* disclosure triangle — view-local fold, never writes mm_collapsed (see features/outline.ts) */
+.ol-disc { flex:none; width:26px; height:32px; padding:0; border:0; border-radius:var(--r-ctl);
+  background:transparent; color:inherit; opacity:.65; display:flex; align-items:center; justify-content:center; }
+.ol-disc svg { width:12px; height:12px; display:block; transition:transform .15s; }
+.ol-disc.open svg { transform:rotate(90deg); }
+.ol-disc.leaf { visibility:hidden; }
+/* colour dot — used by the Move-to picker rows (outline rows carry the card colour as their bg) */
+.ol-dot { flex:none; width:11px; height:11px; border-radius:50%; margin-right:10px;
+  background:var(--ol-c, var(--node-border)); }
+.ol-title { flex:1 1 auto; min-width:0; padding:6px 0; font-size:15px; font-weight:600;
+  color:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+/* "has a note" marker: an empty white disc, matching the canvas collapsed-leaf bubble (.hidden-count) */
+.ol-note { flex:none; margin:0 5px; width:10px; height:10px; border-radius:50%; background:#fff; }
+/* hidden-descendant count on a folded row — same white bubble as the canvas card corner */
+.ol-count { flex:none; min-width:18px; height:18px; padding:0 5px; margin:0 2px;
+  border-radius:9px; background:#fff; color:#000;
+  font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
+.ol-drag, .ol-more { flex:none; width:28px; height:32px; padding:0; border:0;
+  border-radius:var(--r-ctl); background:transparent; color:inherit; opacity:.6;
+  font-size:19px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.ol-drag svg { width:16px; height:16px; display:block; }
+.ol-drag { touch-action:none; cursor:grab; }   /* pointer drags reorder; never scrolls the list */
+.ol-drag:hover, .ol-more:hover { opacity:1; }
+body.readonly .ol-drag, body.readonly .ol-more { display:none; }
+/* create button — always an icon-only floating circle pinned to the TOP-RIGHT corner (where the
+   sketch button sits on the canvas), on every screen size. On wide screens the outline is a
+   transformed drawer, so `position:fixed` resolves against it → the button lands in the drawer's
+   own top-right corner. The empty .ol-head just gates visibility (outline & not read-only). */
+.ol-head { display:none; }
+body.outline:not(.readonly) .ol-head { display:block; }
+#olAddBtn { position:fixed; top:10px; right:12px; z-index:22;
+  width:36px; height:36px; padding:0; border:none; border-radius:var(--r-full);
+  display:inline-flex; align-items:center; justify-content:center;
+  background:var(--accent); color:#fff; cursor:pointer; }
+#olAddBtn:hover { filter:brightness(1.08); }
+.ol-add-plus { font-size:24px; font-weight:400; line-height:1; }
+.ol-add-label { display:none; }   /* icon only — the aria-label / title carry the name */
+
+/* ---- full-screen editor sheet (phone / outline): title + note body + explicit Done.
+   Replaces the in-card editors where they fight the on-screen keyboard — see
+   features/editor-sheet.ts (keyboard safety via visualViewport). ---- */
+#editorSheet { position:fixed; top:0; left:0; width:100%; height:100vh; height:100dvh; z-index:50;
+  display:none; flex-direction:column; gap:10px; background:var(--bg);
+  padding:12px; padding-bottom:calc(12px + env(safe-area-inset-bottom)); }
+body.sheet-open #editorSheet { display:flex; }
+#editorSheet .sheet-head { display:flex; align-items:center; gap:8px; }
+#shCancel { flex:none; width:44px; height:44px; padding:0; border:none; border-radius:var(--r-full);
+  background:var(--panel); color:var(--muted); font-size:17px; cursor:pointer; }
+#shCancel:hover { color:var(--text); }
+#shTitle { flex:1 1 auto; min-width:0; height:44px; padding:0 12px; font-size:16px; font-weight:600;
+  background:var(--panel); color:var(--text); border:none; border-radius:var(--r-full); }
+#shTitle:focus { box-shadow:0 0 0 2px var(--accent); }
+#shTitle.invalid { box-shadow:0 0 0 2px #e0564a; }
+#shDone { flex:none; height:44px; padding:0 18px; border:none; border-radius:var(--r-full);
+  background:var(--accent); color:#fff; font-size:14px; font-weight:600; cursor:pointer; }
+#shBody { flex:1 1 auto; min-height:0; resize:none; padding:10px 12px;
+  font:inherit; font-size:15px; line-height:1.5;
+  background:var(--panel); color:var(--text); border:none; border-radius:var(--r-ctl); }
+#shBody:focus { box-shadow:0 0 0 2px var(--accent); }
+
+/* ---- "Move to…" picker (outline reparenting): full-screen filterable target list ---- */
+#movePicker { position:fixed; top:0; left:0; width:100%; height:100vh; height:100dvh; z-index:45;
+  display:none; flex-direction:column; gap:8px; background:var(--bg);
+  padding:12px; padding-bottom:calc(12px + env(safe-area-inset-bottom)); }
+#movePicker.open { display:flex; }
+#movePicker .mp-head { display:flex; align-items:center; gap:8px; }
+#mpFilter { flex:1 1 auto; min-width:0; height:44px; padding:0 12px; font-size:15px;
+  background:var(--panel); color:var(--text); border:none; border-radius:var(--r-full); }
+#mpFilter:focus { box-shadow:0 0 0 2px var(--accent); }
+#mpCancel { flex:none; height:44px; padding:0 16px; border:none; border-radius:var(--r-full);
+  background:var(--panel); color:var(--muted); font-size:14px; cursor:pointer; }
+#mpCancel:hover { color:var(--text); }
+#mpList { flex:1 1 auto; min-height:0; overflow:hidden auto; -webkit-overflow-scrolling:touch;
+  max-width:640px; width:100%; margin:0 auto; }
+.mp-label { margin:6px 12px; color:var(--muted); font-size:11px;
+  text-transform:uppercase; letter-spacing:.5px; }
+.mp-item { display:block; width:100%; padding:9px 12px; border:0; border-radius:var(--r-ctl);
+  background:transparent; text-align:left; cursor:pointer; }
+.mp-item:hover { background:color-mix(in srgb, var(--accent) 12%, transparent); }
+.mp-item .mp-title { display:flex; align-items:center; gap:9px;
+  color:var(--text); font-size:15px; font-weight:500; }
+.mp-item .mp-crumb { padding-left:20px; color:var(--muted); font-size:12px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

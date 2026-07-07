@@ -75,7 +75,6 @@ export interface AppState {
   readOnly: boolean;               // read-only mode: no saves, no edits; collapse/expand only
   idSeq: number;
   toDelete: string[];
-  sidebarOpen: boolean;            // edit panel open by default; toolbar button toggles it
   lastSelfWrite?: number;          // guards the external-change reload against our own writes
 }
 
@@ -92,7 +91,6 @@ export const state: AppState = {
   readOnly: false,
   idSeq: 1,
   toDelete: [],
-  sidebarOpen: true,
 };
 
 export const world = document.getElementById('world') as HTMLElement;

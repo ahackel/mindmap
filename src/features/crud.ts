@@ -107,7 +107,9 @@ function cloneNodeAt(s: MindNode, x: number, y: number): MindNode {
 function copyNode(s: MindNode): MindNode { return cloneNodeAt(s, s.x, s.y + nodeH(s) + 24); }
 // Duplicate every selected card (or just the one). Each copy keeps its source's parent, so it
 // stays connected. One card → open its rename like a fresh node; many → select the new copies.
-export function duplicateSelection(): MindNode[] | undefined {
+// `edit:false` skips the rename (outline duplicate just drops the copy into the list, selected —
+// see features/outline.ts) so it doesn't yank the user into an editor.
+export function duplicateSelection({ edit = true }: { edit?: boolean } = {}): MindNode[] | undefined {
   if (state.readOnly) return;
   const ids = selectedIds();
   const srcs = ids.map(id => state.nodes.get(id)).filter((n): n is MindNode => !!n);
@@ -117,15 +119,15 @@ export function duplicateSelection(): MindNode[] | undefined {
   // and a chain/fan of fresh copies would otherwise stack on the 64px fallback (only the first
   // lands right). Then lay out with correct heights and commit.
   paintAll(); applyLayouts(); paintAll();
-  if (copies.length === 1){
+  const msg = copies.length === 1 ? `Duplicated → “${copies[0].title}”` : `Duplicated ${copies.length} cards`;
+  if (copies.length === 1 && edit){
     selectNode(copies[0].id);
     startInlineEdit(copies[0], { isNew: false });
-    setStatus(`Duplicated → “${copies[0].title}”`);
   } else {
     setSelectionSet(copies.map(c => c.id));
-    setStatus(`Duplicated ${copies.length} cards`);
-    commitStep();   // multi-copy: no rename opens, so the step ends here
+    commitStep();   // no rename opens, so the step ends here
   }
+  setStatus(msg);
   scheduleSave();
   return copies;
 }

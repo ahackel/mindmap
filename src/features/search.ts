@@ -8,11 +8,26 @@ import { state, type MindNode } from '../core/state.js';
 import { esc } from '../utils/markdown.js';
 import { firstVisible } from '../utils/model.js';
 import { paintAll, focusNode } from '../main.js';
+import { outlineActive, revealInOutline } from './outline.js';
 
 export const searchBox = document.getElementById('searchBox') as HTMLInputElement;
+const searchWrap = document.getElementById('searchWrap') as HTMLElement;
+const searchBtn = document.getElementById('searchBtn') as HTMLButtonElement;
 const searchResults = document.getElementById('searchResults') as HTMLElement;
 const searchClear = document.getElementById('searchClear') as HTMLButtonElement;
 let searchHits: MindNode[] = [], searchActive = -1;
+// Open the floating search bar and focus the box (also the "/" shortcut entry point).
+export function openSearch(): void {
+  searchWrap.classList.add('open');
+  searchBtn.classList.add('active');
+  searchBox.focus(); searchBox.select();
+}
+// Close the bar and drop any active highlight.
+function closeSearch(): void {
+  searchBox.value = ''; clearSearch();
+  searchWrap.classList.remove('open');
+  searchBtn.classList.remove('active');
+}
 function runSearch(): void {
   const q = searchBox.value.trim().toLowerCase();
   searchBox.classList.toggle('has-value', !!searchBox.value);
@@ -49,8 +64,9 @@ function clearSearch(): void {
 }
 function gotoHit(id: string): void {
   const n = state.nodes.get(id); if (!n) return;
-  searchBox.value = ''; clearSearch(); searchBox.blur();
-  focusNode(n, true);   // reveal ancestors level by level AND open the hit itself
+  closeSearch();   // jumping to a card dismisses the search bar
+  if (outlineActive()) revealInOutline(id);   // unfold ancestors + scroll the row into view
+  else focusNode(n, true);   // reveal ancestors level by level AND open the hit itself
 }
 searchBox.addEventListener('input', runSearch);
 searchBox.addEventListener('focus', () => { if (searchBox.value.trim()) runSearch(); });
@@ -68,7 +84,7 @@ searchBox.addEventListener('keydown', (e: KeyboardEvent) => {
     if (hit) gotoHit(hit.id);
   } else if (e.key === 'Escape'){
     e.preventDefault();
-    if (searchBox.value){ searchBox.value = ''; runSearch(); } else searchBox.blur();
+    if (searchBox.value){ searchBox.value = ''; runSearch(); } else closeSearch();
   }
 });
 searchResults.addEventListener('click', (e: MouseEvent) => {
@@ -76,6 +92,11 @@ searchResults.addEventListener('click', (e: MouseEvent) => {
   if (item) gotoHit((item as HTMLElement).dataset.id!);
 });
 searchClear.addEventListener('click', () => { searchBox.value = ''; runSearch(); searchBox.focus(); });
-document.addEventListener('pointerdown', (e: PointerEvent) => {           // click-away closes the dropdown
-  if (!(e.target as Element).closest('#searchWrap')) searchResults.classList.remove('open');
+searchBtn.addEventListener('click', () => {   // toolbar icon toggles the floating bar
+  if (searchWrap.classList.contains('open')) closeSearch(); else openSearch();
+});
+document.addEventListener('pointerdown', (e: PointerEvent) => {           // click-away closes the bar
+  if (!searchWrap.classList.contains('open')) return;
+  const t = e.target as Element;
+  if (!t.closest('#searchWrap') && !t.closest('#searchBtn')) closeSearch();
 });

@@ -11,18 +11,19 @@ import { isHidden, isAncestor } from '../utils/model.js';
 import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, insertedKidOrder, sideOf, deriveSide, reorderTarget } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
-import { ui, type Pt, type Seg, type Drag } from '../core/ui-state.js';
+import { ui, NARROW_MQ, type Pt, type Seg, type Drag } from '../core/ui-state.js';
 import { paintEdges } from '../view/edges.js';
+import { outlineActive } from './outline.js';
 import { NODE_W, nodeH, paintAll, paintNode, selectNode, setSelectionSet, toggleSel,
          subtreeIds, foldNodeOrGroup } from '../main.js';
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit } from './inline-edit.js';
 import { leaveClone } from './crud.js';
 import { touch, commitStep } from './history.js';
 
-// The #editor panel is a fixed element in the shell; cache the handle so the per-frame
-// auto-pan loop doesn't re-query it on every rAF tick.
-let _editor: HTMLElement | null = null;
-function editorEl(): HTMLElement | null { return _editor ??= document.getElementById('editor'); }
+// The #outline drawer overlays the canvas from the right on wide screens; cache it too so
+// auto-pan can treat it as a right obstruction (see autoPanStep).
+let _outline: HTMLElement | null = null;
+function outlineEl(): HTMLElement | null { return _outline ??= document.getElementById('outline'); }
 
 // Lazily-created phantom card that previews where the dragged card will actually LAND once
 // dropped (not where the cursor currently is) while poised over a valid reparent target. The
@@ -152,11 +153,19 @@ function autoPanStep(): void {
   ui.autoPanRAF = null;
   const drag = ui.drag;
   if (!drag || !drag.moved || state.readOnly) return;
-  // Available canvas = the stage minus the toolbar (above it) and the edit panel (to its right).
-  // Panning kicks in as the cursor reaches those obstructions, so you can drag onto / past them.
+  // Available canvas = the stage minus the toolbar (above it) and, on wide screens, the outline
+  // drawer when it's open (the floating edit bar overlays the card itself rather than docking to
+  // a screen edge, so it's not an obstruction here). Panning kicks in as the cursor reaches that
+  // obstruction, so you can drag onto / past it — and so it doesn't start abruptly only once
+  // the cursor slips BEHIND the outline drawer to the true window edge.
   const r = stage.getBoundingClientRect();
-  const ed = editorEl();
-  const right = (ed && ed.classList.contains('open')) ? Math.min(r.right, ed.getBoundingClientRect().left) : r.right;
+  let right = r.right;
+  // The outline drawer is a right obstruction only while OPEN on a wide screen (narrow hides
+  // #stage, and a parked drawer's transform leaves it off-screen only once its slide settles —
+  // so gate on the class, not the live geometry).
+  const ol = outlineEl();
+  if (ol && outlineActive() && !NARROW_MQ.matches)
+    right = Math.min(right, ol.getBoundingClientRect().left);
   const M = 56, MAX = 16;   // edge band (px) and max pan speed (px/frame)
   let vx = 0, vy = 0;
   const x = drag.cx, y = drag.cy;
@@ -305,6 +314,11 @@ function dragPointerUp(): void {
         return;
       }
       if (!drag.moved) {
+        // A plain click (no move) = select/rename, not a drag. Clear ui.drag BEFORE selecting:
+        // selectNode/toggleSel repaint via paintAll, and paintNode re-adds the `.dragging` class
+        // (opacity .75) for any node still in ui.drag.targets — leaving the selected card
+        // semi-transparent. Nulling here means the repaint sees no active drag.
+        ui.drag = null;
         if (drag.meta) toggleSel(n.id);                 // ⌘/Ctrl-click: add/remove from selection
         else if (state.selId !== n.id || state.sel.size !== 1) {
           // clicking one card of a multi-selection reduces to it — but remember the group so a
@@ -682,7 +696,8 @@ function clearDropTarget(): void {
 // the parent's order (`null` = at the front), matching the preview that triggered the mode (see
 // dropLanding). Re-setting the SAME parent (a reorder) is fine — only kidOrder changes.
 // Returns whether the reparent actually happened, so callers can count/chain successful ones.
-function reparentOnly(childId: string, newParentId: string, afterId?: string | null): boolean {
+// Exported: the outline's "Move to…" picker reuses it (features/outline.ts).
+export function reparentOnly(childId: string, newParentId: string, afterId?: string | null): boolean {
   if (state.readOnly) return false;
   const child = state.nodes.get(childId);
   if (!child || childId === newParentId) return false;

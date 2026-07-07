@@ -30,6 +30,7 @@ mm_collapsed: true
 ## View
 - `F` — fit / focus
 - `/` — find
+- `O` — outline view
 - `R` — read-only
 - `S` — sketch
 

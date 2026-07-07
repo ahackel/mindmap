@@ -5,8 +5,10 @@
 // and behave the same: click a row to open it (the click doubles as the FSA permission
 // gesture), with per-row rename / export / delete actions.
 // ============================================================
-import { state, setStatus } from './core/state.js';
-import { applyView } from './view/camera.js';
+import { state, setStatus, type MindNode } from './core/state.js';
+import { applyView, frameBox } from './view/camera.js';
+import { phoneMode } from './core/ui-state.js';
+import { isRoot, descendantCount } from './utils/model.js';
 import { store, currentMap, useStore, loadFromDir, exportZip, settleSave, switchToDeviceMap, updateMapTitle, openImportPicker } from './data/persistence.js';
 import {
   fsaStore, resolveOnDeviceStore, forgetRecent, setOnRecentsChanged,
@@ -14,7 +16,7 @@ import {
   type Store, type MapRef, type MapKind,
 } from './store/index.js';
 import { esc } from './utils/markdown.js';
-import { applyReadOnly } from './main.js';
+import { applyReadOnly, subtreeIds } from './main.js';
 import { openMenu } from './features/context-menu.js';
 import folderIcon from './assets/icons/folder-open.svg?raw';
 
@@ -249,10 +251,24 @@ async function commitDevice(): Promise<void> {
   await openDeviceMap(ref);
 }
 
+// On a phone, fitting the WHOLE map yields unreadably small cards — frame the biggest branch
+// instead so the session opens somewhere legible (search / focus take it from there). Selects
+// nothing, so the edit bottom-sheet stays closed on boot.
+function orientForPhone(): void {
+  if (!phoneMode() || !state.nodes.size) return;
+  let best: MindNode | undefined, bestCount = -1;
+  for (const n of state.nodes.values()){
+    if (!isRoot(n)) continue;
+    const c = descendantCount(n.id);
+    if (c > bestCount){ bestCount = c; best = n; }
+  }
+  if (best) frameBox(subtreeIds(best.id).map(id => state.nodes.get(id)));
+}
+
 export async function boot(): Promise<void> {
   applyView();
   hideStart();
-  if (new URLSearchParams(location.search).has('help')){ await openHelp(); return; }
+  if (new URLSearchParams(location.search).has('help')){ await openHelp(); orientForPhone(); return; }
   // one-time legacy migration / rebuild — the store probe is skipped once the registry exists
   if (!readMaps().length) await ensureMapRegistry(await resolveOnDeviceStore());
   // resume a local folder only if we can do it silently (permission still granted); else on-device
@@ -261,8 +277,10 @@ export async function boot(): Promise<void> {
     if (fsaStore.resume && await fsaStore.resume(last.id)){
       useStore(fsaStore, { kind: 'folder', id: last.id });
       await loadFromDir();
+      orientForPhone();
       return;
     }
   }
   await commitDevice();   // the last / most recent on-device map (fresh "My map" on first run)
+  orientForPhone();
 }

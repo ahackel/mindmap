@@ -7,16 +7,19 @@
 import { state, setStatus, type MindNode } from '../core/state.js';
 import { ui } from '../core/ui-state.js';
 import { takenTitles } from '../utils/model.js';
+import { outlineActive } from './outline.js';
 import { applyLayouts } from '../view/layout.js';
 import { scheduleSave } from '../data/persistence.js';
 import { onBodyPaste } from './attachments.js';
-import { paintAll, selectNode, edName } from '../main.js';
+import { paintAll, selectNode } from '../main.js';
+import { openBranchEditor } from './branch-editor.js';
 import { extractToChild, deleteNode } from './crud.js';
 import { touch, commitStep } from './history.js';
 
 // Why a title is invalid (empty or already used by another node), else '' (ok).
 // Filenames collide case-insensitively on macOS/Windows, so compare lowercased.
-function titleProblem(title: string, selfId: string): string {
+// Exported: the editor sheet applies the same rule (features/editor-sheet.ts).
+export function titleProblem(title: string, selfId: string): string {
   const t = title.trim();
   if (!t) return 'Title can’t be empty';
   if (takenTitles(selfId).has(t.toLowerCase()))
@@ -29,7 +32,13 @@ function titleProblem(title: string, selfId: string): string {
 // when a node is created. An open ui.inlineEdit makes the save loop defer the file rename
 // until editing ends (no M.md, Ma.md… litter).
 export function startInlineEdit(n: MindNode | undefined, { isNew = false }: { isNew?: boolean } = {}): void {
-  if (state.readOnly || !n || !n.el) return;
+  if (state.readOnly || !n) return;
+  // In outline mode (which includes every phone-width screen — outline is forced on below
+  // that breakpoint) the card lives only in the side panel, so editing happens in the panel's
+  // title field. This is the single choke point, so F2 / slow-click / add child / add sibling
+  // / context menu all follow.
+  if (outlineActive()) { openBranchEditor(n.id, 'title'); return; }
+  if (!n.el) return;
   if (ui.inlineEdit) endInlineEdit();                              // close any other open editor first
   touch(n.id);   // the whole edit session becomes ONE undo step (for a fresh card, incl. its creation)
   if (state.selId !== n.id || state.sel.size !== 1) selectNode(n.id);
@@ -51,7 +60,6 @@ export function onInlineInput(n: MindNode): void {
   const val = ie.el.textContent ?? '';
   const problem = titleProblem(val, n.id);
   ie.el.classList.toggle('invalid', !!problem);
-  edName.textContent = val;     // mirror the live name into the sidebar's read-only header
   applyLayouts(); paintAll();   // a taller/shorter title reflows siblings (title text stays, guarded)
 }
 export function onInlineKeydown(e: KeyboardEvent, n: MindNode): void {
@@ -84,7 +92,6 @@ export function endInlineEdit({ cancel = false }: { cancel?: boolean } = {}): vo
   if (!cancel && !titleProblem(val, n.id)) n.title = val;
   ie.el.textContent = n.title;                        // restore the canonical text
   n.dirty = true;
-  edName.textContent = n.title;                       // keep the sidebar header in sync
   paintAll(); applyLayouts(); paintAll();             // title may have changed height → reflow
   scheduleSave();
   commitStep();                                       // one undo step per rename session
@@ -96,7 +103,9 @@ export function endInlineEdit({ cancel = false }: { cancel?: boolean } = {}): vo
 // An open `ui.bodyEdit` mirrors the title guard so the save loop / disk-reload behave the same.
 export function autosizeBody(ta: HTMLTextAreaElement): void { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
 export function startBodyEdit(n: MindNode, { atStart = false }: { atStart?: boolean } = {}): void {
-  if (state.readOnly || !n || !n.el) return;
+  if (state.readOnly || !n) return;
+  if (outlineActive()) { openBranchEditor(n.id, 'body'); return; }   // see startInlineEdit
+  if (!n.el) return;
   if (ui.bodyEdit && ui.bodyEdit.id === n.id) return;          // already editing this body
   if (ui.inlineEdit) endInlineEdit();                          // close a title editor first
   if (ui.bodyEdit) endBodyEdit();                              // close any other open body editor

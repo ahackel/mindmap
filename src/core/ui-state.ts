@@ -40,6 +40,14 @@ export interface Drag {
 }
 export interface InlineEdit { id: string; orig: string; el: HTMLElement; isNew?: boolean; }
 export interface BodyEdit { id: string; orig: string; el: HTMLElement; ta: HTMLTextAreaElement; }
+// A full-screen editor-sheet session (features/editor-sheet.ts) — the phone/outline replacement
+// for the in-card editors. Same contract: while set, persistence defers the file rename and the
+// focus-reload (the sheet holds uncommitted text even when the field itself is blurred on iOS).
+export interface SheetEdit { id: string; origTitle: string; origBody: string; isNew?: boolean; }
+// A panel title/body editing session (outline mode edits in the right/left edit panel, not the
+// full-screen sheet) — same shape as SheetEdit and the same contract: while set, persistence
+// freezes the node's filename (rename lands on blur) and skips the focus-reload so live typing
+// isn't clobbered.
 export interface GroupFold { ids: Set<string>; node: string; t: number; }
 export interface PanState { sx: number; sy: number; ox: number; oy: number; }
 export interface Marquee { sx: number; sy: number; add: boolean; base: Set<string>; moved: boolean; }
@@ -68,6 +76,10 @@ export const ui = {
   // (read as `!!ui.inlineEdit` / `!!ui.bodyEdit` in persistence.ts).
   inlineEdit: null as InlineEdit | null,
   bodyEdit: null as BodyEdit | null,
+  // ---- full-screen editor sheet (features/editor-sheet.ts) ----
+  sheetEdit: null as SheetEdit | null,
+  // ---- panel title/body editing (outline mode; wired in main.ts) ----
+  panelEdit: null as SheetEdit | null,
   // ---- sketch / freehand drawing (features/sketch.ts) ----
   sketchOn: false,                                // sketch mode active: canvas pointers draw, not select
   // A stroke (pen) or erase gesture in progress; gestures.ts checks its truthiness to route
@@ -84,6 +96,30 @@ export const ui = {
 
 // pointerId -> position, for the multi-touch gesture layer (a const Map, mutated in place).
 export const gPointers = new Map<number, Pt>();
+
+// ---- edit-session predicates (shared by persistence.ts) ----
+// One source of truth for "is some editor holding uncommitted text", so the save loop and the
+// disk-reload guard can't drift as editors are added (in-card title/body + the full-screen sheet).
+export function editSessionActive(): boolean { return !!(ui.inlineEdit || ui.bodyEdit || ui.sheetEdit || ui.panelEdit); }
+// The node whose filename must stay frozen while its title is being typed (the rename lands on
+// commit): the in-card rename freezes the SELECTED node, the sheet freezes its own node. Body
+// edits don't touch the title, so bodyEdit is deliberately excluded. null → nothing frozen.
+export function frozenFileNodeId(selId: string | null): string | null {
+  if (ui.inlineEdit) return selId;
+  if (ui.sheetEdit) return ui.sheetEdit.id;
+  if (ui.panelEdit) return ui.panelEdit.id;
+  return null;
+}
+
+// ---- responsive mode predicates ----
+// 700px MUST match the `@media (max-width:700px)` breakpoint in styles.css (bottom-sheet panel).
+export const NARROW_MQ = matchMedia('(max-width: 700px)');
+const COARSE_MQ = matchMedia('(pointer: coarse)');
+// "Phone" = coarse pointer AND narrow screen. Deliberately AND, not OR: an iPad is coarse but
+// wide (inline editing works there), and a narrow desktop window keeps its fine pointer. On a
+// phone all title/body editing routes to the full-screen editor sheet instead of the in-card
+// editors (see features/inline-edit.ts).
+export function phoneMode(): boolean { return COARSE_MQ.matches && NARROW_MQ.matches; }
 
 // True when focus is in a text field (sidebar input/textarea) or a contenteditable (the in-card
 // title rename) — i.e. the user is typing, so card/canvas shortcuts and disk-reload should stand down.

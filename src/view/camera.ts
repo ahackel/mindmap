@@ -3,6 +3,7 @@
 // if needed. NODE_W/nodeH come from main.js (render) for measuring; isHidden from model.
 import { state, world, stage, type MindNode } from '../core/state.js';
 import { isHidden } from '../utils/model.js';
+import { NARROW_MQ } from '../core/ui-state.js';
 import { NODE_W, nodeH } from '../main.js';
 
 export function applyView(): void {
@@ -64,6 +65,15 @@ export function strokesBounds(): { minX: number; minY: number; maxX: number; max
   return any ? { minX, minY, maxX, maxY } : null;
 }
 
+// Stage dimensions for camera math. While OUTLINE mode is active #stage is display:none and
+// its rect is 0×0 — a fit()/frameBox() run then (e.g. loadFromDir on a boot that restores
+// outline mode) would compute k=0 and scale every card away. The stage is position:fixed
+// inset:0, so the window size is exactly what its rect would be.
+function stageSize(): { width: number; height: number } {
+  const r = stage.getBoundingClientRect();
+  return { width: r.width || window.innerWidth, height: r.height || window.innerHeight };
+}
+
 export function fit(): void {
   const ns = [...state.nodes.values()].filter(n => !isHidden(n));
   const sb = strokesBounds();
@@ -74,7 +84,7 @@ export function fit(): void {
     maxX = Math.max(maxX, n.x + NODE_W); maxY = Math.max(maxY, n.y + nodeH(n));
   }
   if (sb) { minX = Math.min(minX, sb.minX); minY = Math.min(minY, sb.minY); maxX = Math.max(maxX, sb.maxX); maxY = Math.max(maxY, sb.maxY); }
-  const r = stage.getBoundingClientRect();
+  const r = stageSize();
   const k = Math.min(1.4, Math.min(r.width/(maxX-minX+120), r.height/(maxY-minY+120)));
   state.view.k = k;
   state.view.x = (r.width - (maxX-minX)*k)/2 - minX*k;
@@ -96,12 +106,16 @@ export function frameBox(nodes: ReadonlyArray<MindNode | undefined>, includeStro
   }
   if (sb) { minX = Math.min(minX, sb.minX); minY = Math.min(minY, sb.minY); maxX = Math.max(maxX, sb.maxX); maxY = Math.max(maxY, sb.maxY); }
   const bw = maxX - minX, bh = maxY - minY, cx = (minX+maxX)/2, cy = (minY+maxY)/2;
-  // available canvas = stage minus the sidebar (when open). The sidebar sits on the RIGHT,
-  // so the usable region spans x:[0, availW] and we centre the box within it.
-  const r = stage.getBoundingClientRect();
-  const ed = document.getElementById('editor') as HTMLElement;
-  const availW = r.width - (ed.classList.contains('open') ? ed.offsetWidth : 0);
-  const availH = r.height;
+  // available canvas = stage minus the floating edit bar (when open). On a wide screen the bar
+  // floats directly over the selected card, so it doesn't reserve any width; on a narrow one
+  // styles.css docks it to the bottom edge (same 700px breakpoint NARROW_MQ mirrors), eating
+  // height instead.
+  const r = stageSize();
+  const fb = document.getElementById('floatBar') as HTMLElement;
+  const open = fb.classList.contains('open');
+  const bottomSheet = NARROW_MQ.matches;
+  const availW = r.width;
+  const availH = r.height - (open && bottomSheet ? fb.offsetHeight : 0);
   const k = Math.max(FOCUS_MIN_K, Math.min(FOCUS_MAX_K,
     Math.min((availW - 2*FOCUS_PAD) / bw, (availH - 2*FOCUS_PAD) / bh)));
   animateViewTo(availW/2 - cx*k, availH/2 - cy*k, k);   // glide + zoom, never jump

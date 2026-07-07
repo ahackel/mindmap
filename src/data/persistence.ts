@@ -16,7 +16,7 @@ import { clearHistory } from '../features/history.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, seenFolders, markFolderSeen, setLastMap, touchMap, createDeviceMap, type Store, type MapKind, type MapRef } from '../store/index.js';
 import { paintAll, selectNode } from '../main.js';
 import { paintStrokes } from '../features/sketch.js';
-import { ui, isTypingInField } from '../core/ui-state.js';
+import { ui, isTypingInField, editSessionActive, frozenFileNodeId } from '../core/ui-state.js';
 import { hideStart } from '../boot.js';
 
 // The sketch layer lives beside the notes as one plain JSON data file (Obsidian .canvas-style),
@@ -235,8 +235,9 @@ export async function saveAll(): Promise<void> {
   // parent paths must be final before we serialize anyone.
   const removals: string[] = [];
   for (const n of state.nodes.values()) {
-    // While the title is being typed, keep the current filename (rename happens on blur).
-    const freezeName = !!ui.inlineEdit && n.id === state.selId && n.file;
+    // While the title is being typed (in-card rename OR the editor sheet), keep the current
+    // filename (rename happens when the edit session commits).
+    const freezeName = frozenFileNodeId(state.selId) === n.id && n.file;
     const target = freezeName ? n.file : desiredFileFor(n);
     if (n.file && n.file !== target) {
       removals.push(n.file);                       // old file to delete once the rename is written
@@ -342,7 +343,9 @@ export async function reloadFromDisk(): Promise<void> {
   if (savePromise) return;            // a write is mid-flight; don't read torn state
   const selBefore = state.selId;
   // Don't yank the rug out while the user is actively typing in the panel or renaming a card.
-  if (ui.inlineEdit || ui.bodyEdit || isTypingInField()) return;
+  // ui.sheetEdit counts even when no field is focused — on iOS the keyboard can be dismissed
+  // while the editor sheet still holds uncommitted text.
+  if (editSessionActive() || isTypingInField()) return;
   if (ui.sketchDraw) return;          // mid-stroke: don't reload the ink layer under the pen
   reloading = true;
   try {

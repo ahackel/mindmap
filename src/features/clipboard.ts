@@ -153,11 +153,11 @@ export function tryPasteCards(text: string, at: { sx: number | null; sy: number 
 }
 
 // ---------- drag cards OUT of the app as .md files ----------
-// The sidebar's export chip (#edDragOut) is natively draggable; dropping it on the OS file
-// manager creates real files. That uses Chrome/Edge's non-standard `DownloadURL` flavour,
-// which allows ONE entry per drag — a single card ships as its .md, a bigger selection as
-// one .zip (the store-only writer is synchronous, so it can run inside dragstart). Browsers
-// without DownloadURL still carry the text payload — dropping into an editor lands markdown.
+// ⌥-dragging a card is natively draggable; dropping it on the OS file manager creates real
+// files. That uses Chrome/Edge's non-standard `DownloadURL` flavour, which allows ONE entry per
+// drag — a single card ships as its .md, a bigger selection as one .zip (the store-only writer
+// is synchronous, so it can run inside dragstart). Browsers without DownloadURL still carry the
+// text payload — dropping into an editor lands markdown.
 function b64(bytes: Uint8Array): string {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000)
@@ -194,12 +194,13 @@ export function bindCardFileDrag(n: MindNode): void {
   });
 }
 
-// The sidebar's export button: download the selected cards (with their subtrees) as one .zip.
-// A plain download works in every browser; for drag-to-Finder use ⌥-drag on the card itself.
-document.getElementById('edDragOut')?.addEventListener('click', () => {
+// The float bar's kebab-menu export entry: download the selected cards (with their subtrees)
+// as one .zip. A plain download works in every browser; for drag-to-Finder use ⌥-drag on the
+// card itself.
+export function exportSelection(): void {
   const files = selectionFiles();
   if (!files.length) return;
   const name = zipName(files);
   downloadBlob(zipBlob(files.map(f => ({ name: f.name, data: f.text }))), name);
   setStatus(`Saved ${name}`);
-});
+}
