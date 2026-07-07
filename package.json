@@ -1,9 +1,15 @@
 {
   "name": "markdown-mindmap",
-  "version": "2.0.0",
+  "version": "0.1.0",
   "description": "Single-file, local-first mindmap editor for a folder of Markdown notes.",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "author": "Andreas Hackel",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ahackel/mindmap.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

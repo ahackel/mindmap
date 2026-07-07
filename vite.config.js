@@ -1,5 +1,10 @@
 import { defineConfig } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
+import pkg from './package.json' with { type: 'json' };
+
+// The deploy workflow injects APP_VERSION (2.0.<GitHub run number>), so the version only
+// bumps on actual deploys. Local/dev builds are marked as such instead of counting.
+const appVersion = process.env.APP_VERSION || `${pkg.version}-dev`;
 
 // The build emits ONE self-contained dist/index.html (JS + CSS inlined), so the
 // deployed app stays a single file — offline via the browser HTTP cache works the
@@ -11,6 +16,7 @@ export default defineConfig({
   // resolving correctly under that subpath.
   base: './',
   publicDir: 'public',
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
   plugins: [viteSingleFile()],
   build: {
     target: 'es2020',

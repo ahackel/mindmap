@@ -73,3 +73,13 @@ To run locally: `npm install`, then `npm run dev` (Vite dev server on `localhost
 The on-device store needs a secure context, so use the dev server rather than opening the
 file directly. `npm run build` produces the deployable single-file `dist/`; `npm run
 typecheck` runs `tsc --noEmit`.
+
+## Versioning
+
+The displayed version is set by the deploy workflow: `0.1.<GitHub run number>`, so it
+bumps automatically per deploy — local builds show `0.1.0-dev` instead. It's shown at
+the bottom of the home sidebar (home button, top left).
+
+## License
+
+Open source under the [MIT License](LICENSE).

@@ -8,6 +8,6 @@ mm_y: 148
 mm_collapsed: true
 ---
 
-- **Fold a branch:** double-click a card, press `X`, or use the toolbar's collapse/expand.
+- **Fold a branch:** double-click a card or press `X`.
 - A collapsed card shows a small badge with how many descendants are hidden.
 - Collapsing keeps big maps readable — open only the branch you're working in.

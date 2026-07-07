@@ -25,7 +25,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # The displayed version bumps per deploy, not per local build: 0.1.<run number>.
       - run: npm run build
+        env:
+          APP_VERSION: 0.1.${{ github.run_number }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -10,8 +10,8 @@ mm_collapsed: true
 
 - **New card:** Drag the **＋** button on the lower left or press `Space` (drops at the pointer).
 
-- **Child:** select a card, then `Tab` or the child arrow — it branches off the selection.
+- **Child:** select a card, then press `Tab` — it branches off the selection.
 
-- **Sibling:** press `Enter` or the sibling arrow to add another card beside it.
+- **Sibling:** press `Enter` to add another card beside it.
 
 - **Duplicate:** press `D` to copy the selected card (and its subtree) or `shift`+drag a card to clone it.

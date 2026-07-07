@@ -10,4 +10,4 @@ mm_collapsed: true
 
 Right-click a card for a context menu with the common actions — add child / sibling, rename, duplicate, copy / cut / paste, recolour, and delete — right where your pointer is.
 
-The same actions live in the toolbar's selected-card section.
+Rename, duplicate, export and delete also live in the edit panel's **Actions** row.

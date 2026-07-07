@@ -544,6 +544,12 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
 .side-row .btn-icon { margin:0; }   /* the flex gap spaces the icon; drop its inline margin */
 /* full-bleed hairline divider — escape the sidebar's 12px padding on both sides */
 .side-footer { border-top:1px solid var(--grid); margin:0 -12px; padding:6px 12px 0; }
+/* about line under the footer actions: repo link left, build version right */
+.side-about { display:flex; align-items:center; justify-content:space-between;
+  padding:6px 10px 2px; color:var(--muted); font-size:11px; }
+.side-about a { display:inline-flex; align-items:center; gap:5px; color:var(--muted); text-decoration:none; }
+.side-about a:hover { color:var(--text); }
+.side-about .ic { width:13px; height:13px; display:inline-flex; }
 .side-empty { margin:6px 10px; color:var(--muted); font-size:12px; }
 /* the map list — flat rows, one per map of the active tab */
 #mapList { flex:1; overflow:hidden auto; }

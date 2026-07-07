@@ -148,7 +148,7 @@
     <span>Drag to create a card</span>
   </div>
 
-  <!-- home sidebar: slides in from the left (🧠 button). Tabs pick the storage backend,
+  <!-- home sidebar: slides in from the left (home button). Tabs pick the storage backend,
        "+" creates/opens a map there, the list below shows that backend's maps. Clicking
        the space right of the sidebar closes it. -->
   <div id="startScreen" class="hidden">
@@ -164,6 +164,10 @@
       <div id="mapList"></div>
       <div class="side-footer">
         <button id="importBtn" class="side-row" title="Import a .zip as a new map"><span class="ic" data-icon="import"></span> Import .zip</button>
+        <div class="side-about">
+          <a href="https://github.com/ahackel/mindmap" target="_blank" rel="noopener" title="Source code on GitHub"><span class="ic" data-icon="github"></span>GitHub</a>
+          <span id="appVersion"></span>
+        </div>
       </div>
     </aside>
   </div>

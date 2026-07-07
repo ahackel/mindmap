@@ -98,7 +98,7 @@ frontmatter code (`parseFM`/`fmSet`/`fmRemove`).
 
 **The app is local-first.** It boots straight onto the canvas with the last map (no start
 gate) via `boot()`; the start screen (`#startScreen`) is now a **home/storage panel** opened
-by the 🧠 toolbar button and closable (`startClose`).
+by the home button (`#homeBtn`, house icon top-left) and closable (`startClose`).
 
 **The `store` adapter is the single swappable I/O boundary.** All disk access
 (`pick`, `openRecent`, `list`, `write`, `remove`, `watch`) goes through it. `store` is a
@@ -134,10 +134,10 @@ since `renderBodyHTML` escapes `<…>`, and avoid wrapping inline `code` in `**b
 **Touch input:** pan/zoom on the canvas is a unified Pointer-Events gesture layer on
 `#stage` (one finger pans, two fingers pinch-zoom + pan); node drag/reparent uses the
 per-node pointer handlers in `bindNodeDrag`. `#stage`/`.node` set `touch-action:none`.
-The toolbar has a divider-flanked **selected-card section** (`#edRename`/`edAddChild`/
-`edAddSibling`/`edDuplicate`/`edDelete`) calling the same functions as the keyboard
-shortcuts; `updateNodeActions()` (run from `applySelection`) enables/disables them by
-selection + `readOnly`, and the titles show the shortcut.
+The edit panel has an **Actions row** (`#edRename`/`edDuplicate`/`edDragOut`/`edDelete`)
+calling the same functions as the keyboard shortcuts; `updateNodeActions()` (run from
+`applySelection`) enables/disables them by selection + `readOnly`, and the titles show
+the shortcut. Add child/sibling live in the right-click context menu and on `Tab`/`Enter`.
 
 **Central mutable `state` object (line ~377)** holds `nodes` (Map of id → node),
 `view` (pan/zoom `{x,y,k}`), selection (`selId` + `sel` Set), `edgeStyle`,

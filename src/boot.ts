@@ -201,6 +201,7 @@ document.getElementById('newBtn')!.onclick = async () => {
 // clicking the canvas area beside the sidebar closes it
 startScreen.addEventListener('click', e => { if (e.target === startScreen) hideStart(); });
 setOnRecentsChanged(renderMapList);   // let the store signal registry changes without rendering UI itself
+document.getElementById('appVersion')!.textContent = `v${__APP_VERSION__}`;
 
 // ---------- help mindmap (help/*.md, opened with F1) ----------
 // Read-only store serving the help notes; lives in its own tab (?help), so the user's own map
