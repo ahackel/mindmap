@@ -204,3 +204,39 @@ export function exportSelection(): void {
   downloadBlob(zipBlob(files.map(f => ({ name: f.name, data: f.text }))), name);
   setStatus(`Saved ${name}`);
 }
+
+// Whether the OS share sheet is available for files — feature-detected once; gates the kebab
+// menu's "Share" entry (Chrome/Edge/Android/iOS Safari; no Firefox/desktop-Safari support).
+// Chrome's `canShare()` still reports true when the page was opened as a bare `file://` — it
+// only rejects at call time (`share()` throws NotAllowedError), so exclude that scheme up front
+// rather than greying the entry in on a false positive.
+const shareFile = new File(['x'], 'x.md', { type: 'text/markdown' });
+export const canShareFiles = location.protocol !== 'file:'
+  && typeof navigator.share === 'function' && !!navigator.canShare?.({ files: [shareFile] });
+
+// Share the selected cards (with their subtrees) via the OS share sheet — same payload as
+// exportSelection (single card → .md, multi → .zip), handed to another app/device instead of
+// downloaded. The receiving side just needs to accept a .md/.zip file (e.g. another Mindmap
+// tab/device via its "Open .md/.zip" import, AirDrop, Files, a chat app, …).
+export async function shareSelection(): Promise<void> {
+  const files = selectionFiles();
+  if (!files.length) return;
+  const f = exportFile(files);
+  const file = new File([f.bytes as BlobPart], f.name, { type: f.mime });
+  // the module-load-time canShareFiles check used a dummy .md file — re-check with the REAL
+  // file here since some platforms accept text/markdown but reject application/zip (multi-card
+  // selections), which would otherwise fail navigator.share below with no visible feedback.
+  if (!navigator.canShare?.({ files: [file] })){
+    console.error('shareSelection: navigator.canShare rejected', file.type, file.name);
+    setStatus('Can’t share this as a file');
+    return;
+  }
+  try {
+    await navigator.share({ files: [file], title: f.name });
+  } catch (err) {
+    if ((err as DOMException)?.name !== 'AbortError'){
+      console.error('shareSelection: navigator.share failed', err);
+      setStatus('Couldn’t share');
+    }
+  }
+}

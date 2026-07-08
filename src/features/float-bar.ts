@@ -15,11 +15,13 @@ import { applyLayouts, subtreeBox } from '../view/layout.js';
 import { outlineActive } from './outline.js';
 import { createProperties, type PropertyControls } from './properties.js';
 import { startInlineEdit, startBodyEdit } from './inline-edit.js';
-import { duplicateSelection, deleteSelection } from './crud.js';
-import { exportSelection } from './clipboard.js';
-import { openMenu, type MenuEntry } from './context-menu.js';
+import { duplicateSelection, deleteSelection, deleteNode, addChild, createSibling } from './crud.js';
+import { exportSelection, shareSelection, canShareFiles, copySelection, cutSelection } from './clipboard.js';
+import { pasteFromClipboard } from './attachments.js';
+import { openMenu, copyFilePath, type MenuEntry } from './context-menu.js';
 import { childrenOf, isHidden } from '../utils/model.js';
-import { paintAll, selectedIds, GRID_SNAP, FRAME_W, FRAME_H, MIN_FRAME_W, MIN_FRAME_H } from '../main.js';
+import { frameBox } from '../view/camera.js';
+import { paintAll, selectedIds, selectNode, foldNodeOrGroup, GRID_SNAP, FRAME_W, FRAME_H, MIN_FRAME_W, MIN_FRAME_H } from '../main.js';
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T { return document.getElementById(id) as T; }
 
@@ -230,29 +232,57 @@ document.addEventListener('pointerdown', (e) => {
 }, true);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && activePopover) closePopovers(); }, true);
 
-// ---------- kebab menu: rename / edit note / duplicate / export / delete ----------
-function buildEntries(): MenuEntry[] {
-  const id = state.selId; if (!id) return [];
-  const n = state.nodes.get(id); if (!n) return [];
-  const multi = state.sel.size > 1;
-  const anyFrame = [...state.sel].some(fid => state.nodes.get(fid)?.layoutType === 'frame');
+// ---------- card actions menu: rename / edit note / duplicate / export / delete / … ----------
+// Shared by the kebab button here AND the right-click context menu (features/context-menu.ts) —
+// ONE list of entries so the two never drift apart. `n` is the menu's TARGET card: the kebab's
+// target is always the (sole) selection anchor; the context menu's is whatever was clicked, which
+// may or may not be part of the current multi-selection. `sx`/`sy` only matter for "Paste as
+// child" (where the pasted card lands) — the kebab has no cursor position, so it passes the
+// button's own screen position instead.
+export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] {
+  const multi = state.sel.has(n.id) && state.sel.size > 1;
+  const targetIds = multi ? [...state.sel] : [n.id];
+  const anyFrame = targetIds.some(id => state.nodes.get(id)?.layoutType === 'frame');
+  // group actions (Duplicate/Cut/Copy/Export/Share/Auto-size) act on state.sel via selectedIds();
+  // when the target isn't already part of the selection, select it first so they act on IT.
+  const selectTargetFirst = () => { if (!multi) selectNode(n.id); };
   const entries: MenuEntry[] = [];
   if (!state.readOnly){
-    entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n) });
-    if (!multi) entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n) });
-    entries.push('sep', { label:'Duplicate', shortcut:'D', run: () => duplicateSelection() });
-    if (anyFrame) entries.push({ label: multi ? 'Auto-size frames' : 'Auto-size frame', shortcut:'A', run: () => autoSizeSelection() });
+    if (!multi){
+      entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n) });
+      entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n) });
+      entries.push('sep');
+      entries.push({ label:'Add child', shortcut:'Tab', run: () => addChild(n.id) });
+      entries.push({ label:'Add sibling', shortcut:'Enter', run: () => createSibling(n.id) });
+      entries.push({ label:'Paste as child', shortcut:'⌘V', run: () => { void pasteFromClipboard(sx, sy, n.id); } });
+    }
+    entries.push({ label:'Duplicate', shortcut:'D', run: () => { selectTargetFirst(); duplicateSelection(); } });
+    entries.push({ label:'Cut', shortcut:'⌘X', run: () => { selectTargetFirst(); void cutSelection(); } });
+    entries.push('sep');
   }
-  entries.push({ label:'Export', run: () => exportSelection() });   // mutates nothing → allowed read-only too
+  // copy/collapse/fit/export never mutate → allowed in read-only mode too
+  entries.push({ label:'Copy', shortcut:'⌘C', run: () => { selectTargetFirst(); void copySelection(); } });
+  if (!multi)
+    entries.push({ label: n.collapsed ? 'Expand' : 'Collapse', shortcut:'X', run: () => foldNodeOrGroup(n),
+      disabled: !childrenOf(n.id).length && !(n.body && n.body.trim()) });
+  entries.push({ label:'Fit view', shortcut:'F', run: () => frameBox(targetIds.map(id => state.nodes.get(id))) });
+  entries.push({ label:'Copy file path', run: () => copyFilePath(n), disabled: !n.file });
+  if (anyFrame && !state.readOnly)
+    entries.push({ label: multi ? 'Auto-size frames' : 'Auto-size frame', shortcut:'A',
+      run: () => { selectTargetFirst(); autoSizeSelection(); } });
+  entries.push('sep', { label:'Export', run: () => { selectTargetFirst(); exportSelection(); } });
+  entries.push({ label:'Share…', run: () => { selectTargetFirst(); void shareSelection(); }, disabled: !canShareFiles });
   if (!state.readOnly)
     entries.push('sep', { label: multi ? `Delete ${state.sel.size} cards` : 'Delete', shortcut:'Del',
-      danger: true, run: () => deleteSelection() });
+      danger: true, run: () => multi ? deleteSelection() : deleteNode(n.id) });
   return entries;
 }
 fbMore.addEventListener('click', (e) => {
   e.stopPropagation();
-  const entries = buildEntries(); if (!entries.length) return;
+  const id = state.selId; const n = id ? state.nodes.get(id) : undefined;
+  if (!n) return;
   const r = fbMore.getBoundingClientRect();
+  const entries = buildCardMenu(n, r.left, r.bottom);
   openMenu(entries, r.left, r.bottom + 4);
 });
 

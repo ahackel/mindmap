@@ -6,18 +6,20 @@
 // Menu items only call the existing crud / camera / main kernels — no logic of its own.
 import { state, stage, setStatus, type MindNode } from '../core/state.js';
 import { ui } from '../core/ui-state.js';
-import { screenToWorld, fit, frameBox } from '../view/camera.js';
-import { childrenOf } from '../utils/model.js';
-import { createNode, addChild, createSibling, duplicateSelection, deleteSelection, deleteNode } from './crud.js';
+import { screenToWorld, fit } from '../view/camera.js';
+import { createNode } from './crud.js';
 import { pasteFromClipboard } from './attachments.js';
-import { copySelection, cutSelection } from './clipboard.js';
-import { startInlineEdit, startBodyEdit } from './inline-edit.js';
 import { record } from './history.js';
 import { typedImageBlob } from './images.js';
 import { esc } from '../utils/markdown.js';
 import { scheduleSave } from '../data/persistence.js';
 import { applyLayouts } from '../view/layout.js';
-import { paintAll, selectNode, foldNodeOrGroup } from '../main.js';
+import { paintAll } from '../main.js';
+// buildCardMenu lives in float-bar.ts (it also owns the kebab button that shares this same menu)
+// — this creates a deliberate two-way import cycle with float-bar.ts (which imports openMenu /
+// copyFilePath from here), same style as the main↔features cycle documented in CLAUDE.md; both
+// sides only touch it inside event handlers, never at module-eval time, so it's safe.
+import { buildCardMenu } from './float-bar.js';
 
 const menu = document.createElement('div');
 menu.id = 'ctxMenu';
@@ -52,8 +54,9 @@ function addSep(): void {
 }
 
 // Copy the card's on-disk relative path (its .md file). The closest a browser app can get to
-// "reveal in Finder" — neither FSA handles nor OPFS expose absolute paths.
-function copyFilePath(n: MindNode): void {
+// "reveal in Finder" — neither FSA handles nor OPFS expose absolute paths. Exported for
+// buildCardMenu (float-bar.ts), shared by the kebab menu and this file's own right-click menu.
+export function copyFilePath(n: MindNode): void {
   const path = n.file; if (!path) return;
   navigator.clipboard.writeText(path)
     .then(() => setStatus(`Copied “${path}”`))
@@ -61,40 +64,8 @@ function copyFilePath(n: MindNode): void {
 }
 
 // The right-click itself never changes the selection or opens an editor — the clicked card is
-// only the menu's TARGET. When it's part of the current multi-selection the group items act on
-// the whole selection; otherwise the items act on just this card (selection moves only as the
-// natural result of an action, e.g. a new/duplicated card selecting itself).
-function buildNodeMenu(n: MindNode, sx: number, sy: number): void {
-  const multi = state.sel.has(n.id) && state.sel.size > 1;
-  if (!state.readOnly){
-    if (!multi){
-      addItem('Rename', 'F2', () => startInlineEdit(n));
-      addItem('Edit note', 'E', () => startBodyEdit(n));
-      addSep();
-      addItem('Add child', 'Tab', () => addChild(n.id));
-      addItem('Add sibling', 'Enter', () => createSibling(n.id));
-      addItem('Paste as child', '⌘V', () => { void pasteFromClipboard(sx, sy, n.id); });
-    }
-    addItem('Duplicate', 'D', () => { if (!multi) selectNode(n.id); duplicateSelection(); });
-    addItem('Cut', '⌘X', () => { if (!multi) selectNode(n.id); void cutSelection(); });
-    addSep();
-  }
-  // copying mutates nothing, so it's available in read-only mode too
-  addItem('Copy', '⌘C', () => { if (!multi) selectNode(n.id); void copySelection(); });
-  if (!multi)
-    addItem(n.collapsed ? 'Expand' : 'Collapse', 'X', () => foldNodeOrGroup(n),
-      // matches toggleCollapse: children fold, and a leaf with a body can fold its body alone
-      { disabled: !childrenOf(n.id).length && !(n.body && n.body.trim()) });
-  // frame the whole selection when the clicked card is part of it, else just this card
-  const fitIds = multi ? [...state.sel] : [n.id];
-  addItem('Fit view', 'F', () => frameBox(fitIds.map(id => state.nodes.get(id))));
-  addItem('Copy file path', '', () => copyFilePath(n), { disabled: !n.file });
-  if (!state.readOnly){
-    addSep();
-    if (multi) addItem(`Delete ${state.sel.size} cards`, 'Del', () => deleteSelection());
-    else       addItem('Delete', 'Del', () => deleteNode(n.id));
-  }
-}
+// only the menu's TARGET; buildCardMenu (float-bar.ts) handles single-vs-multi/read-only itself
+// and is shared verbatim with the kebab menu so the two never drift apart.
 
 // ---------- image entries (right-click on an <img> inside a card body) ----------
 const escRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -158,31 +129,35 @@ function showImageInTab(img: HTMLImageElement): void {
     w.document.close();
   })().catch(() => { w.close(); setStatus('Couldn’t open image'); });
 }
-function buildImageMenu(n: MindNode, img: HTMLImageElement): void {
-  const path = img.dataset.path ?? '';
-  const loaded = !!img.src && !img.classList.contains('md-img-missing');
-  if (!state.readOnly) addItem('Remove image', '', () => removeImage(n, path), { disabled: !path });
-  addItem('Copy image', '', () => { void copyImage(img); }, { disabled: !loaded });
-  addItem('Show image in new tab', '', () => showImageInTab(img), { disabled: !loaded });
-  addSep();
-}
-
-function buildCanvasMenu(sx: number, sy: number): void {
-  if (!state.readOnly){
-    const p = screenToWorld(sx, sy);
-    addItem('New card here', 'Space', () => createNode({ x: p.x - 100, y: p.y - 32 }));
-    addItem('Paste', '⌘V', () => { void pasteFromClipboard(sx, sy, null); });
-    addSep();
-  }
-  addItem('Fit view', 'F', () => fit(), { disabled: !state.nodes.size });
-}
-
 function openMenuAt(sx: number, sy: number): void {
   menu.classList.add('open');
   // clamp inside the viewport (measure only after .open makes it displayable)
   const mw = menu.offsetWidth, mh = menu.offsetHeight;
   menu.style.left = Math.min(sx, window.innerWidth - mw - 4) + 'px';
   menu.style.top  = Math.min(sy, window.innerHeight - mh - 4) + 'px';
+}
+
+function imageMenuEntries(n: MindNode, img: HTMLImageElement): MenuEntry[] {
+  const path = img.dataset.path ?? '';
+  const loaded = !!img.src && !img.classList.contains('md-img-missing');
+  const entries: MenuEntry[] = [];
+  if (!state.readOnly) entries.push({ label:'Remove image', run: () => removeImage(n, path), disabled: !path });
+  entries.push({ label:'Copy image', run: () => { void copyImage(img); }, disabled: !loaded });
+  entries.push({ label:'Show image in new tab', run: () => showImageInTab(img), disabled: !loaded });
+  entries.push('sep');
+  return entries;
+}
+
+function canvasMenuEntries(sx: number, sy: number): MenuEntry[] {
+  const entries: MenuEntry[] = [];
+  if (!state.readOnly){
+    const p = screenToWorld(sx, sy);
+    entries.push({ label:'New card here', shortcut:'Space', run: () => createNode({ x: p.x - 100, y: p.y - 32 }) });
+    entries.push({ label:'Paste', shortcut:'⌘V', run: () => { void pasteFromClipboard(sx, sy, null); } });
+    entries.push('sep');
+  }
+  entries.push({ label:'Fit view', shortcut:'F', run: () => fit(), disabled: !state.nodes.size });
+  return entries;
 }
 
 document.addEventListener('contextmenu', (e: MouseEvent) => {
@@ -193,19 +168,18 @@ document.addEventListener('contextmenu', (e: MouseEvent) => {
   if (ui.inlineEdit && t.closest('.title.editing')) return;
   if (ui.bodyEdit && (t === ui.bodyEdit.ta || ui.bodyEdit.ta.contains(t))) return;
   e.preventDefault();
-  menu.innerHTML = '';
   const nodeEl = t.closest('.node[data-id]') as HTMLElement | null;
   const id = nodeEl?.dataset.id;
   const n = id ? state.nodes.get(id) : undefined;
+  let entries: MenuEntry[];
   if (n){
     const img = imageAt(nodeEl!, e.clientX, e.clientY);
-    if (img) buildImageMenu(n, img);   // image entries above the card's own
-    buildNodeMenu(n, e.clientX, e.clientY);
+    // image entries above the card's own; same list the kebab menu shows for this card
+    entries = [...(img ? imageMenuEntries(n, img) : []), ...buildCardMenu(n, e.clientX, e.clientY)];
   } else {
-    buildCanvasMenu(e.clientX, e.clientY);
+    entries = canvasMenuEntries(e.clientX, e.clientY);
   }
-  if (!menu.childElementCount) return;
-  openMenuAt(e.clientX, e.clientY);
+  openMenu(entries, e.clientX, e.clientY);
 });
 
 // dismiss: click/tap anywhere outside, Escape (before the global deselect handler), scroll/zoom, blur
