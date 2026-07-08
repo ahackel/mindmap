@@ -2,12 +2,12 @@
 // Images are real files in the vault's attachments/ folder; the note just gets ![alt](attachments/…).
 // Added by pasting into the in-card body editor, dropping a file on a card (or the editor), or by
 // typing the markdown. Importing this module registers the document-level drag/drop listeners.
-import { state, setStatus } from '../core/state.js';
+import { state, setStatus, isImageCard } from '../core/state.js';
 import { ui, isTypingInField } from '../core/ui-state.js';
 import { store, scheduleSave } from '../data/persistence.js';
 import { applyLayouts } from '../view/layout.js';
 import { screenToWorld } from '../view/camera.js';
-import { paintAll, selectNode } from '../main.js';
+import { paintAll, selectNode, IMAGE_W, IMAGE_H } from '../main.js';
 import { createNode, uniqueTitle, newCardTitle } from './crud.js';
 import { autosizeBody } from './inline-edit.js';
 import { touch, record } from './history.js';
@@ -32,13 +32,18 @@ async function storeImage(file: File): Promise<string> {
   state.lastSelfWrite = Date.now();        // our own write — don't let focus-reload react to it
   return path;
 }
+// Strip the extension (and any path separators, for names that came in as a full path) from a
+// file's name to use as markdown alt text / an image card's title. Shared by markdownForImages
+// and createImageCards so the two paths can't drift.
+function altFromFile(f: File): string {
+  return (f.name || 'image').replace(/\.[^.]*$/, '').replace(/[/\\]/g, '-').trim() || 'image';
+}
 // Store each image, returning the markdown that references them (one per line).
 async function markdownForImages(files: File[]): Promise<string> {
   const out: string[] = [];
   for (const f of files){
     const path = await storeImage(f);
-    const alt = (f.name || 'image').replace(/\.[^.]*$/, '') || 'image';
-    out.push(`![${alt}](${path})`);
+    out.push(`![${altFromFile(f)}](${path})`);
   }
   return out.join('\n');
 }
@@ -82,17 +87,31 @@ async function insertImagesAtCursor(files: FileList | File[]): Promise<void> {
   setStatus(addedMsg(imgs.length));
 }
 
-// Drop on empty canvas: make a fresh card AT the drop point with the image(s) as its body.
-// createNode opens the rename right away (like any new card); Esc still cancels the card, but the
-// image files themselves stay stored — same as removing a card whose body references images.
-async function createImageNode(sx: number, sy: number, files: File[]): Promise<void> {
-  const imgs = imageFiles(files);
+// Make one IMAGE CARD per file — a resizable leaf that shows nothing but that image (see
+// isImageBox in main.ts). No title/body UI, no rename prompt; its file is named after the image
+// (deduped by uniqueTitle) purely so it has a valid, stable filename on disk — the name itself is
+// never shown or editable. Shared by a canvas/card drop AND a clipboard paste (⌘V or the context
+// menu's Paste) — both land an image as a card of its own rather than inline body markdown.
+async function createImageCards(imgs: File[], sx: number | null, sy: number | null, parent: string | null): Promise<void> {
   if (!imgs.length || !canAttach()) return;
   setStatus('Adding image…');
-  const md = await markdownForImages(imgs);
-  const p = screenToWorld(sx, sy);
-  createNode({ x: p.x - 100, y: p.y - 32, body: md });   // same drop-point offsets as the context menu
+  const p = sx != null && sy != null ? screenToWorld(sx, sy) : screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
+  let i = 0;
+  for (const f of imgs){
+    const path = await storeImage(f);
+    const alt = altFromFile(f);
+    createNode({
+      x: p.x - IMAGE_W / 2 + i * 24, y: p.y - IMAGE_H / 2 + i * 24,
+      parent, title: uniqueTitle(alt), body: `![${alt}](${path})`,
+      layoutType: 'image', edit: false,
+    });
+    i++;
+  }
   setStatus(addedMsg(imgs.length));
+}
+// Drop on empty canvas (or onto an existing image card): new image card(s) at the drop point.
+async function createImageNode(sx: number, sy: number, files: File[]): Promise<void> {
+  await createImageCards(imageFiles(files), sx, sy, null);
 }
 
 // Paste an image straight into the in-card body editor (bound per-textarea in startBodyEdit).
@@ -127,16 +146,10 @@ function probeImage(url: string): Promise<boolean> {
   });
 }
 // Make the card from whatever the clipboard held. Titles are filenames: no slashes, kept short, unique.
-function createCardFromClipboard(imgs: File[], text: string, opts: ReturnType<typeof cardOptsAt>): void {
-  if (imgs.length){
-    if (!canAttach()) return;
-    setStatus('Adding image…');
-    void markdownForImages(imgs).then(md => {
-      createNode({ ...opts, body: md });
-      setStatus(addedMsg(imgs.length));
-    });
-    return;
-  }
+// `sx`/`sy` are the raw screen point (same one `opts` was built from) — images want it centred on
+// an image-card-sized box, not the text-card offset baked into `opts.x`/`opts.y`.
+function createCardFromClipboard(imgs: File[], text: string, sx: number | null, sy: number | null, opts: ReturnType<typeof cardOptsAt>): void {
+  if (imgs.length){ void createImageCards(imgs, sx, sy, opts.parent); return; }
   // A lone URL isn't a name — it goes into the BODY (image URLs as an inline image, others as a
   // link, both handled by the markdown renderer) and the card gets a standard fresh-card title.
   // Many image URLs carry no file extension (CDNs), so those are pasted as a link first and
@@ -171,7 +184,8 @@ document.addEventListener('paste', (e) => {
   e.preventDefault();
   // copied CARDS (our own marker format) reconstruct as cards; anything else becomes a new card
   if (text && tryPasteCards(text, { sx: ui.lastMouse?.x ?? null, sy: ui.lastMouse?.y ?? null, parent: state.selId })) return;
-  createCardFromClipboard(imgs, text, cardOptsAt(ui.lastMouse?.x ?? null, ui.lastMouse?.y ?? null, state.selId));
+  const mx = ui.lastMouse?.x ?? null, my = ui.lastMouse?.y ?? null;
+  createCardFromClipboard(imgs, text, mx, my, cardOptsAt(mx, my, state.selId));
 });
 // Context-menu Paste: no ClipboardEvent to read from, so ask the async clipboard API (may prompt
 // for permission; Safari requires it be called directly in the user gesture — a menu click is one).
@@ -192,7 +206,7 @@ export async function pasteFromClipboard(sx: number, sy: number, parent: string 
   text = text.trim();
   if (!imgs.length && !text){ setStatus('Clipboard is empty'); return; }
   if (text && tryPasteCards(text, { sx, sy, parent })) return;   // copied cards reconstruct as cards
-  createCardFromClipboard(imgs, text, cardOptsAt(sx, sy, parent));
+  createCardFromClipboard(imgs, text, sx, sy, cardOptsAt(sx, sy, parent));
 }
 
 // Drag an image file from the OS onto a card (or the body editor). We handle this at the document
@@ -218,17 +232,21 @@ document.addEventListener('drop', async (e) => {
   const t = e.target as HTMLElement;
   const onEditor = !!t.closest?.('.body-edit');
   const cardEl   = t.closest?.('#world [data-id]') as HTMLElement | null;
+  const cardId   = cardEl?.dataset.id ?? null;
+  // an image card is a leaf — it can't adopt children or gain a second image in its body
+  const cardNode = cardId ? state.nodes.get(cardId) : null;
+  const cardIsImage = !!cardNode && isImageCard(cardNode);
   setImgDropTarget(null);
   // dropped .md notes reconstruct as cards (parent links WITHIN the dropped set are kept);
   // a dropped-on card adopts them as children, the canvas takes them at the drop point
   const mds = [...e.dataTransfer!.files].filter(f => /\.md$/i.test(f.name));
   if (mds.length){
     const cards = await Promise.all(mds.map(async f => ({ name: f.name, text: await f.text() })));
-    tryPasteCards(cardsToPayload(cards), { sx: e.clientX, sy: e.clientY, parent: cardEl?.dataset.id ?? null });
+    tryPasteCards(cardsToPayload(cards), { sx: e.clientX, sy: e.clientY, parent: cardIsImage ? null : cardId });
   }
   const imgs = imageFiles(e.dataTransfer!.files);
   if (!imgs.length) return;
   if (onEditor && ui.bodyEdit){ await insertImagesAtCursor(imgs); }   // drop on the open editor → at the caret
-  else if (cardEl){ selectNode(cardEl.dataset.id ?? null); await appendImagesToNode(cardEl.dataset.id!, imgs); }
-  else await createImageNode(e.clientX, e.clientY, imgs);   // empty canvas → new card at the drop point
+  else if (cardEl && !cardIsImage){ selectNode(cardId); await appendImagesToNode(cardId!, imgs); }
+  else await createImageNode(e.clientX, e.clientY, imgs);   // empty canvas (or onto an image card) → new card(s) at the drop point
 });

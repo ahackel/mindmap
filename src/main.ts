@@ -14,7 +14,7 @@
 import './styles.css';   // app styles (Vite bundles + singlefile inlines into dist/index.html)
 import { renderBodyHTML } from './utils/markdown.js';
 import { childrenOf, isHidden, descendantCount } from './utils/model.js';
-import { state, world, stage, setStatus } from './core/state.js';
+import { state, world, stage, setStatus, isImageCard } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { mountIcons } from './view/icons.js';
 import edgeStraightIcon from './assets/icons/edge-straight.svg?raw';
@@ -172,6 +172,7 @@ export function paintNode(n: MindNode): void {
   const showDone = showsDoneCheckbox(n);                   // checklist item of a checklist parent
   el.className = 'node c-' + effectiveColor(n)
     + (isFrameBox(n) ? ' frame' : '')
+    + (isImageBox(n) ? ' image-card' : '')
     + (state.sel.has(n.id) ? ' sel' : '')
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
     + (collapsed ? ' collapsed' : '')
@@ -195,14 +196,20 @@ export function paintNode(n: MindNode): void {
     el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
     if (el.style.transform) el.style.transform = '';
   }
-  // A frame is its own resizable box; give the element that size and a drag-to-resize handle.
-  // Any other card clears the inline size so a reverted frame snaps back to the CSS-fixed card.
-  if (isFrameBox(n)) {
-    el.style.width = (n.w ?? FRAME_W) + 'px';
-    el.style.height = (n.h ?? FRAME_H) + 'px';
+  // A frame (or an image card) is its own resizable box; give the element that size and a
+  // drag-to-resize handle. Any other card clears the inline size so a reverted box snaps back
+  // to the CSS-fixed card.
+  if (isBoxNode(n)) {
+    el.style.width = (n.w ?? boxDefaultW(n)) + 'px';
+    el.style.height = (n.h ?? boxDefaultH(n)) + 'px';
     // border matches this card's EDGE tint (same colour edges use), falling back to --edge
     el.style.setProperty('--frame-stroke', SWATCH_BG[effectiveColor(n)] ?? 'var(--edge)');
     ensureFrameHandle(n);
+    // clear a stale min-height snapCardHeights left behind from when this was a plain card —
+    // it's skipped for box nodes going forward, so nothing else would ever reset it, and a
+    // leftover floor taller than n.h would silently distort the box (wrong aspect ratio, extra
+    // height) after a round-trip through a non-box layout type and back.
+    if (el.style.minHeight) el.style.minHeight = '';
   } else if (el.style.width) {
     el.style.width = ''; el.style.height = '';
     el.style.removeProperty('--frame-stroke');
@@ -220,28 +227,40 @@ export function paintNode(n: MindNode): void {
   if (collapsed) el.querySelector('.hidden-count')!.textContent = collapsedKids ? String(descendantCount(n.id)) : '';
 }
 export const NODE_W = 200;
-export const GRID_SNAP = 20;   // world-px grid dragged positions AND frame sizes snap to
+export const GRID_SNAP = 20;   // world-px grid dragged positions AND frame/image-card sizes snap to
 export const FRAME_W = 360, FRAME_H = 260;   // default frame container size (world px)
+export const IMAGE_W = 240, IMAGE_H = 180;   // default image-card size (world px)
 // Whether a node currently renders as a frame BOX. A collapsed frame folds to an ordinary card, so
 // its footprint reverts to a normal card (matching paintNode). Shared by the geometry helpers below.
 function isFrameBox(n: MindNode): boolean { return n.layoutType === 'frame' && !n.collapsed; }
-// A node's footprint WIDTH: an (expanded) frame is its own resizable box; everything else is NODE_W.
-export function nodeW(n: MindNode): number { return isFrameBox(n) ? (n.w ?? FRAME_W) : NODE_W; }
-// live height (falls back pre-render). An expanded frame's height is its box (n.h), not its card.
+// An image card: a resizable leaf that shows nothing but its one image — no children, no title UI.
+function isImageBox(n: MindNode): boolean { return n.layoutType === 'image' && !n.collapsed; }
+// Either kind of resizable box — shares sizing/resize-handle plumbing below.
+function isBoxNode(n: MindNode): boolean { return isFrameBox(n) || isImageBox(n); }
+function boxDefaultW(n: MindNode): number { return isImageBox(n) ? IMAGE_W : FRAME_W; }
+function boxDefaultH(n: MindNode): number { return isImageBox(n) ? IMAGE_H : FRAME_H; }
+// A node's footprint WIDTH: an (expanded) frame/image card is its own resizable box; everything
+// else is NODE_W.
+export function nodeW(n: MindNode): number { return isBoxNode(n) ? (n.w ?? boxDefaultW(n)) : NODE_W; }
+// live height (falls back pre-render). An expanded frame/image card's height is its box (n.h), not
+// its card.
 export function nodeH(n: MindNode): number {
-  if (isFrameBox(n)) return n.h ?? FRAME_H;
+  if (isBoxNode(n)) return n.h ?? boxDefaultH(n);
   return (n.el && n.el.offsetHeight) || 64;
 }
 // Height used for LAYOUT geometry. The selection affordances (+ and the "add note" bubble) are
 // absolutely positioned and overhang the card, so they don't inflate its measured height — a
-// title-only card lays out the same whether or not it's selected. A frame reports its box height.
+// title-only card lays out the same whether or not it's selected. A box node reports its own height.
 export function layoutH(n: MindNode): number {
-  if (isFrameBox(n)) return n.h ?? FRAME_H;
+  if (isBoxNode(n)) return n.h ?? boxDefaultH(n);
   const el = n.el; if (!el) return 64;
   return el.offsetHeight;
 }
-// ---------- frame resize ----------
+// ---------- frame / image-card resize ----------
 export const MIN_FRAME_W = NODE_W, MIN_FRAME_H = 120;   // a frame is never narrower than a normal card
+export const MIN_IMAGE_W = 60, MIN_IMAGE_H = 60;        // an image card can shrink to a small thumbnail
+function boxMinW(n: MindNode): number { return isImageBox(n) ? MIN_IMAGE_W : MIN_FRAME_W; }
+function boxMinH(n: MindNode): number { return isImageBox(n) ? MIN_IMAGE_H : MIN_FRAME_H; }
 // 8 resize handles: 4 edges (one axis) + 4 corners (two axes). A `w`/`n` component moves that edge,
 // which shifts the frame's x/y (the opposite edge stays put); `e`/`s` just grow width/height.
 const FRAME_DIRS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const;
@@ -261,10 +280,21 @@ function ensureFrameHandle(n: MindNode): void {
 // being dragged stay fixed; the dragged edges snap to the grid and clamp to the min size. Top/left
 // edges moving means the frame's x/y move too. Children inside are free, so only the parent's own
 // layout reflows around the frame — done once on release, not every move.
+// An image card's aspect ratio (width/height): the actual loaded image if hydrateImages has
+// resolved it, else whatever the box currently shows (so an in-progress resize is stable even
+// before the blob URL loads).
+function imageAspect(n: MindNode): number {
+  const img = n.el?.querySelector('img.md-img') as HTMLImageElement | null;
+  if (img && img.naturalWidth && img.naturalHeight) return img.naturalWidth / img.naturalHeight;
+  const w = n.w ?? IMAGE_W, h = n.h ?? IMAGE_H;
+  return w / (h || 1);
+}
 function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
   if (state.readOnly) return;
   e.stopPropagation(); e.preventDefault();
-  const left0 = n.x, top0 = n.y, right0 = n.x + (n.w ?? FRAME_W), bottom0 = n.y + (n.h ?? FRAME_H);
+  const minW = boxMinW(n), minH = boxMinH(n);
+  const aspect = isImageBox(n) ? imageAspect(n) : null;   // width/height — locked while dragging an image card
+  const left0 = n.x, top0 = n.y, right0 = n.x + (n.w ?? boxDefaultW(n)), bottom0 = n.y + (n.h ?? boxDefaultH(n));
   const sx = e.clientX, sy = e.clientY;
   const west = dir.includes('w'), east = dir.includes('e'), north = dir.includes('n'), south = dir.includes('s');
   touch(n.id);
@@ -272,15 +302,39 @@ function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
   const identity = (v: number): number => v;
   const snap = (v: number): number => Math.round(v / GRID_SNAP) * GRID_SNAP;
   // Apply the current drag delta, keeping the non-dragged edges fixed. We snap the SIZE (not the
-  // edges) to the grid so a frame's w/h are always multiples of the snap — the moving edge derives
+  // edges) to the grid so a box's w/h are always multiples of the snap — the moving edge derives
   // from the fixed opposite edge minus the snapped size. Free (unsnapped) while dragging; snapped
   // on release. Clamped to the min size (also grid multiples).
   const resize = (round: (v: number) => number): void => {
     let left = left0, right = right0, top = top0, bottom = bottom0;
-    if (east)  { const w = Math.max(MIN_FRAME_W, round(right0 + lastDx - left0));  right = left0 + w; }
-    if (west)  { const w = Math.max(MIN_FRAME_W, round(right0 - (left0 + lastDx))); left = right0 - w; }
-    if (south) { const h = Math.max(MIN_FRAME_H, round(bottom0 + lastDy - top0));   bottom = top0 + h; }
-    if (north) { const h = Math.max(MIN_FRAME_H, round(bottom0 - (top0 + lastDy))); top = bottom0 - h; }
+    if (aspect) {
+      // Image card: whichever axis the user is actually dragging drives the size (grid-snapped);
+      // the other axis is DERIVED from the image's own aspect ratio rather than dragged/snapped
+      // independently. A corner drags both — drive by whichever axis implies the bigger relative
+      // change, so the drag feels proportionate regardless of which corner is grabbed.
+      const w0 = right0 - left0, h0 = bottom0 - top0;
+      const hasX = east || west, hasY = north || south;
+      let w = w0, h = h0;
+      if (hasX && hasY) {
+        const wCand = Math.max(minW, round(w0 + (east ? lastDx : -lastDx)));
+        const hCand = Math.max(minH, round(h0 + (south ? lastDy : -lastDy)));
+        if (Math.abs(wCand - w0) * h0 >= Math.abs(hCand - h0) * w0) { w = wCand; h = Math.max(minH, w / aspect); }
+        else { h = hCand; w = Math.max(minW, h * aspect); }
+      } else if (hasX) {
+        w = Math.max(minW, round(w0 + (east ? lastDx : -lastDx)));
+        h = Math.max(minH, w / aspect);
+      } else if (hasY) {
+        h = Math.max(minH, round(h0 + (south ? lastDy : -lastDy)));
+        w = Math.max(minW, h * aspect);
+      }
+      left = west ? right0 - w : left0;  right = left + w;
+      top  = north ? bottom0 - h : top0; bottom = top + h;
+    } else {
+      if (east)  { const w = Math.max(minW, round(right0 + lastDx - left0));  right = left0 + w; }
+      if (west)  { const w = Math.max(minW, round(right0 - (left0 + lastDx))); left = right0 - w; }
+      if (south) { const h = Math.max(minH, round(bottom0 + lastDy - top0));   bottom = top0 + h; }
+      if (north) { const h = Math.max(minH, round(bottom0 - (top0 + lastDy))); top = bottom0 - h; }
+    }
     n.x = left; n.y = top; n.w = right - left; n.h = bottom - top;
     n.dirty = true;
   };
@@ -299,12 +353,12 @@ function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
   window.addEventListener('pointerup', up);
 }
 // Round every card's rendered height UP to the snap grid so all cards align on the 20px grid
-// (frames size themselves). Done in three batches — reset → measure → apply — so it costs two
-// layout flushes total, not two per card; the reset lets a shrunk card re-measure smaller (no
-// ratcheting). Frames (which set their own box) and hidden cards are skipped.
+// (frames/image cards size themselves). Done in three batches — reset → measure → apply — so it
+// costs two layout flushes total, not two per card; the reset lets a shrunk card re-measure
+// smaller (no ratcheting). Box nodes (which set their own box) and hidden cards are skipped.
 function snapCardHeights(): void {
   const cards: MindNode[] = [];
-  for (const n of state.nodes.values()) if (n.el && !isHidden(n) && !isFrameBox(n)) cards.push(n);
+  for (const n of state.nodes.values()) if (n.el && !isHidden(n) && !isBoxNode(n)) cards.push(n);
   for (const n of cards) n.el!.style.minHeight = '';
   const hs = cards.map(n => Math.ceil(n.el!.offsetHeight / GRID_SNAP) * GRID_SNAP);
   cards.forEach((n, i) => { n.el!.style.minHeight = hs[i] + 'px'; });
@@ -678,9 +732,12 @@ window.addEventListener('keydown', (e) => {
   if ((e.key === 'x' || e.key === 'X') && state.sel.size && !e.metaKey && !e.ctrlKey){   // don't shadow cut
     e.preventDefault(); toggleCollapseSelection(state.sel); return;
   }
-  if (e.key === 'F2' && state.selId){ e.preventDefault(); startInlineEdit(state.nodes.get(state.selId)); return; }   // selId guards non-null
+  // image cards have no title/body UI to rename or edit — they're a leaf that shows only the image
+  if (e.key === 'F2' && state.selId && !isImageCard(state.nodes.get(state.selId))){
+    e.preventDefault(); startInlineEdit(state.nodes.get(state.selId)); return;   // selId guards non-null
+  }
   if ((e.key === 'e' || e.key === 'E') && state.selId && !e.metaKey && !e.ctrlKey){
-    e.preventDefault(); const n = state.nodes.get(state.selId); if (n) startBodyEdit(n); return;
+    e.preventDefault(); const n = state.nodes.get(state.selId); if (n && !isImageCard(n)) startBodyEdit(n); return;
   }
   if (e.key === 'Enter' && state.selId){ e.preventDefault(); createSibling(state.selId); return; }
   if (e.key === 'Tab' && state.selId){ e.preventDefault(); addChild(state.selId); return; }

@@ -7,7 +7,7 @@
 // existing generic context menu (openMenu, features/context-menu.ts).
 // On narrow/touch widths (NARROW_MQ) styles.css docks the bar to the bottom edge instead —
 // this module skips the floating position math there and lets CSS own it.
-import { state, stage, type MindNode, type LayoutType, type FrameArrange } from '../core/state.js';
+import { state, stage, setStatus, isImageCard, type MindNode, type LayoutType, type FrameArrange } from '../core/state.js';
 import { NARROW_MQ, ui } from '../core/ui-state.js';
 import { record } from './history.js';
 import { scheduleSave } from '../data/persistence.js';
@@ -21,7 +21,7 @@ import { pasteFromClipboard } from './attachments.js';
 import { openMenu, copyFilePath, type MenuEntry } from './context-menu.js';
 import { childrenOf, isHidden } from '../utils/model.js';
 import { frameBox } from '../view/camera.js';
-import { paintAll, selectedIds, selectNode, foldNodeOrGroup, GRID_SNAP, FRAME_W, FRAME_H, MIN_FRAME_W, MIN_FRAME_H } from '../main.js';
+import { paintAll, selectedIds, selectNode, foldNodeOrGroup, GRID_SNAP, FRAME_W, FRAME_H, MIN_FRAME_W, MIN_FRAME_H, IMAGE_W, IMAGE_H } from '../main.js';
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T { return document.getElementById(id) as T; }
 
@@ -64,6 +64,8 @@ const LAYOUT_TYPES: { key: LayoutType; label: string; icon: string }[] = [
     icon: SVG_OPEN + DOT(4,12) + '<path d="M6 12l6-6M6 12h6M6 12l6 6"/>' + DOT(14,6,1.8) + DOT(14,12,1.8) + DOT(14,18,1.8) + '</svg>' },
   { key:'frame', label:'Frame — a resizable box; drag cards inside to hold them, out to release',
     icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="6.5" y="8.5" width="6" height="4.5" rx="1" fill="currentColor" stroke="none"/></svg>' },
+  { key:'image', label:'Image — a resizable box showing one image, nothing else (no children)',
+    icon: SVG_OPEN + '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none"/><path d="M4 15.5l5-5 3.5 3.5 3-3 4.5 4.5"/></svg>' },
 ];
 // How a FRAME arranges its children — a second chip row shown only when the selection is a frame.
 const ARRANGE_TYPES: { key: FrameArrange; label: string; icon: string }[] = [
@@ -116,10 +118,16 @@ layoutPop.appendChild(edArrangeTypes);
 })();
 function setLayout(type: LayoutType): void {
   const ids = selectedIds(); if (!ids.length) return;
+  // an image card is a leaf — refuse to flip a card that already has children into one
+  if (type === 'image' && ids.some(id => childrenOf(id).length)) {
+    setStatus('An image card can’t have children — move or delete them first');
+    return;
+  }
   record(ids, () => {
     for (const id of ids){
       const n = state.nodes.get(id); if (!n) continue;
       if (type === 'frame' && n.layoutType !== 'frame') fitFrameToContent(n, true);   // give it a box (before the flip)
+      if (type === 'image' && n.layoutType !== 'image' && (n.w == null || n.h == null)) { n.w = IMAGE_W; n.h = IMAGE_H; }
       n.layoutType = type;
       n.dirty = true;
     }
@@ -246,15 +254,18 @@ export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] 
   // group actions (Duplicate/Cut/Copy/Export/Share/Auto-size) act on state.sel via selectedIds();
   // when the target isn't already part of the selection, select it first so they act on IT.
   const selectTargetFirst = () => { if (!multi) selectNode(n.id); };
+  const isImage = isImageCard(n);   // a leaf card: no title/body UI, no children
   const entries: MenuEntry[] = [];
   if (!state.readOnly){
     if (!multi){
-      entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n) });
-      entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n) });
-      entries.push('sep');
-      entries.push({ label:'Add child', shortcut:'Tab', run: () => addChild(n.id) });
+      if (!isImage){
+        entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n) });
+        entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n) });
+        entries.push('sep');
+        entries.push({ label:'Add child', shortcut:'Tab', run: () => addChild(n.id) });
+        entries.push({ label:'Paste as child', shortcut:'⌘V', run: () => { void pasteFromClipboard(sx, sy, n.id); } });
+      }
       entries.push({ label:'Add sibling', shortcut:'Enter', run: () => createSibling(n.id) });
-      entries.push({ label:'Paste as child', shortcut:'⌘V', run: () => { void pasteFromClipboard(sx, sy, n.id); } });
     }
     entries.push({ label:'Duplicate', shortcut:'D', run: () => { selectTargetFirst(); duplicateSelection(); } });
     entries.push({ label:'Cut', shortcut:'⌘X', run: () => { selectTargetFirst(); void cutSelection(); } });

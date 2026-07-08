@@ -6,7 +6,7 @@
 // auto-pan keeps the dragged subtree glued under the cursor while the view scrolls. All transient
 // drag state lives in `ui.drag`. Importing this module registers the global Alt/Shift modifier
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
-import { state, stage, world, setStatus, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, stage, world, setStatus, isImageCard, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
 import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, isFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
@@ -676,8 +676,9 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
     // Edge zone (or no valid sibling target) -> child-of-hovered, attaching on whichever side
     // the drop point sits near. Allowed even when hovered is already this node's parent — that
     // re-sides the child instead of being a no-op, since the drop point may be near a
-    // different edge than the one it currently occupies.
-    if (!target) {
+    // different edge than the one it currently occupies. An image card is a leaf — it never
+    // adopts children, so it's not a valid child-drop target (sibling-mode above still is).
+    if (!target && !isImageCard(hoveredNode)) {
       target = hovered; side = hoveredEdge;
       // Joining a MANAGED branch that already has children on that side: anchor the insertion
       // by the dragged card's position among them (instead of always appending) and preview the

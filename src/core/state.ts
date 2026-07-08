@@ -5,7 +5,7 @@
 // #stage; edges in the #edges SVG, collapse toggles in #toggles.
 // ============================================================
 
-export type LayoutType = 'none' | 'free' | 'line' | 'fan' | 'frame';
+export type LayoutType = 'none' | 'free' | 'line' | 'fan' | 'frame' | 'image';
 // How a FRAME arranges its children: free placement (default), or auto-flow that fills one axis
 // and wraps to the next — horizontal (left→right, wrap down) or vertical (top→bottom, wrap right).
 export type FrameArrange = 'free' | 'flow-h' | 'flow-v';
@@ -37,8 +37,9 @@ export interface MindNode {
   bg: boolean;                     // draw a translucent background enclosing me + all my visible
                                     // descendants (see view/edges.ts paintBackgrounds)
   layoutType: LayoutType;
-  // Frame container size (world px). Only meaningful when layoutType === 'frame' — the resizable
-  // box the frame draws and whose interior adopts cards dropped in. Persisted as mm_w/mm_h.
+  // Resizable box size (world px). Meaningful for layoutType === 'frame' (the box whose interior
+  // adopts cards dropped in) and layoutType === 'image' (an image-only leaf card — no children,
+  // no title UI; its body is a single `![alt](path)` filling the box). Persisted as mm_w/mm_h.
   w?: number;
   h?: number;
   // How a frame arranges its children (only for layoutType === 'frame'). Persisted as mm_arrange;
@@ -59,6 +60,14 @@ export interface MindNode {
   kidOrder?: string[];             // stored child order (line/fan layouts); reseeded only on child drag
   el?: HTMLElement | null;         // the rendered card (added during paint)
 }
+
+// An image card is a leaf: no children, no title/body-edit UI (its body is just `![alt](path)`).
+// Single source of truth for that fact — call this instead of comparing layoutType directly, so
+// every "can this node have children / be renamed" check stays in sync as layout types evolve.
+export function isImageCard(n: MindNode | null | undefined): boolean { return n?.layoutType === 'image'; }
+// Layout types that carry their own resizable box size (w/h persisted as mm_w/mm_h) rather than
+// sizing from title/body content.
+export function isBoxLayoutType(t: LayoutType): boolean { return t === 'frame' || t === 'image'; }
 
 export interface View { x: number; y: number; k: number; }
 

@@ -6,7 +6,7 @@
 // rewrite ONLY the app-owned keys (tags/color/mm_*) while preserving everything else —
 // `date`, `category`, `aliases`, custom fields, and the note body — verbatim.
 // ============================================================
-import { state, type MindNode, type FmEntry } from '../core/state.js';
+import { state, isBoxLayoutType, type MindNode, type FmEntry } from '../core/state.js';
 
 // The shape parseMd yields — a node-to-be plus its raw layout (mm_*) values.
 export interface ParsedNote {
@@ -125,7 +125,7 @@ export function serializeMd(n: MindNode): string {
   if (n.bg) entries.push({ key:'mm_bg', lines:['mm_bg: true'] });
   if (n.layoutType && n.layoutType !== 'none')   // none (inherit) is the default — omit from file
     entries.push({ key:'mm_layout', lines:[`mm_layout: ${n.layoutType}`] });
-  if (n.layoutType === 'frame') {                // the resizable container's own box size + arrange
+  if (isBoxLayoutType(n.layoutType)) {   // the resizable box's own size (+ a frame's arrange)
     if (n.w != null) entries.push({ key:'mm_w', lines:[`mm_w: ${Math.round(n.w)}`] });
     if (n.h != null) entries.push({ key:'mm_h', lines:[`mm_h: ${Math.round(n.h)}`] });
     if (n.arrange && n.arrange !== 'free') entries.push({ key:'mm_arrange', lines:[`mm_arrange: ${n.arrange}`] });

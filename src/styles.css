@@ -271,16 +271,37 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
    ring, no width change, no fill; no landing-ghost card or reparent edge (see drag.ts / edges.ts). */
 .node.frame.drop-target { border-style:dashed; border-color:#fff; }
 /* 8 invisible resize hit-zones: 4 edge bands (inset from the corners) + 4 corner squares.
-   Corners sit at the very corners so the edge bands' insets leave them un-contested. */
-.node.frame .fh { position:absolute; z-index:2; touch-action:none; }
-.node.frame .fh-n { top:-5px;    left:12px; right:12px; height:11px; cursor:ns-resize; }
-.node.frame .fh-s { bottom:-5px; left:12px; right:12px; height:11px; cursor:ns-resize; }
-.node.frame .fh-e { right:-5px;  top:12px; bottom:12px; width:11px;  cursor:ew-resize; }
-.node.frame .fh-w { left:-5px;   top:12px; bottom:12px; width:11px;  cursor:ew-resize; }
-.node.frame .fh-ne { top:-6px;    right:-6px;  width:16px; height:16px; cursor:nesw-resize; }
-.node.frame .fh-nw { top:-6px;    left:-6px;   width:16px; height:16px; cursor:nwse-resize; }
-.node.frame .fh-se { bottom:-6px; right:-6px;  width:16px; height:16px; cursor:nwse-resize; }
-.node.frame .fh-sw { bottom:-6px; left:-6px;   width:16px; height:16px; cursor:nesw-resize; }
+   Corners sit at the very corners so the edge bands' insets leave them un-contested.
+   Shared by .frame and .image-card — both kinds of resizable box (ensureFrameHandle in main.ts). */
+.node.frame .fh, .node.image-card .fh { position:absolute; z-index:2; touch-action:none; }
+.node.frame .fh-n, .node.image-card .fh-n { top:-5px;    left:12px; right:12px; height:11px; cursor:ns-resize; }
+.node.frame .fh-s, .node.image-card .fh-s { bottom:-5px; left:12px; right:12px; height:11px; cursor:ns-resize; }
+.node.frame .fh-e, .node.image-card .fh-e { right:-5px;  top:12px; bottom:12px; width:11px;  cursor:ew-resize; }
+.node.frame .fh-w, .node.image-card .fh-w { left:-5px;   top:12px; bottom:12px; width:11px;  cursor:ew-resize; }
+.node.frame .fh-ne, .node.image-card .fh-ne { top:-6px;    right:-6px;  width:16px; height:16px; cursor:nesw-resize; }
+.node.frame .fh-nw, .node.image-card .fh-nw { top:-6px;    left:-6px;   width:16px; height:16px; cursor:nwse-resize; }
+.node.frame .fh-se, .node.image-card .fh-se { bottom:-6px; right:-6px;  width:16px; height:16px; cursor:nwse-resize; }
+.node.frame .fh-sw, .node.image-card .fh-sw { bottom:-6px; left:-6px;   width:16px; height:16px; cursor:nesw-resize; }
+/* ---------- image card: a resizable leaf that shows nothing but one image ---------- */
+/* no title/body chrome at all — just the image filling the box (see isImageBox in main.ts).
+   Background is the same --card variable every card's own colour swatch sets (.c-blue etc. at
+   the top of this file) — an image card with no image reference in its body (e.g. freshly
+   flipped from another layout type) shows as a plain colour rect instead of empty transparency;
+   once an image loads it covers the whole box, so the colour never actually shows through except
+   at transparent pixels or before the image resolves. `none` maps to --bg (.c-none above), which
+   IS the canvas's own background — effectively transparent against it. */
+.node.image-card { z-index:1; background:var(--card, var(--bg)); min-height:0; border-radius:10px;
+  border:none; padding:0; overflow:hidden; }
+.node.image-card .title-row, .node.image-card .progress, .node.image-card .hidden-count { display:none; }
+.node.image-card .addnote { display:none !important; }
+/* explicit width/height (not just inset:0) — a percentage height on the .md-img descendant only
+   resolves against a containing block whose OWN height is set via the `height` property itself,
+   not one merely implied by top+bottom insets (CSS2.1 10.5) */
+.node.image-card > .body { position:absolute; inset:0; width:100%; height:100%; margin:0; }
+/* renderBodyHTML wraps a standalone image in a <p> — that paragraph, not .body, is the img's
+   real containing block, so it needs the same explicit height passed down to it. */
+.node.image-card > .body > p { width:100%; height:100%; margin:0; }
+.node.image-card > .body .md-img { width:100%; height:100%; margin:0; object-fit:cover; display:block; border-radius:inherit; }
 /* an uncoloured card sits on the page background, so its text follows the theme, not white */
 .node.c-none { color: var(--text); }
 /* white is the one palette colour too light for white text — dark grey instead, both themes */
