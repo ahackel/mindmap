@@ -256,6 +256,31 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 .node.done .title { text-decoration:line-through; opacity:.65; }
 /* checklist owner: this card's own "n/m" progress over its direct children */
 .node .progress { flex:none; margin-left:auto; padding-left:.5em; font-size:11px; font-weight:600; opacity:.7; }
+/* ---------- frame: a resizable container box whose children live freely inside ---------- */
+/* sits behind normal cards (z-index:2) so the cards it holds render inside it; its own box size
+   is set inline (main.ts paintNode). Border tinted to the card's own colour, like its edges. */
+.node.frame { z-index:1; background:transparent; min-height:0; border-radius:14px;
+  border:4px solid var(--frame-stroke, var(--edge)); padding:8px 10px; }
+.node.frame .title { color:var(--text); font-weight:600; }
+/* a frame never shows body content, the "n/m" progress, or the +N chip; and NEVER the "add note"
+   pill (the !important beats the .solo.no-body show rule that would otherwise reveal it). */
+.node.frame > .body, .node.frame .progress, .node.frame .hidden-count { display:none; }
+.node.frame .addnote { display:none !important; }
+/* drag-into-frame preview: restyle the frame's OWN border to a white dash — like the other drag
+   ghosts (reparent ghost / insert bar) — so it reads as "the children land in here". No extra
+   ring, no width change, no fill; no landing-ghost card or reparent edge (see drag.ts / edges.ts). */
+.node.frame.drop-target { border-style:dashed; border-color:#fff; }
+/* 8 invisible resize hit-zones: 4 edge bands (inset from the corners) + 4 corner squares.
+   Corners sit at the very corners so the edge bands' insets leave them un-contested. */
+.node.frame .fh { position:absolute; z-index:2; touch-action:none; }
+.node.frame .fh-n { top:-5px;    left:12px; right:12px; height:11px; cursor:ns-resize; }
+.node.frame .fh-s { bottom:-5px; left:12px; right:12px; height:11px; cursor:ns-resize; }
+.node.frame .fh-e { right:-5px;  top:12px; bottom:12px; width:11px;  cursor:ew-resize; }
+.node.frame .fh-w { left:-5px;   top:12px; bottom:12px; width:11px;  cursor:ew-resize; }
+.node.frame .fh-ne { top:-6px;    right:-6px;  width:16px; height:16px; cursor:nesw-resize; }
+.node.frame .fh-nw { top:-6px;    left:-6px;   width:16px; height:16px; cursor:nwse-resize; }
+.node.frame .fh-se { bottom:-6px; right:-6px;  width:16px; height:16px; cursor:nwse-resize; }
+.node.frame .fh-sw { bottom:-6px; left:-6px;   width:16px; height:16px; cursor:nesw-resize; }
 /* an uncoloured card sits on the page background, so its text follows the theme, not white */
 .node.c-none { color: var(--text); }
 /* white is the one palette colour too light for white text — dark grey instead, both themes */
@@ -504,6 +529,10 @@ body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit 
   background:var(--panel); border-radius:var(--r-full);
   transition:opacity .15s ease; }
 .fb-pop.open { display:flex; }
+/* the layout popover can show a second row (frame-arrange chips), so it stacks vertically and
+   grows; the colour popover keeps the default single-row pill. */
+#fbLayoutPop { flex-direction:column; height:auto; min-height:calc(var(--bar-btn) + 8px); padding:6px 8px; gap:6px; }
+.arrangechips { border-top:1px solid rgba(128,128,128,.28); padding-top:6px; }
 /* hides instantly while #floatBar itself does (see float-bar.ts's followLoop) — a stale popover
    position mid-pan/drag/zoom would otherwise float away from its (now-moved) trigger button. */
 .fb-pop.hide-interact, .fb-pop-connector.hide-interact { opacity:0; pointer-events:none; transition:none; }

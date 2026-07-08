@@ -8,13 +8,13 @@
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
 import { state, stage, world, setStatus, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
-import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, insertedKidOrder, sideOf, deriveSide, reorderTarget } from '../view/layout.js';
+import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, isFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
 import { ui, NARROW_MQ, type Pt, type Seg, type Drag } from '../core/ui-state.js';
 import { paintEdges } from '../view/edges.js';
 import { outlineActive } from './outline.js';
-import { NODE_W, nodeH, paintAll, paintNode, selectNode, setSelectionSet, toggleSel,
+import { NODE_W, nodeW, nodeH, GRID_SNAP, paintAll, paintNode, selectNode, setSelectionSet, toggleSel,
          subtreeIds, foldNodeOrGroup } from '../main.js';
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit } from './inline-edit.js';
 import { leaveClone } from './crud.js';
@@ -192,6 +192,21 @@ function autoPanStep(): void {
   }
   ui.autoPanRAF = requestAnimationFrame(autoPanStep);
 }
+// The INNERMOST (deepest-nested) expanded frame whose box contains the given screen point, or null.
+// Nested frames overlap and stack by DOM order, so a press can't rely on the browser picking the
+// innermost — this resolves it geometrically. Collapsed frames (rendered as cards) don't count.
+function innermostFrameAt(clientX: number, clientY: number): MindNode | null {
+  const wx = (clientX - state.view.x) / state.view.k, wy = (clientY - state.view.y) / state.view.k;
+  let best: MindNode | null = null, bestDepth = -1;
+  for (const m of state.nodes.values()) {
+    if (!isFrame(m) || isHidden(m)) continue;
+    if (wx < m.x || wx > m.x + nodeW(m) || wy < m.y || wy > m.y + nodeH(m)) continue;
+    let depth = 0;
+    for (let p = m.parent ? state.nodes.get(m.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null) depth++;
+    if (depth > bestDepth) { bestDepth = depth; best = m; }
+  }
+  return best;
+}
 export function bindNodeDrag(n: MindNode): void {
   const el = n.el!;
   // Double-tap on touch -> collapse/expand (mirrors dblclick on desktop; also prevents iOS double-tap zoom)
@@ -215,6 +230,22 @@ export function bindNodeDrag(n: MindNode): void {
     const tgt = e.target as HTMLElement;
     if (tgt.classList.contains('addnote')) return;
     if (tgt.closest('a.lk, input.taskbox')) { e.stopPropagation(); return; }  // let links/checkboxes click, not drag
+    // Nested frames overlap and stack by DOM order (not nesting), so the frame that received this
+    // press may be an OUTER one. Prefer the INNERMOST frame under the pointer: hand the gesture off
+    // to it by re-firing the press on its element (its own handler then finds itself innermost and
+    // proceeds). Only when the pressed node is an (expanded) frame — a card on top, or a collapsed
+    // frame (which is just a card), is always taken as-is.
+    if (isFrame(n)) {
+      const inner = innermostFrameAt(e.clientX, e.clientY);
+      if (inner && inner !== n && inner.el) {
+        e.stopPropagation();
+        inner.el.dispatchEvent(new PointerEvent('pointerdown', {
+          bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY,
+          button: e.button, buttons: e.buttons, pointerId: e.pointerId, pointerType: e.pointerType,
+          isPrimary: e.isPrimary, altKey: e.altKey, shiftKey: e.shiftKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey }));
+        return;
+      }
+    }
     // Close an editor open on a DIFFERENT card (tap-outside on touch where blur may not fire)
     if (ui.inlineEdit && ui.inlineEdit.id !== n.id) endInlineEdit();
     if (ui.bodyEdit   && ui.bodyEdit.id   !== n.id) endBodyEdit();
@@ -393,19 +424,29 @@ function dragPointerUp(): void {
               ? `Re-parented ${moved} cards -> "${parentTitle}"`
               : `Re-parented "${act.title}" -> "${parentTitle}"`);
         } else {
-          // snap onto the 20px grid: align the dragged node, shift the rest of its
-          // subtree by the same delta so relative layout is preserved.
-          const GRID = 20;
-          const ddx = Math.round(act.x / GRID) * GRID - act.x;
-          const ddy = Math.round(act.y / GRID) * GRID - act.y;
+          // snap onto the grid: align the dragged node, shift the rest of its subtree by the same
+          // delta so relative layout is preserved. A card inside a frame snaps RELATIVE to the
+          // frame's origin (its children live in the frame's coordinate space); anyone else snaps
+          // to the world grid.
+          const fp = act.parent ? state.nodes.get(act.parent) : null;
+          const inFrame = !!(fp && isFrame(fp));
+          const ax = inFrame ? fp!.x : 0, ay = inFrame ? fp!.y : 0;
+          const ddx = (Math.round((act.x - ax) / GRID_SNAP) * GRID_SNAP + ax) - act.x;
+          const ddy = (Math.round((act.y - ay) / GRID_SNAP) * GRID_SNAP + ay) - act.y;
           for (const id of targets.keys()){
             const m = state.nodes.get(id); if (!m) continue;
             m.x += ddx; m.y += ddy; m.dirtyLayout = true;
           }
-          if ((alt || rip) && !shift && act.parent) {
+          // Dragged a frame's child out past the frame's box (no other drop target) → it leaves
+          // the frame, same as an Alt/rip detach. Its centre being outside the parent frame's
+          // rectangle is the trigger.
+          const outOfFrame = inFrame
+            && !(act.x + NODE_W/2 >= fp!.x && act.x + NODE_W/2 <= fp!.x + nodeW(fp!)
+              && act.y + nodeH(act)/2 >= fp!.y && act.y + nodeH(act)/2 <= fp!.y + nodeH(fp!));
+          if ((alt || rip || outOfFrame) && !shift && act.parent) {
             act.parent = null;
             act.side = undefined;   // a root has no side
-            setStatus(`"${act.title}" is now a root`);
+            setStatus(outOfFrame ? `"${act.title}" left the frame` : `"${act.title}" is now a root`);
           } else {
             // No drop target and no detach — a plain reposition. For a MANAGED parent (line/fan)
             // refresh each root's stored side from its new position (same rule as the load
@@ -585,10 +626,10 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   let hoveredEdge: LayoutSide = 'right';
   for (const [id, m] of state.nodes) {
     if (isHidden(m) || sub.has(id)) continue;
-    const h = nodeH(m);
-    if (wx >= m.x && wx <= m.x + NODE_W && wy >= m.y && wy <= m.y + h){
+    const w = nodeW(m), h = nodeH(m);
+    if (wx >= m.x && wx <= m.x + w && wy >= m.y && wy <= m.y + h){
       hovered = id;
-      const u = (wx - (m.x + NODE_W/2)) / (NODE_W/2);
+      const u = (wx - (m.x + w/2)) / (w/2);
       const v = (wy - (m.y + h/2)) / (h/2);
       hoveredCenter = Math.max(Math.abs(u), Math.abs(v)) <= CENTER_FRAC;
       hoveredEdge = edgeFromUV(u, v);
@@ -604,6 +645,13 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   let line: Seg | null = null;   // reorder gap indicator
   if (hovered && sub.has(hovered)){
     setStatus(`Can't parent "${dragged.title}" onto its own child/descendant`);
+  } else if (hovered && isFrame(state.nodes.get(hovered)!)) {
+    const hf = state.nodes.get(hovered)!;
+    // Dragging a card that's ALREADY inside a FLOW frame → no drop target; the release is a plain
+    // reposition that reseeds the flow order by drop position (i.e. reorders it). Otherwise dropping
+    // inside a frame adopts the card as its child — a FREE frame lands it where released
+    // (dropLanding's frame branch), a FLOW frame appends it and re-flows.
+    if (!(frameFlow(hf) && dragged.parent === hovered)) { target = hovered; mode = 'child'; side = 'down'; }
   } else if (hovered) {
     const hoveredNode = state.nodes.get(hovered)!;
     // Centre zone + hovered card has a parent -> sibling drop (adopt hovered's parent, landing
@@ -618,8 +666,11 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
         side = sideOf(parentNode, hoveredNode);
         // Anchor by the dragged card's midpoint vs the siblings' boxes: hovering the near half
         // of the card inserts BEFORE it, the far half AFTER — not always-after as before. The
-        // gap line previews the slot among the new siblings, same as an in-parent reorder.
-        ({ afterId: after, line } = reorderTarget(parentNode, dragged, side));
+        // gap line previews the slot among the new siblings, same as an in-parent reorder. A flow
+        // frame is box-flowed (not side-based): skip the anchor (append + re-flow on drop), so it
+        // never draws a side-based insertion bar.
+        if (!frameFlow(parentNode))
+          ({ afterId: after, line } = reorderTarget(parentNode, dragged, side));
       }
     }
     // Edge zone (or no valid sibling target) -> child-of-hovered, attaching on whichever side
@@ -631,7 +682,8 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
       // Joining a MANAGED branch that already has children on that side: anchor the insertion
       // by the dragged card's position among them (instead of always appending) and preview the
       // slot with the same gap line as a reorder — it's the same "where among the siblings"
-      // question, just without leaving the parent first.
+      // question, just without leaving the parent first. (A hovered card here is never a frame —
+      // frames are handled above — so no flow-frame guard is needed.)
       if (isManagedLayout(hoveredNode))
         ({ afterId: after, line } = reorderTarget(hoveredNode, dragged, side));
     }
@@ -643,7 +695,9 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
     // (detach) is held. The `near` gate is what keeps rip-detach reachable: close to the band a
     // release means "re-slot"; pulled away from it, today's rip behaviour returns.
     const parent = state.nodes.get(dragged.parent);
-    if (parent && isManagedLayout(parent)) {
+    // A flow frame is box-flowed (no side-based in-parent reorder bar). Sliding its child just
+    // repositions it; the release reseeds the flow order from the dropped positions.
+    if (parent && isManagedLayout(parent) && !frameFlow(parent)) {
       let rt = reorderTarget(parent, dragged);
       // Far along a wide fan, deriveSide flips to the (usually empty) perpendicular bucket and
       // the first/last slots become unreachable — retry with the card's STORED side so sliding
@@ -678,6 +732,10 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
       // (the bar marks the SIBLINGS' gap, which only moves when the anchor flips).
       if (!(prevLine && prevLine.x0 === line.x0 && prevLine.y0 === line.y0 && prevLine.x1 === line.x1 && prevLine.y1 === line.y1))
         showInsertLine(line);
+    } else if (isFrame(targetNode)) {
+      // Frame drop-in lands the card exactly where it's released, so it's already under the cursor —
+      // no ghost needed; the frame's own .drop-target highlight is the affordance.
+      hideLandingGhost();
     } else {
       const land = dropLanding(dragged, targetNode, mode, side, after);
       showLandingGhost(land.x, land.y, nodeH(dragged));

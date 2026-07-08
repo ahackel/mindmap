@@ -10,7 +10,7 @@
 import { state, type MindNode, type LayoutSide } from '../core/state.js';
 import type { Seg } from '../core/ui-state.js';
 import { childrenOf, isHidden, isRoot } from '../utils/model.js';
-import { subtreeIds, layoutH, nodeH, NODE_W } from '../main.js';
+import { subtreeIds, layoutH, nodeH, nodeW, NODE_W, GRID_SNAP } from '../main.js';
 
 const LANDING_GAP = 40;   // gap below/beside the hovered card a drag-reparented child/sibling snaps to
 // Where `dragged` will land if dropped onto `target` in the given mode — CHILD (edge zone of the
@@ -40,6 +40,12 @@ const LANDING_GAP = 40;   // gap below/beside the hovered card a drag-reparented
 // the order, `undefined` = default: after `target` in sibling mode, append in child mode).
 export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' | 'sibling' | 'reorder', side: LayoutSide, afterId?: string | null): { x: number; y: number } {
   const governor = mode === 'child' || mode === 'reorder' ? target : (target.parent ? state.nodes.get(target.parent) : null) ?? target;
+  // A frame adopts the card where it's released, snapped to the grid RELATIVE to the frame's
+  // origin (its children live in the frame's coordinate space).
+  if (isFrame(governor)) {
+    const rel = (v: number, o: number): number => Math.round((v - o) / GRID_SNAP) * GRID_SNAP + o;
+    return { x: rel(dragged.x, governor.x), y: rel(dragged.y, governor.y) };
+  }
   if (!isManagedLayout(governor)) {
     // Nudge the cross-axis in child mode (a fresh attachment, offset from target) but keep it
     // aligned with target in sibling mode (it's slotting into target's own spot). `side` is the
@@ -146,23 +152,50 @@ function radialLayoutFrom(root: MindNode | null | undefined): void {
 const LAYOUT_MAIN  = 60;   // gap between a card and its children along the growth axis
 const LAYOUT_CROSS = 22;   // gap between FANNED sibling subtrees (spread across the side)
 const LAYOUT_CHAIN = 12;   // gap between CHAINED sibling subtrees (a line along the direction)
+const FRAME_PAD = 14;      // inset from a frame's border to its content area (flow arrange)
+const FRAME_TITLE_H = 36;  // top strip a frame reserves for its title, above the flowed content
 
 // Bounding box over a node + its VISIBLE descendants (what the layout actually placed).
 export function subtreeBox(node: MindNode){
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const id of subtreeIds(node.id)){
-    const n = state.nodes.get(id); if (!n || isHidden(n)) continue;
+  // Union the visible subtree's boxes — but a FRAME is bounded by its OWN box (mm_w/mm_h): its
+  // children live INSIDE it, so we count the frame's box and DON'T descend into its content.
+  // Otherwise a fan/line/grid parent would size a frame child by its content and re-space it (and
+  // shift the frame's children with it) whenever the frame is expanded or its content changes.
+  const walk = (n: MindNode): void => {
+    if (isHidden(n)) return;
     x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
-    x1 = Math.max(x1, n.x + NODE_W); y1 = Math.max(y1, n.y + layoutH(n));
-  }
+    x1 = Math.max(x1, n.x + nodeW(n)); y1 = Math.max(y1, n.y + layoutH(n));
+    if (isFrame(n)) return;   // frame footprint = its box; its children are contained within it
+    for (const c of childrenOf(n.id)) walk(c);
+  };
+  walk(node);
   return { x0, y0, x1, y1 };
+}
+// A node whose children live freely inside a resizable container box (mm_w/mm_h). Unlike free, it
+// draws that box (see main.ts paintNode) and adopts cards dropped inside / detaches cards dragged
+// out (see features/drag.ts). Its children aren't repositioned by layout (they stay where placed).
+// A COLLAPSED frame folds to an ordinary card (children hidden), so it isn't a frame while folded —
+// its footprint and behaviour revert to a normal card, matching how it renders.
+export function isFrame(node: MindNode): boolean { return node.layoutType === 'frame' && !node.collapsed; }
+// Does this node live inside a frame (any frame ancestor)? Such nodes are positioned in the
+// frame's coordinate space, so they must track the frame even while HIDDEN — else a collapsed
+// frame moved by its own parent's layout leaves its (hidden, free) children behind, and they
+// reappear misplaced on expand. Uses layoutType (not isFrame) so a COLLAPSED frame still counts.
+function insideFrame(node: MindNode): boolean {
+  for (let p = node.parent ? state.nodes.get(node.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null)
+    if (p.layoutType === 'frame') return true;
+  return false;
 }
 function shiftSubtree(node: MindNode, dx: number, dy: number): void {
   // Saved positions are integers; layout targets are floats. Ignore sub-pixel nudges so a
   // re-opened, already-laid-out map settles to zero movement (no spurious rewrites, no drift).
   if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
   for (const id of subtreeIds(node.id)){
-    const n = state.nodes.get(id); if (!n || isHidden(n)) continue;
+    const n = state.nodes.get(id); if (!n) continue;
+    // Skip hidden nodes (a collapsed branch is re-laid on expand) — EXCEPT frame-contained ones,
+    // which are free and must keep tracking their frame even while folded.
+    if (isHidden(n) && !insideFrame(n)) continue;
     n.x += dx; n.y += dy; n.dirtyLayout = true;
   }
 }
@@ -178,12 +211,20 @@ export function effectiveLayout(node: MindNode): { type: string } {
   }
   return { type: 'free' };   // unset root → free
 }
-// Whether a node's effective layout actively MANAGES its children (line/fan) — vs free, where
-// children stay where dragged and sibling order/insertion anchors don't apply. The single
-// spelling of "is this a managed governor?" shared by layout, drag previews, and reparenting.
+// How a FRAME arranges its children (flow-h/flow-v), or null when the node isn't an (expanded) frame
+// with a flow arrangement. A flow frame auto-positions its children into a wrapping row/column; a
+// free frame leaves them where placed. Shared by layout, drag, and the side-bucket drag previews
+// (which flow frames opt out of, ordering by 2D position rather than a single side axis).
+export function frameFlow(node: MindNode): 'flow-h' | 'flow-v' | null {
+  if (!isFrame(node)) return null;
+  return node.arrange === 'flow-h' || node.arrange === 'flow-v' ? node.arrange : null;
+}
+// Whether a node's effective layout actively MANAGES its children's positions — line/fan (side-based)
+// or a flow frame (box-flow) — vs free/free-frame, where children stay where dragged. The single
+// spelling of "is this a managed governor?" shared by layout, drop-landing sim, and order reseeding.
 export function isManagedLayout(node: MindNode): boolean {
   const t = effectiveLayout(node).type;
-  return t === 'line' || t === 'fan';
+  return t === 'line' || t === 'fan' || !!frameFlow(node);
 }
 // Which of the parent's 4 sides a child sits on, computed FRESH from its current position —
 // dominant axis of the offset between the two centers, SCALED by the parent's own aspect ratio
@@ -220,21 +261,40 @@ export function orderAxisIsX(node: MindNode, side: LayoutSide): boolean {
   const horiz = side === 'left' || side === 'right';
   return effectiveLayout(node).type === 'fan' ? !horiz : horiz;
 }
+const FLOW_BAND = 60;   // cross-axis span within which items count as the same flow row/column
 function kidsByPosition(node: MindNode, kids: MindNode[]): string[] {
-  // Sort by the SUBTREE box's midpoint, not the card's own corner — a sibling with a big
-  // subtree visually occupies its whole box, so that's the order the user perceives.
-  const coord = (k: MindNode): number => {
-    const b = subtreeBox(k);
-    const useX = orderAxisIsX(node, sideOf(node, k));
-    const mid = useX ? (b.x0 + b.x1) / 2 : (b.y0 + b.y1) / 2;
-    // A fully HIDDEN subtree (its governor is collapsed) has an empty box — fall back to the
-    // card's own saved position, so an outline reorder under a collapsed parent still seeds
-    // the same order on the next load instead of degrading to the filename tie-break.
-    return Number.isFinite(mid) ? mid : (useX ? k.x + NODE_W / 2 : k.y + nodeH(k) / 2);
-  };
   const tie = (n: MindNode) => n.file || n.title || n.id;
+  const cmpTie = (a: MindNode, b: MindNode) => (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0);
+  // Box midpoint, falling back to the card's own centre when the subtree is fully hidden
+  // (its governor is collapsed → empty box) so order still seeds deterministically.
+  const midXY = (k: MindNode): { x: number; y: number } => {
+    const b = subtreeBox(k);
+    return Number.isFinite(b.x0)
+      ? { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 }
+      : { x: k.x + NODE_W / 2, y: k.y + nodeH(k) / 2 };
+  };
+  // FLOW frame: order by reading order along the flow axis. flow-h reads row-major (band by y, then
+  // left→right); flow-v reads column-major (band by x, then top→bottom). This is how a dropped card
+  // finds its slot among siblings, so dragging one to a new spot reorders it.
+  const flow = frameFlow(node);
+  if (flow) {
+    return kids.slice().sort((a, b) => {
+      const ma = midXY(a), mb = midXY(b);
+      return flow === 'flow-h'
+        ? (Math.round(ma.y / FLOW_BAND) - Math.round(mb.y / FLOW_BAND)) || (ma.x - mb.x) || cmpTie(a, b)
+        : (Math.round(ma.x / FLOW_BAND) - Math.round(mb.x / FLOW_BAND)) || (ma.y - mb.y) || cmpTie(a, b);
+    }).map(k => k.id);
+  }
+  // Sort by the SUBTREE box's midpoint, not the card's own corner — a sibling with a big
+  // subtree visually occupies its whole box, so that's the order the user perceives. Grouped by
+  // each child's stored side, then by the coordinate that side's layout treats as "along".
+  const coord = (k: MindNode): number => {
+    const useX = orderAxisIsX(node, sideOf(node, k));
+    const m = midXY(k);
+    return useX ? m.x : m.y;
+  };
   return kids.slice()
-    .sort((a,b) => (SIDE_RANK[sideOf(node,a)] - SIDE_RANK[sideOf(node,b)]) || (coord(a)-coord(b)) || (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0))
+    .sort((a,b) => (SIDE_RANK[sideOf(node,a)] - SIDE_RANK[sideOf(node,b)]) || (coord(a)-coord(b)) || cmpTie(a, b))
     .map(k => k.id);
 }
 // A parent's child order is STORED (in memory) and only changes when a child is directly
@@ -334,14 +394,37 @@ function layoutSubtree(node: MindNode): void {
   // lay out each child's own subtree first, so subtreeBox() reflects the grandchildren
   for (const k of kids) layoutSubtree(k);
 
-  const eff  = effectiveLayout(node);                 // `none` inherits the parent's layout
-  const type = eff.type;
-  if (type !== 'line' && type !== 'fan') return;  // free (or unset root): children stay manual
+  const type = effectiveLayout(node).type;            // `none` inherits the parent's layout
+  const flow = frameFlow(node);                       // flow-h / flow-v for a flow frame, else null
+  if (type !== 'line' && type !== 'fan' && !flow) return;  // free / free-frame / unset: manual
 
   const boxOf = new Map(kids.map(k => [k.id, subtreeBox(k)]));
   const ax = node.x, ay = node.y;
 
   const sorted = orderedKids(node, kids);   // stored order — only a direct child-drag changes it
+
+  // FLOW frame: fill the content area along the primary axis, wrapping to the next row/column when
+  // the next child won't fit. flow-h fills rows left→right (wrap down); flow-v fills columns
+  // top→bottom (wrap right). Reflows as the frame is resized (content width/height changes).
+  if (flow) {
+    const gap = LAYOUT_CHAIN;
+    const left = ax + FRAME_PAD, top = ay + FRAME_TITLE_H;
+    const right = ax + nodeW(node) - FRAME_PAD, bottom = ay + nodeH(node) - FRAME_PAD;
+    let cx = left, cy = top, band = 0;   // band = tallest row (flow-h) / widest column (flow-v) so far
+    for (const k of sorted) {
+      const b = boxOf.get(k.id)!, w = b.x1 - b.x0, h = b.y1 - b.y0;
+      if (flow === 'flow-h') {
+        if (cx > left && cx + w > right) { cx = left; cy += band + gap; band = 0; }   // wrap to next row
+        shiftSubtree(k, cx - b.x0, cy - b.y0);
+        cx += w + gap; band = Math.max(band, h);
+      } else {
+        if (cy > top && cy + h > bottom) { cy = top; cx += band + gap; band = 0; }    // wrap to next column
+        shiftSubtree(k, cx - b.x0, cy - b.y0);
+        cy += h + gap; band = Math.max(band, w);
+      }
+    }
+    return;
+  }
 
   // FAN a set of children to ONE side: every child the same distance out, spread along the
   // cross axis and centred on the parent. Called once per occupied side (up to 4).
@@ -383,7 +466,6 @@ function layoutSubtree(node: MindNode): void {
       shiftSubtree(k, dx, dy);
     });
   };
-
   // Each child sits on whichever of the parent's 4 sides is STORED on it (see sideOf). Group
   // the stored order into up to 4 side-buckets, then lay out each occupied bucket independently
   // (generalizes the old two-sided balance to up to 4 sides).

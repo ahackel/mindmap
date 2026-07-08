@@ -7,18 +7,19 @@
 // existing generic context menu (openMenu, features/context-menu.ts).
 // On narrow/touch widths (NARROW_MQ) styles.css docks the bar to the bottom edge instead —
 // this module skips the floating position math there and lets CSS own it.
-import { state, stage, type MindNode, type LayoutType } from '../core/state.js';
+import { state, stage, type MindNode, type LayoutType, type FrameArrange } from '../core/state.js';
 import { NARROW_MQ, ui } from '../core/ui-state.js';
 import { record } from './history.js';
 import { scheduleSave } from '../data/persistence.js';
-import { applyLayouts } from '../view/layout.js';
+import { applyLayouts, subtreeBox } from '../view/layout.js';
 import { outlineActive } from './outline.js';
 import { createProperties, type PropertyControls } from './properties.js';
 import { startInlineEdit, startBodyEdit } from './inline-edit.js';
 import { duplicateSelection, deleteSelection } from './crud.js';
 import { exportSelection } from './clipboard.js';
 import { openMenu, type MenuEntry } from './context-menu.js';
-import { paintAll, selectedIds } from '../main.js';
+import { childrenOf, isHidden } from '../utils/model.js';
+import { paintAll, selectedIds, GRID_SNAP, FRAME_W, FRAME_H, MIN_FRAME_W, MIN_FRAME_H } from '../main.js';
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T { return document.getElementById(id) as T; }
 
@@ -59,18 +60,64 @@ const LAYOUT_TYPES: { key: LayoutType; label: string; icon: string }[] = [
     icon: SVG_OPEN + DOT(4,12) + '<path d="M6.5 12h3"/>' + DOT(12,12) + '<path d="M14.5 12h3"/>' + DOT(20,12) + '</svg>' },
   { key:'fan', label:'Fan — children spread out, each to whichever side it’s placed on',
     icon: SVG_OPEN + DOT(4,12) + '<path d="M6 12l6-6M6 12h6M6 12l6 6"/>' + DOT(14,6,1.8) + DOT(14,12,1.8) + DOT(14,18,1.8) + '</svg>' },
+  { key:'frame', label:'Frame — a resizable box; drag cards inside to hold them, out to release',
+    icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="6.5" y="8.5" width="6" height="4.5" rx="1" fill="currentColor" stroke="none"/></svg>' },
 ];
+// How a FRAME arranges its children — a second chip row shown only when the selection is a frame.
+const ARRANGE_TYPES: { key: FrameArrange; label: string; icon: string }[] = [
+  { key:'free', label:'Free — arrange cards inside the frame yourself',
+    icon: SVG_OPEN + DOT(7,8) + DOT(16,9) + DOT(10,16) + '</svg>' },
+  { key:'flow-h', label:'Flow → — fill rows left to right, wrap down',
+    icon: SVG_OPEN + '<rect x="4" y="5" width="6" height="5" rx="1"/><rect x="13" y="5" width="7" height="5" rx="1"/><rect x="4" y="14" width="7" height="5" rx="1"/><path d="M20.5 7.5h.01" stroke-dasharray="0.1 3"/></svg>' },
+  { key:'flow-v', label:'Flow ↓ — fill columns top to bottom, wrap right',
+    icon: SVG_OPEN + '<rect x="5" y="4" width="5" height="6" rx="1"/><rect x="5" y="13" width="5" height="7" rx="1"/><rect x="14" y="4" width="5" height="7" rx="1"/></svg>' },
+];
+// Fit a frame's box snugly around its children: a title strip on top, a margin on the other sides,
+// snapped to the grid and clamped to the min size. Children keep their positions (the box moves to
+// enclose them). With no children it's left as-is, or given the default size when `orDefault` (used
+// when a card first becomes a frame). Shared by the frame chip and the Auto-size action.
+const FRAME_FIT_PAD = 16, FRAME_FIT_TITLE = 36;   // side/bottom margin; top strip for the title
+function fitFrameToContent(n: MindNode, orDefault = false): void {
+  const kids = childrenOf(n.id).filter(k => !isHidden(k));
+  const snap = (v: number): number => Math.round(v / GRID_SNAP) * GRID_SNAP;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const k of kids) {
+    const b = subtreeBox(k); if (!isFinite(b.x0)) continue;
+    x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x1); y1 = Math.max(y1, b.y1);
+  }
+  if (!isFinite(x0)) { if (orDefault) { n.w = FRAME_W; n.h = FRAME_H; } return; }
+  n.x = snap(x0 - FRAME_FIT_PAD);
+  n.y = snap(y0 - FRAME_FIT_TITLE);
+  n.w = Math.max(MIN_FRAME_W, snap(x1 + FRAME_FIT_PAD - n.x));
+  n.h = Math.max(MIN_FRAME_H, snap(y1 + FRAME_FIT_PAD - n.y));
+}
+// Auto-size every selected frame to fit its content (shortcut / context menu).
+export function autoSizeSelection(): void {
+  const ids = selectedIds().filter(id => state.nodes.get(id)?.layoutType === 'frame');
+  if (!ids.length) return;
+  record(ids, () => { for (const id of ids){ const n = state.nodes.get(id); if (n) { fitFrameToContent(n); n.dirty = true; } } });
+  applyLayouts(); paintAll(); scheduleSave();
+}
+// The frame-arrange chips live in a second row of the same popover, shown only for a frame selection.
+const edArrangeTypes = document.createElement('div');
+edArrangeTypes.className = 'layoutchips arrangechips';
+layoutPop.appendChild(edArrangeTypes);
 (function buildLayoutChips(){
   edLayoutTypes.innerHTML = LAYOUT_TYPES.map(t =>
     `<div class="layoutchip" data-type="${t.key}" title="${t.label}">${t.icon}</div>`).join('');
   edLayoutTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
     c.addEventListener('click', () => { setLayout(c.dataset.type as LayoutType); closePopovers(); }));
+  edArrangeTypes.innerHTML = ARRANGE_TYPES.map(t =>
+    `<div class="layoutchip" data-arrange="${t.key}" title="${t.label}">${t.icon}</div>`).join('');
+  edArrangeTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
+    c.addEventListener('click', () => { setArrange(c.dataset.arrange as FrameArrange); closePopovers(); }));
 })();
 function setLayout(type: LayoutType): void {
   const ids = selectedIds(); if (!ids.length) return;
   record(ids, () => {
     for (const id of ids){
       const n = state.nodes.get(id); if (!n) continue;
+      if (type === 'frame' && n.layoutType !== 'frame') fitFrameToContent(n, true);   // give it a box (before the flip)
       n.layoutType = type;
       n.dirty = true;
     }
@@ -78,8 +125,18 @@ function setLayout(type: LayoutType): void {
   markLayoutChips();
   applyLayouts(); paintAll(); scheduleSave();
 }
+function setArrange(a: FrameArrange): void {
+  const ids = selectedIds().filter(id => state.nodes.get(id)?.layoutType === 'frame');
+  if (!ids.length) return;
+  record(ids, () => {
+    for (const id of ids){ const n = state.nodes.get(id); if (!n) continue; n.arrange = a; n.dirty = true; }
+  });
+  markLayoutChips();
+  applyLayouts(); paintAll(); scheduleSave();
+}
 // reflect the selection's current layout in the popover chips AND the trigger button's icon
-// (mixed selection → no chip active, trigger falls back to the "none" icon).
+// (mixed selection → no chip active, trigger falls back to the "none" icon). The arrange row is
+// shown only when the whole selection is a frame, mirroring its current arrange mode.
 function markLayoutChips(): void {
   const ids = selectedIds();
   const types = new Set(ids.map(id => state.nodes.get(id)?.layoutType || 'none'));
@@ -88,6 +145,14 @@ function markLayoutChips(): void {
     c.classList.toggle('active', c.dataset.type === t));
   const active = edLayoutTypes.querySelector('.layoutchip.active');
   fbLayout.innerHTML = active ? active.innerHTML : LAYOUT_TYPES[0].icon;
+  const frameSel = t === 'frame';
+  edArrangeTypes.style.display = frameSel ? '' : 'none';
+  if (frameSel){
+    const arrs = new Set(ids.map(id => state.nodes.get(id)?.arrange || 'free'));
+    const a = arrs.size === 1 ? [...arrs][0] : null;
+    edArrangeTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
+      c.classList.toggle('active', c.dataset.arrange === a));
+  }
 }
 
 // ---------- colour trigger ----------
@@ -170,11 +235,13 @@ function buildEntries(): MenuEntry[] {
   const id = state.selId; if (!id) return [];
   const n = state.nodes.get(id); if (!n) return [];
   const multi = state.sel.size > 1;
+  const anyFrame = [...state.sel].some(fid => state.nodes.get(fid)?.layoutType === 'frame');
   const entries: MenuEntry[] = [];
   if (!state.readOnly){
     entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n) });
     if (!multi) entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n) });
     entries.push('sep', { label:'Duplicate', shortcut:'D', run: () => duplicateSelection() });
+    if (anyFrame) entries.push({ label: multi ? 'Auto-size frames' : 'Auto-size frame', shortcut:'A', run: () => autoSizeSelection() });
   }
   entries.push({ label:'Export', run: () => exportSelection() });   // mutates nothing → allowed read-only too
   if (!state.readOnly)

@@ -20,11 +20,14 @@ export interface ParsedNote {
     parent: string;
     x: number | null;
     y: number | null;
+    w: number | null;
+    h: number | null;
     collapsed: boolean;
     done: boolean;
     checklist: boolean;
     bg: boolean;
     layout: string;
+    arrange: string;
     side: string;
   };
 }
@@ -79,14 +82,17 @@ export function parseMd(text: string, fileName: string): ParsedNote {
       parent: fmValue(entries, 'mm_parent'),
       x: num(fmValue(entries, 'mm_x')),
       y: num(fmValue(entries, 'mm_y')),
+      w: num(fmValue(entries, 'mm_w')),
+      h: num(fmValue(entries, 'mm_h')),
       collapsed: fmValue(entries, 'mm_collapsed') === 'true',
       done: fmValue(entries, 'mm_done') === 'true',
       checklist: fmValue(entries, 'mm_checklist') === 'true',
       bg: fmValue(entries, 'mm_bg') === 'true',
-      // none(inherit) | free | line | fan — `mm_dir` (a parent-wide direction) is gone; a legacy
-      // `two-sided` map already has valid mm_x/mm_y that per-side `fan` reproduces, so fold it
-      // in rather than treating it as unknown.
-      layout: (v => v === 'two-sided' ? 'fan' : v || 'none')(fmValue(entries, 'mm_layout')),
+      // none(inherit) | free | line | fan | frame — legacy `two-sided` and the retired `grid` both
+      // fold to `fan` (their saved mm_x/mm_y reproduce a reasonable fan), rather than being unknown.
+      layout: (v => v === 'two-sided' || v === 'grid' ? 'fan' : v || 'none')(fmValue(entries, 'mm_layout')),
+      // how a frame arranges its children: free (default) | flow-h | flow-v
+      arrange: fmValue(entries, 'mm_arrange'),
       // left | right | up | down | '' (unset — backfilled from position once loaded, see
       // data/persistence.ts). This is the CHILD's own attachment side, not the parent's.
       side: fmValue(entries, 'mm_side'),
@@ -107,14 +113,23 @@ export function serializeMd(n: MindNode): string {
   const parentNode = n.parent ? state.nodes.get(n.parent) : null;
   if (parentNode) entries.push({ key:'mm_parent', lines:[`mm_parent: ${parentNode.file}`] });
   if (parentNode && n.side) entries.push({ key:'mm_side', lines:[`mm_side: ${n.side}`] });
-  entries.push({ key:'mm_x', lines:[`mm_x: ${Math.round(n.x)}`] });
-  entries.push({ key:'mm_y', lines:[`mm_y: ${Math.round(n.y)}`] });
+  // A frame's children live in the frame's coordinate space: store mm_x/mm_y RELATIVE to the frame
+  // (data/persistence.ts converts back to absolute on load), so moving the frame doesn't rewrite
+  // every child, and a child's saved offset stays stable. In memory everything stays absolute.
+  const inFrame = parentNode?.layoutType === 'frame';
+  entries.push({ key:'mm_x', lines:[`mm_x: ${Math.round(inFrame ? n.x - parentNode!.x : n.x)}`] });
+  entries.push({ key:'mm_y', lines:[`mm_y: ${Math.round(inFrame ? n.y - parentNode!.y : n.y)}`] });
   if (n.collapsed) entries.push({ key:'mm_collapsed', lines:['mm_collapsed: true'] });
   if (n.done) entries.push({ key:'mm_done', lines:['mm_done: true'] });
   if (n.checklist) entries.push({ key:'mm_checklist', lines:['mm_checklist: true'] });
   if (n.bg) entries.push({ key:'mm_bg', lines:['mm_bg: true'] });
   if (n.layoutType && n.layoutType !== 'none')   // none (inherit) is the default — omit from file
     entries.push({ key:'mm_layout', lines:[`mm_layout: ${n.layoutType}`] });
+  if (n.layoutType === 'frame') {                // the resizable container's own box size + arrange
+    if (n.w != null) entries.push({ key:'mm_w', lines:[`mm_w: ${Math.round(n.w)}`] });
+    if (n.h != null) entries.push({ key:'mm_h', lines:[`mm_h: ${Math.round(n.h)}`] });
+    if (n.arrange && n.arrange !== 'free') entries.push({ key:'mm_arrange', lines:[`mm_arrange: ${n.arrange}`] });
+  }
   const fm = entries.flatMap(e => e.lines).join('\n');
   const body = n.body.trim();
   return `---\n${fm}\n---\n` + (body ? '\n' + body + '\n' : '\n');

@@ -5,7 +5,10 @@
 // #stage; edges in the #edges SVG, collapse toggles in #toggles.
 // ============================================================
 
-export type LayoutType = 'none' | 'free' | 'line' | 'fan';
+export type LayoutType = 'none' | 'free' | 'line' | 'fan' | 'frame';
+// How a FRAME arranges its children: free placement (default), or auto-flow that fills one axis
+// and wraps to the next — horizontal (left→right, wrap down) or vertical (top→bottom, wrap right).
+export type FrameArrange = 'free' | 'flow-h' | 'flow-v';
 export type LayoutSide = 'left' | 'right' | 'up' | 'down';
 export type EdgeStyle = 'straight' | 'orthogonal' | 'bezier';
 
@@ -34,6 +37,13 @@ export interface MindNode {
   bg: boolean;                     // draw a translucent background enclosing me + all my visible
                                     // descendants (see view/edges.ts paintBackgrounds)
   layoutType: LayoutType;
+  // Frame container size (world px). Only meaningful when layoutType === 'frame' — the resizable
+  // box the frame draws and whose interior adopts cards dropped in. Persisted as mm_w/mm_h.
+  w?: number;
+  h?: number;
+  // How a frame arranges its children (only for layoutType === 'frame'). Persisted as mm_arrange;
+  // absent/undefined means 'free'.
+  arrange?: FrameArrange;
   // Which of the PARENT's 4 sides this node attaches on. Stored, not derived — set explicitly
   // by a drop (or copied onto a clone), and backfilled once from position on load/creation if
   // absent (see view/layout.ts sideOf/deriveSide). Meaningless (and omitted) for a root.

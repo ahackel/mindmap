@@ -4,9 +4,9 @@
 // render core's live card heights (nodeH) and branch colour (effectiveColor) from main.
 import { state, backgroundsSvg, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode, type LayoutSide } from '../core/state.js';
 import { isRoot, isHidden } from '../utils/model.js';
-import { dropLanding, sideOf, subtreeBox } from './layout.js';
+import { dropLanding, sideOf, subtreeBox, isFrame } from './layout.js';
 import { ui, type Pt } from '../core/ui-state.js';
-import { NODE_W, nodeH, effectiveColor, SWATCH_BG } from '../main.js';
+import { NODE_W, nodeW, nodeH, effectiveColor, SWATCH_BG } from '../main.js';
 
 const EDGE_R = 12;   // corner radius on orthogonal elbows
 // Longer parent→child edges read as more "distant" if they're softened — full opacity up close,
@@ -28,15 +28,15 @@ function edgeOpacity(dist: number): number {
 // back to --edge (see the inline `tint` lookup in paintEdges below).
 export function branchTint(n: MindNode): string { return SWATCH_BG[effectiveColor(n)] ?? SWATCH_BG.grey; }
 
-function nodeCenter(n: MindNode): Pt { return { x: n.x + NODE_W/2, y: n.y + nodeH(n)/2 }; }
-function boxCenter(box: { x: number; y: number; h: number }): Pt { return { x: box.x + NODE_W/2, y: box.y + box.h/2 }; }
+function nodeCenter(n: MindNode): Pt { return { x: n.x + nodeW(n)/2, y: n.y + nodeH(n)/2 }; }
+function boxCenter(box: { x: number; y: number; h: number; w?: number }): Pt { return { x: box.x + (box.w ?? NODE_W)/2, y: box.y + box.h/2 }; }
 // The point on `node`'s OWN border where every child edge on `side` converges — shared by every
 // child on that side (a fan bundles them from one spot), and by the socket disk drawn there.
 function anchorPoint(node: MindNode, side: LayoutSide): Pt {
   const pc = nodeCenter(node);
   if (side === 'down')  return { x: pc.x, y: node.y + nodeH(node) };
   if (side === 'up')    return { x: pc.x, y: node.y };
-  if (side === 'right') return { x: node.x + NODE_W, y: pc.y };
+  if (side === 'right') return { x: node.x + nodeW(node), y: pc.y };
   return { x: node.x, y: pc.y };   // left
 }
 const DOT_R = 5;   // radius of the socket disk marking where a side's child edges converge
@@ -65,15 +65,10 @@ function roundedPath(pts: Pt[], r: number): string {
 // parent→landing-spot preview edge while a card is poised to reparent on drop — `side` is
 // the STORED side for a real child (sideOf) or the drop's resolved side for the preview
 // (ui.drag.dropSide), never recomputed from the box position here.
-function edgePathBox(parent: MindNode, box: { x: number; y: number; h: number }, side: LayoutSide): string {
-  const cc = boxCenter(box);
-  const horizontal = side === 'left' || side === 'right';
-  const a = anchorPoint(parent, side);
-  let b: Pt;
-  if (side === 'down')      b = { x:cc.x, y:box.y };
-  else if (side === 'up')   b = { x:cc.x, y:box.y + box.h };
-  else if (side === 'right')b = { x:box.x, y:cc.y };
-  else                      b = { x:box.x + NODE_W, y:cc.y };
+// Path `d` between two points in the current edge style. `horizontal` picks the dominant axis
+// (elbow orientation / bezier tangents). Shared by parent→child edges (edgePathBox) and the grid
+// container's single parent→frame connector.
+function connect(a: Pt, b: Pt, horizontal: boolean): string {
   if (state.edgeStyle === 'straight') return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
   if (state.edgeStyle === 'bezier'){
     if (horizontal){ const k = (b.x - a.x)/2; return `M ${a.x} ${a.y} C ${a.x+k} ${a.y} ${b.x-k} ${b.y} ${b.x} ${b.y}`; }
@@ -84,6 +79,17 @@ function edgePathBox(parent: MindNode, box: { x: number; y: number; h: number },
     ? [a, { x:(a.x+b.x)/2, y:a.y }, { x:(a.x+b.x)/2, y:b.y }, b]
     : [a, { x:a.x, y:(a.y+b.y)/2 }, { x:b.x, y:(a.y+b.y)/2 }, b];
   return roundedPath(pts, EDGE_R);
+}
+function edgePathBox(parent: MindNode, box: { x: number; y: number; h: number; w?: number }, side: LayoutSide): string {
+  const cc = boxCenter(box);
+  const horizontal = side === 'left' || side === 'right';
+  const a = anchorPoint(parent, side);
+  let b: Pt;
+  if (side === 'down')      b = { x:cc.x, y:box.y };
+  else if (side === 'up')   b = { x:cc.x, y:box.y + box.h };
+  else if (side === 'right')b = { x:box.x, y:cc.y };
+  else                      b = { x:box.x + (box.w ?? NODE_W), y:cc.y };
+  return connect(a, b, horizontal);
 }
 function edgePath(parent: MindNode, child: MindNode): string {
   return edgePathBox(parent, { x: child.x, y: child.y, h: nodeH(child) }, sideOf(parent, child));
@@ -107,6 +113,9 @@ function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: 
     ? (tgtNode.parent ? state.nodes.get(tgtNode.parent) : null)
     : tgtNode;
   if (!parent) return null;
+  // Dropping into a frame previews as the frame's own outline highlight (.drop-target), not a
+  // dashed edge into a landing spot — the card lands wherever released, so an edge would mislead.
+  if (isFrame(parent)) return null;
   const h = nodeH(drag.active);
   const land = dropLanding(drag.active, tgtNode, drag.dropMode, drag.dropSide, drag.dropAfter);
   return { parent, box: { x: land.x, y: land.y, h }, side: drag.dropSide };
@@ -161,6 +170,8 @@ export function paintEdges(): void {
     const parent = n.parent ? state.nodes.get(n.parent) : null;
     if (!parent) continue;
     if (isHidden(parent) || isHidden(n)) continue;
+    // A frame IS the container (its own box holds the children), so it draws no child edges.
+    if (isFrame(parent)) continue;
     // While Alt-dragging this node we're previewing detach-to-root, so drop its parent
     // edge entirely (no line, not even a dotted one).
     if (ui.drag && ui.drag.alt && !ui.drag.shift && ui.drag.n.id === n.id) continue;
@@ -179,7 +190,7 @@ export function paintEdges(): void {
     const dist = Math.hypot(n.x - parent.x, n.y - parent.y);
     const style = `stroke:${tint ?? 'var(--edge)'};opacity:${edgeOpacity(dist).toFixed(2)}`;
     const side = sideOf(parent, n);
-    const path = `<path style="${style}" d="${edgePathBox(parent, { x:n.x, y:n.y, h:nodeH(n) }, side)}"/>`;
+    const path = `<path style="${style}" d="${edgePathBox(parent, { x:n.x, y:n.y, h:nodeH(n), w:nodeW(n) }, side)}"/>`;
     // dragged-subtree edges stay in the normal behind-cards layer too — the cards themselves
     // remain visible while dragging, so nothing should overdraw other cards
     entries.push({ dist, path });

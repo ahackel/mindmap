@@ -32,10 +32,10 @@ import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from
 import { openSearch } from './features/search.js';
 import { renderOutline, toggleOutlineView, outlineActive } from './features/outline.js';   // also wires the outline toggle button
 import { refreshSwatches } from './features/properties.js';
-import { syncFloatBar } from './features/float-bar.js';   // also registers the float bar's own listeners
+import { syncFloatBar, autoSizeSelection } from './features/float-bar.js';   // also registers the float bar's own listeners
 import { copySelection, cutSelection, bindCardFileDrag } from './features/clipboard.js';
 import { toggleSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
-import { commitStep, record, undo, redo, updateUndoButtons } from './features/history.js';
+import { commitStep, record, touch, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
 import { showStart, openHelpTab, boot } from './boot.js';
@@ -171,6 +171,7 @@ export function paintNode(n: MindNode): void {
   const collapsed = n.collapsed && (hasKids || hasBody);   // folded to just its title
   const showDone = showsDoneCheckbox(n);                   // checklist item of a checklist parent
   el.className = 'node c-' + effectiveColor(n)
+    + (isFrameBox(n) ? ' frame' : '')
     + (state.sel.has(n.id) ? ' sel' : '')
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
     + (collapsed ? ' collapsed' : '')
@@ -194,6 +195,19 @@ export function paintNode(n: MindNode): void {
     el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
     if (el.style.transform) el.style.transform = '';
   }
+  // A frame is its own resizable box; give the element that size and a drag-to-resize handle.
+  // Any other card clears the inline size so a reverted frame snaps back to the CSS-fixed card.
+  if (isFrameBox(n)) {
+    el.style.width = (n.w ?? FRAME_W) + 'px';
+    el.style.height = (n.h ?? FRAME_H) + 'px';
+    // border matches this card's EDGE tint (same colour edges use), falling back to --edge
+    el.style.setProperty('--frame-stroke', SWATCH_BG[effectiveColor(n)] ?? 'var(--edge)');
+    ensureFrameHandle(n);
+  } else if (el.style.width) {
+    el.style.width = ''; el.style.height = '';
+    el.style.removeProperty('--frame-stroke');
+    el.querySelectorAll('.fh, .frame-resize').forEach(x => x.remove());
+  }
   // don't clobber the title while it's being inline-edited (the user is typing into it)
   if (!(ui.inlineEdit && ui.inlineEdit.id === n.id)) el.querySelector('.title')!.textContent = n.title;
   const bodyEl = el.querySelector('.body') as HTMLElement;
@@ -206,16 +220,114 @@ export function paintNode(n: MindNode): void {
   if (collapsed) el.querySelector('.hidden-count')!.textContent = collapsedKids ? String(descendantCount(n.id)) : '';
 }
 export const NODE_W = 200;
-export function nodeH(n: MindNode): number { return (n.el && n.el.offsetHeight) || 64; } // live height (falls back pre-render)
+export const GRID_SNAP = 20;   // world-px grid dragged positions AND frame sizes snap to
+export const FRAME_W = 360, FRAME_H = 260;   // default frame container size (world px)
+// Whether a node currently renders as a frame BOX. A collapsed frame folds to an ordinary card, so
+// its footprint reverts to a normal card (matching paintNode). Shared by the geometry helpers below.
+function isFrameBox(n: MindNode): boolean { return n.layoutType === 'frame' && !n.collapsed; }
+// A node's footprint WIDTH: an (expanded) frame is its own resizable box; everything else is NODE_W.
+export function nodeW(n: MindNode): number { return isFrameBox(n) ? (n.w ?? FRAME_W) : NODE_W; }
+// live height (falls back pre-render). An expanded frame's height is its box (n.h), not its card.
+export function nodeH(n: MindNode): number {
+  if (isFrameBox(n)) return n.h ?? FRAME_H;
+  return (n.el && n.el.offsetHeight) || 64;
+}
 // Height used for LAYOUT geometry. The selection affordances (+ and the "add note" bubble) are
 // absolutely positioned and overhang the card, so they don't inflate its measured height — a
-// title-only card lays out the same whether or not it's selected.
+// title-only card lays out the same whether or not it's selected. A frame reports its box height.
 export function layoutH(n: MindNode): number {
+  if (isFrameBox(n)) return n.h ?? FRAME_H;
   const el = n.el; if (!el) return 64;
   return el.offsetHeight;
 }
+// ---------- frame resize ----------
+export const MIN_FRAME_W = NODE_W, MIN_FRAME_H = 120;   // a frame is never narrower than a normal card
+// 8 resize handles: 4 edges (one axis) + 4 corners (two axes). A `w`/`n` component moves that edge,
+// which shifts the frame's x/y (the opposite edge stays put); `e`/`s` just grow width/height.
+const FRAME_DIRS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const;
+type FrameDir = typeof FRAME_DIRS[number];
+// Ensure the frame has its 8 (invisible) resize hit-zones — one per edge/corner (added once,
+// reused). No visible grip: the resize cursors on the border/corners are the affordance.
+function ensureFrameHandle(n: MindNode): void {
+  const el = n.el!; if (el.querySelector('.fh')) return;
+  for (const dir of FRAME_DIRS) {
+    const h = document.createElement('div');
+    h.className = 'fh fh-' + dir;
+    h.addEventListener('pointerdown', (e) => startFrameResize(e as PointerEvent, n, dir));
+    el.appendChild(h);
+  }
+}
+// Drag an edge/corner to resize. Work in edge coordinates (left/top/right/bottom) so the edges NOT
+// being dragged stay fixed; the dragged edges snap to the grid and clamp to the min size. Top/left
+// edges moving means the frame's x/y move too. Children inside are free, so only the parent's own
+// layout reflows around the frame — done once on release, not every move.
+function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
+  if (state.readOnly) return;
+  e.stopPropagation(); e.preventDefault();
+  const left0 = n.x, top0 = n.y, right0 = n.x + (n.w ?? FRAME_W), bottom0 = n.y + (n.h ?? FRAME_H);
+  const sx = e.clientX, sy = e.clientY;
+  const west = dir.includes('w'), east = dir.includes('e'), north = dir.includes('n'), south = dir.includes('s');
+  touch(n.id);
+  let lastDx = 0, lastDy = 0;
+  const identity = (v: number): number => v;
+  const snap = (v: number): number => Math.round(v / GRID_SNAP) * GRID_SNAP;
+  // Apply the current drag delta, keeping the non-dragged edges fixed. We snap the SIZE (not the
+  // edges) to the grid so a frame's w/h are always multiples of the snap — the moving edge derives
+  // from the fixed opposite edge minus the snapped size. Free (unsnapped) while dragging; snapped
+  // on release. Clamped to the min size (also grid multiples).
+  const resize = (round: (v: number) => number): void => {
+    let left = left0, right = right0, top = top0, bottom = bottom0;
+    if (east)  { const w = Math.max(MIN_FRAME_W, round(right0 + lastDx - left0));  right = left0 + w; }
+    if (west)  { const w = Math.max(MIN_FRAME_W, round(right0 - (left0 + lastDx))); left = right0 - w; }
+    if (south) { const h = Math.max(MIN_FRAME_H, round(bottom0 + lastDy - top0));   bottom = top0 + h; }
+    if (north) { const h = Math.max(MIN_FRAME_H, round(bottom0 - (top0 + lastDy))); top = bottom0 - h; }
+    n.x = left; n.y = top; n.w = right - left; n.h = bottom - top;
+    n.dirty = true;
+  };
+  const move = (ev: PointerEvent): void => {
+    lastDx = (ev.clientX - sx) / state.view.k; lastDy = (ev.clientY - sy) / state.view.k;
+    resize(identity);
+    paintNode(n); paintEdges();
+  };
+  const up = (): void => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    resize(snap);   // snap to the grid on release, like a dropped card
+    applyLayouts(); paintAll(); scheduleSave(); commitStep();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+// Round every card's rendered height UP to the snap grid so all cards align on the 20px grid
+// (frames size themselves). Done in three batches — reset → measure → apply — so it costs two
+// layout flushes total, not two per card; the reset lets a shrunk card re-measure smaller (no
+// ratcheting). Frames (which set their own box) and hidden cards are skipped.
+function snapCardHeights(): void {
+  const cards: MindNode[] = [];
+  for (const n of state.nodes.values()) if (n.el && !isHidden(n) && !isFrameBox(n)) cards.push(n);
+  for (const n of cards) n.el!.style.minHeight = '';
+  const hs = cards.map(n => Math.ceil(n.el!.offsetHeight / GRID_SNAP) * GRID_SNAP);
+  cards.forEach((n, i) => { n.el!.style.minHeight = hs[i] + 'px'; });
+}
+// Stack frames by nesting depth (deeper = later in DOM = on top among the z-index:1 frames) so a
+// nested frame's body and resize handles sit above its container and stay clickable/grabbable.
+// Skipped mid-drag / mid-edit so re-appending an element can't drop a captured pointer or blur an
+// open inline editor.
+function orderFrames(): void {
+  if (ui.drag || ui.inlineEdit || ui.bodyEdit) return;
+  const frames = [...state.nodes.values()].filter(n => n.el && isFrameBox(n));
+  if (frames.length < 2) return;
+  const depth = (n: MindNode): number => {
+    let d = 0; for (let p = n.parent ? state.nodes.get(n.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null) d++;
+    return d;
+  };
+  frames.sort((a, b) => depth(a) - depth(b));
+  for (const f of frames) world.appendChild(f.el!);
+}
 export function paintAll(): void {
   for (const n of state.nodes.values()) paintNode(n);
+  snapCardHeights();
+  orderFrames();
   paintEdges();
   updateEmptyHints();
   renderOutline();   // keep the outline list in sync (no-op while the canvas view is active)
@@ -554,6 +666,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === ' '){ e.preventDefault(); if (!e.repeat){ ui.spaceHeld = true; ui.spaceUsedForPan = false; } return; }
   if (e.key === 'f' || e.key === 'F'){ e.preventDefault(); focusOrFit(); return; }
   if ((e.key === 'd' || e.key === 'D') && state.sel.size){ e.preventDefault(); duplicateSelection(); return; }
+  if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && state.sel.size){ e.preventDefault(); autoSizeSelection(); return; }   // auto-size selected frames to fit
   // ⌘/Ctrl C / X copy / cut the selected cards (with their subtrees). No ⌘V handler here —
   // the native `paste` event (features/attachments.ts) carries clipboardData permission-free.
   if ((e.key === 'c' || e.key === 'C') && (e.metaKey || e.ctrlKey) && state.sel.size){

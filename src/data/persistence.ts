@@ -4,7 +4,7 @@
 // elsewhere calls scheduleSave(); a burst coalesces into one write ~400ms later.
 // `store` is the active backend (reassigned by useStore); main holds the open() flows.
 // ============================================================
-import { state, world, setStatus, type MindNode, type LayoutType, type LayoutSide } from '../core/state.js';
+import { state, world, setStatus, type MindNode, type LayoutType, type LayoutSide, type FrameArrange } from '../core/state.js';
 import { parseMd, serializeMd } from '../utils/frontmatter.js';
 import { zipBlob, unzip } from '../utils/zip.js';
 import { downloadBlob } from '../utils/download.js';
@@ -141,6 +141,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   // parent links are stored/resolved BY PATH, so ids never need to survive a reload.
   let seq = 0;
   let placed = 0;          // count of notes lacking a saved position, for fallback layout
+  const hadSavedPos = new Set<string>();   // ids whose mm_x/mm_y were present (frame kids: relative)
   for (const { rel, parsed } of entries) {
     const { mm, ...rest } = parsed;
     const hasPos = (mm.x != null && mm.y != null);
@@ -155,10 +156,13 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
       checklist: !!mm.checklist,
       bg: !!mm.bg,
       layoutType: (mm.layout || 'none') as LayoutType,
+      w: mm.w ?? undefined,
+      h: mm.h ?? undefined,
+      arrange: (mm.arrange || undefined) as FrameArrange | undefined,
       side: (mm.side || undefined) as LayoutSide | undefined,
       ...rest, dirty:false, dirtyLayout: !hasPos,   // notes lacking a position get one persisted
     };
-    if (!hasPos) placed++;                         // new note with no saved position
+    if (hasPos) hadSavedPos.add(node.id); else placed++;   // no saved position → fallback layout
     state.nodes.set(node.id, node);
   }
   // Resolve each note's parent path -> the loaded node's id (drops links to missing files).
@@ -166,6 +170,18 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   for (const n of state.nodes.values()) {
     n.parent = n._parentPath ? (byPath.get(n._parentPath) || null) : null;
     delete n._parentPath;
+  }
+  // A frame's children were saved RELATIVE to the frame (see utils/frontmatter.ts) — convert them
+  // back to absolute in-memory coords. Walk parents-before-children (so nested frames cascade) and
+  // add the parent frame's absolute position; only convert nodes that actually had a saved position.
+  const kidsOf = new Map<string | null, MindNode[]>();
+  for (const n of state.nodes.values()) { const k = kidsOf.get(n.parent) ?? []; k.push(n); kidsOf.set(n.parent, k); }
+  const stack = [...(kidsOf.get(null) ?? [])];
+  while (stack.length) {
+    const n = stack.pop()!;
+    const p = n.parent ? state.nodes.get(n.parent) : null;
+    if (p && p.layoutType === 'frame' && hadSavedPos.has(n.id)) { n.x += p.x; n.y += p.y; }
+    for (const k of kidsOf.get(n.id) ?? []) stack.push(k);
   }
   // A note with no `mm_side` yet (never dropped, or from before this field existed) gets one
   // backfilled from its saved position, once, right here — not re-derived on every relayout.
