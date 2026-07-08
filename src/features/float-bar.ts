@@ -294,7 +294,7 @@ stage.addEventListener('wheel', markWheelBusy, { passive: true });
 stage.addEventListener('gesturestart', () => { wheelBusy = true; });
 stage.addEventListener('gestureend', () => { wheelBusy = false; });
 function isInteracting(): boolean {
-  return !!(ui.drag || ui.pan || ui.pinch || ui.marquee) || wheelBusy;
+  return !!(ui.drag || ui.pan || ui.pinch || ui.marquee || ui.inlineEdit || ui.bodyEdit) || wheelBusy;
 }
 // Tracks the anchor card across camera pan/zoom and node drag without threading a hook through
 // drag.ts/camera.ts — cheap (one rect read + one style write per frame) and only runs while open.
