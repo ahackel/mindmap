@@ -235,8 +235,13 @@ export async function shareSelection(): Promise<void> {
     await navigator.share({ files: [file], title: f.name });
   } catch (err) {
     if ((err as DOMException)?.name !== 'AbortError'){
-      console.error('shareSelection: navigator.share failed', err);
-      setStatus('Couldn’t share');
+      // Chrome's "NotAllowedError: Permission denied" (as opposed to its distinct user-gesture
+      // wording) means the Permissions Policy for "web-share" rejected the call — the default
+      // allowlist is self-only AND top-level-document-only, so this fires whenever the page runs
+      // inside an iframe without allow="web-share", even same-origin.
+      const embedded = window.top !== window.self;
+      console.error('shareSelection: navigator.share failed', err, { embedded, href: location.href });
+      setStatus(embedded ? 'Can’t share from an embedded page' : 'Couldn’t share');
     }
   }
 }
