@@ -7,7 +7,7 @@
 // existing generic context menu (openMenu, features/context-menu.ts).
 // On narrow/touch widths (NARROW_MQ) styles.css docks the bar to the bottom edge instead —
 // this module skips the floating position math there and lets CSS own it.
-import { state, stage, setStatus, isImageCard, type MindNode, type LayoutType, type FrameArrange } from '../core/state.js';
+import { state, stage, setStatus, isImageCard, isFrameLayout, type MindNode, type LayoutType } from '../core/state.js';
 import { NARROW_MQ, ui } from '../core/ui-state.js';
 import { record } from './history.js';
 import { scheduleSave } from '../data/persistence.js';
@@ -64,17 +64,12 @@ const LAYOUT_TYPES: { key: LayoutType; label: string; icon: string }[] = [
     icon: SVG_OPEN + DOT(4,12) + '<path d="M6 12l6-6M6 12h6M6 12l6 6"/>' + DOT(14,6,1.8) + DOT(14,12,1.8) + DOT(14,18,1.8) + '</svg>' },
   { key:'frame', label:'Frame — a resizable box; drag cards inside to hold them, out to release',
     icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="6.5" y="8.5" width="6" height="4.5" rx="1" fill="currentColor" stroke="none"/></svg>' },
+  { key:'frame-h', label:'Frame (horizontal) — cards flow left to right, wrapping down',
+    icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="6.5" y="9.5" width="4.5" height="5" rx="1" fill="currentColor" stroke="none"/><rect x="13" y="9.5" width="4.5" height="5" rx="1" fill="currentColor" stroke="none"/></svg>' },
+  { key:'frame-v', label:'Frame (vertical) — cards flow top to bottom, wrapping right',
+    icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="8.5" y="7.5" width="7" height="4" rx="1" fill="currentColor" stroke="none"/><rect x="8.5" y="12.5" width="7" height="4" rx="1" fill="currentColor" stroke="none"/></svg>' },
   { key:'image', label:'Image — a resizable box showing one image, nothing else (no children)',
     icon: SVG_OPEN + '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none"/><path d="M4 15.5l5-5 3.5 3.5 3-3 4.5 4.5"/></svg>' },
-];
-// How a FRAME arranges its children — a second chip row shown only when the selection is a frame.
-const ARRANGE_TYPES: { key: FrameArrange; label: string; icon: string }[] = [
-  { key:'free', label:'Free — arrange cards inside the frame yourself',
-    icon: SVG_OPEN + DOT(7,8) + DOT(16,9) + DOT(10,16) + '</svg>' },
-  { key:'flow-h', label:'Flow → — fill rows left to right, wrap down',
-    icon: SVG_OPEN + '<rect x="4" y="5" width="6" height="5" rx="1"/><rect x="13" y="5" width="7" height="5" rx="1"/><rect x="4" y="14" width="7" height="5" rx="1"/><path d="M20.5 7.5h.01" stroke-dasharray="0.1 3"/></svg>' },
-  { key:'flow-v', label:'Flow ↓ — fill columns top to bottom, wrap right',
-    icon: SVG_OPEN + '<rect x="5" y="4" width="5" height="6" rx="1"/><rect x="5" y="13" width="5" height="7" rx="1"/><rect x="14" y="4" width="5" height="7" rx="1"/></svg>' },
 ];
 // Fit a frame's box snugly around its children: a title strip on top, a margin on the other sides,
 // snapped to the grid and clamped to the min size. Children keep their positions (the box moves to
@@ -97,24 +92,16 @@ function fitFrameToContent(n: MindNode, orDefault = false): void {
 }
 // Auto-size every selected frame to fit its content (shortcut / context menu).
 export function autoSizeSelection(): void {
-  const ids = selectedIds().filter(id => state.nodes.get(id)?.layoutType === 'frame');
+  const ids = selectedIds().filter(id => { const t = state.nodes.get(id)?.layoutType; return t && isFrameLayout(t); });
   if (!ids.length) return;
   record(ids, () => { for (const id of ids){ const n = state.nodes.get(id); if (n) { fitFrameToContent(n); n.dirty = true; } } });
   applyLayouts(); paintAll(); scheduleSave();
 }
-// The frame-arrange chips live in a second row of the same popover, shown only for a frame selection.
-const edArrangeTypes = document.createElement('div');
-edArrangeTypes.className = 'layoutchips arrangechips';
-layoutPop.appendChild(edArrangeTypes);
 (function buildLayoutChips(){
   edLayoutTypes.innerHTML = LAYOUT_TYPES.map(t =>
     `<div class="layoutchip" data-type="${t.key}" title="${t.label}">${t.icon}</div>`).join('');
   edLayoutTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
     c.addEventListener('click', () => { setLayout(c.dataset.type as LayoutType); closePopovers(); }));
-  edArrangeTypes.innerHTML = ARRANGE_TYPES.map(t =>
-    `<div class="layoutchip" data-arrange="${t.key}" title="${t.label}">${t.icon}</div>`).join('');
-  edArrangeTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-    c.addEventListener('click', () => { setArrange(c.dataset.arrange as FrameArrange); closePopovers(); }));
 })();
 function setLayout(type: LayoutType): void {
   const ids = selectedIds(); if (!ids.length) return;
@@ -126,8 +113,15 @@ function setLayout(type: LayoutType): void {
   record(ids, () => {
     for (const id of ids){
       const n = state.nodes.get(id); if (!n) continue;
-      if (type === 'frame' && n.layoutType !== 'frame') fitFrameToContent(n, true);   // give it a box (before the flip)
+      // becoming a frame (from a non-frame) gets a box; switching between frame variants keeps it
+      if (isFrameLayout(type) && !isFrameLayout(n.layoutType)) fitFrameToContent(n, true);
       if (type === 'image' && n.layoutType !== 'image' && (n.w == null || n.h == null)) { n.w = IMAGE_W; n.h = IMAGE_H; }
+      // Drop the stored child order on any real layout-type change: a switch INTO a managed
+      // layout (line/fan/flow-frame) must reseed order from the children's CURRENT positions —
+      // e.g. a free frame's cards, manually rearranged while free, become a stale-order flow
+      // frame otherwise (kidOrder from an earlier managed pass never gets cleared by a plain
+      // drag in free/free-frame mode, since that mode doesn't touch kidOrder at all).
+      if (n.layoutType !== type) n.kidOrder = undefined;
       n.layoutType = type;
       n.dirty = true;
     }
@@ -135,18 +129,8 @@ function setLayout(type: LayoutType): void {
   markLayoutChips();
   applyLayouts(); paintAll(); scheduleSave();
 }
-function setArrange(a: FrameArrange): void {
-  const ids = selectedIds().filter(id => state.nodes.get(id)?.layoutType === 'frame');
-  if (!ids.length) return;
-  record(ids, () => {
-    for (const id of ids){ const n = state.nodes.get(id); if (!n) continue; n.arrange = a; n.dirty = true; }
-  });
-  markLayoutChips();
-  applyLayouts(); paintAll(); scheduleSave();
-}
 // reflect the selection's current layout in the popover chips AND the trigger button's icon
-// (mixed selection → no chip active, trigger falls back to the "none" icon). The arrange row is
-// shown only when the whole selection is a frame, mirroring its current arrange mode.
+// (mixed selection → no chip active, trigger falls back to the "none" icon).
 function markLayoutChips(): void {
   const ids = selectedIds();
   const types = new Set(ids.map(id => state.nodes.get(id)?.layoutType || 'none'));
@@ -155,14 +139,6 @@ function markLayoutChips(): void {
     c.classList.toggle('active', c.dataset.type === t));
   const active = edLayoutTypes.querySelector('.layoutchip.active');
   fbLayout.innerHTML = active ? active.innerHTML : LAYOUT_TYPES[0].icon;
-  const frameSel = t === 'frame';
-  edArrangeTypes.style.display = frameSel ? '' : 'none';
-  if (frameSel){
-    const arrs = new Set(ids.map(id => state.nodes.get(id)?.arrange || 'free'));
-    const a = arrs.size === 1 ? [...arrs][0] : null;
-    edArrangeTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-      c.classList.toggle('active', c.dataset.arrange === a));
-  }
 }
 
 // ---------- colour trigger ----------
@@ -250,7 +226,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && activePo
 export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] {
   const multi = state.sel.has(n.id) && state.sel.size > 1;
   const targetIds = multi ? [...state.sel] : [n.id];
-  const anyFrame = targetIds.some(id => state.nodes.get(id)?.layoutType === 'frame');
+  const anyFrame = targetIds.some(id => { const t = state.nodes.get(id)?.layoutType; return t && isFrameLayout(t); });
   // group actions (Duplicate/Cut/Copy/Export/Share/Auto-size) act on state.sel via selectedIds();
   // when the target isn't already part of the selection, select it first so they act on IT.
   const selectTargetFirst = () => { if (!multi) selectNode(n.id); };

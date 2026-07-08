@@ -99,7 +99,7 @@ function cloneNodeAt(s: MindNode, x: number, y: number): MindNode {
     color: s.color,
     tags: [...s.tags], body: s.body, done: s.done, checklist: s.checklist, bg: s.bg,
     layoutType: s.layoutType || 'none', side: s.side,
-    w: s.w, h: s.h, arrange: s.arrange,   // a frame/image card's own box size (+ a frame's arrange)
+    w: s.w, h: s.h,   // a frame/image card's own box size
   });
   state.nodes.set(copy.id, copy);
   return copy;

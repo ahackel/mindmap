@@ -4,7 +4,7 @@
 // render core's live card heights (nodeH) and branch colour (effectiveColor) from main.
 import { state, backgroundsSvg, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode, type LayoutSide } from '../core/state.js';
 import { isRoot, isHidden } from '../utils/model.js';
-import { dropLanding, sideOf, subtreeBox, isFrame } from './layout.js';
+import { dropLanding, sideOf, subtreeBox, isFrame, hostFrame, frameInterior } from './layout.js';
 import { ui, type Pt } from '../core/ui-state.js';
 import { NODE_W, nodeW, nodeH, effectiveColor, SWATCH_BG } from '../main.js';
 
@@ -129,6 +129,23 @@ function hexToRgba(hex: string, alpha: number): string {
   const [r, g, b] = m.slice(1).map(h => parseInt(h, 16));
   return `rgba(${r},${g},${b},${alpha})`;
 }
+// Frame content is DOM-clipped (main.ts .frame-content), but edges/backgrounds live in their own
+// global, unclipped SVGs — a connector or group-background rect involving a card hosted inside a
+// frame needs its own clip-path to the SAME bounds, or it can poke past the frame's border even
+// though the card itself can't. `frameClipId` names the <clipPath>; `frameClipDefs` renders one per
+// frame actually referenced, sized via the shared `frameInterior` (layout.ts) so this stays
+// pixel-identical to main.ts's DOM wrapper by construction.
+function frameClipId(f: MindNode): string { return `frame-clip-${f.id}`; }
+function frameClipDefs(hosts: Set<string>): string {
+  if (!hosts.size) return '';
+  let defs = '';
+  for (const id of hosts) {
+    const f = state.nodes.get(id); if (!f) continue;
+    const { x, y, w, h } = frameInterior(f);
+    defs += `<clipPath id="${frameClipId(f)}"><rect x="${x}" y="${y}" width="${w}" height="${h}"/></clipPath>`;
+  }
+  return `<defs>${defs}</defs>`;
+}
 // A node's own "group background" (mm_bg) encloses it + all its VISIBLE descendants — drawn
 // behind everything else (see #backgrounds z-index in styles.css). Nested enclosures (a
 // descendant also has its background on) are fine: painted largest-first so a parent's bigger
@@ -136,6 +153,7 @@ function hexToRgba(hex: string, alpha: number): string {
 function paintBackgrounds(): void {
   if (state.searchMatch) { backgroundsSvg.innerHTML = ''; return; }
   const rects: { area: number; markup: string }[] = [];
+  const hosts = new Set<string>();
   for (const n of state.nodes.values()) {
     if (!n.bg || isHidden(n)) continue;
     const box = subtreeBox(n);
@@ -143,13 +161,16 @@ function paintBackgrounds(): void {
     const x = box.x0 - BG_PAD, y = box.y0 - BG_PAD;
     const w = (box.x1 - box.x0) + BG_PAD * 2, h = (box.y1 - box.y0) + BG_PAD * 2;
     const fill = hexToRgba(SWATCH_BG[effectiveColor(n)] ?? SWATCH_BG.grey, BG_ALPHA);
+    const host = hostFrame(n);
+    const clip = host ? ` clip-path="url(#${frameClipId(host)})"` : '';
+    if (host) hosts.add(host.id);
     rects.push({
       area: w * h,
-      markup: `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${BG_R}" fill="${fill}"/>`,
+      markup: `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${BG_R}" fill="${fill}"${clip}/>`,
     });
   }
   rects.sort((a, b) => b.area - a.area);   // biggest enclosure first (behind), smaller ones on top
-  backgroundsSvg.innerHTML = rects.map(r => r.markup).join('');
+  backgroundsSvg.innerHTML = frameClipDefs(hosts) + rects.map(r => r.markup).join('');
 }
 export function paintEdges(): void {
   paintBackgrounds();
@@ -163,6 +184,7 @@ export function paintEdges(): void {
   // Every parent's occupied sides — a socket disk marks each one, at the point its children's
   // edges converge (see anchorPoint), tinted to match the PARENT card (its own socket).
   const occupiedSides = new Map<string, Set<LayoutSide>>();
+  const hosts = new Set<string>();   // frames referenced by a clip-path below — see frameClipDefs
   // Draw a connector for every parent→child edge where BOTH ends are visible.
   // A collapsed node hides its children, so those edges simply don't appear.
   for (const n of state.nodes.values()) {
@@ -190,7 +212,13 @@ export function paintEdges(): void {
     const dist = Math.hypot(n.x - parent.x, n.y - parent.y);
     const style = `stroke:${tint ?? 'var(--edge)'};opacity:${edgeOpacity(dist).toFixed(2)}`;
     const side = sideOf(parent, n);
-    const path = `<path style="${style}" d="${edgePathBox(parent, { x:n.x, y:n.y, h:nodeH(n), w:nodeW(n) }, side)}"/>`;
+    // Both ends share the same host frame whenever this edge is drawn at all (parent's never a
+    // frame here — see the isFrame(parent) skip above — so walking from either end lands on the
+    // same nearest enclosing frame, if any).
+    const host = hostFrame(n);
+    const clip = host ? ` clip-path="url(#${frameClipId(host)})"` : '';
+    if (host) hosts.add(host.id);
+    const path = `<path style="${style}"${clip} d="${edgePathBox(parent, { x:n.x, y:n.y, h:nodeH(n), w:nodeW(n) }, side)}"/>`;
     // dragged-subtree edges stay in the normal behind-cards layer too — the cards themselves
     // remain visible while dragging, so nothing should overdraw other cards
     entries.push({ dist, path });
@@ -203,9 +231,14 @@ export function paintEdges(): void {
   for (const [pid, sides] of occupiedSides) {
     const p = state.nodes.get(pid); if (!p) continue;
     const tint = branchTint(p);
+    // Same host as the edges converging here (see the comment above) — the socket dot sits ON
+    // the parent's own border, so it clips right alongside its edges.
+    const host = hostFrame(p);
+    const clip = host ? ` clip-path="url(#${frameClipId(host)})"` : '';
+    if (host) hosts.add(host.id);
     for (const side of sides) {
       const pt = anchorPoint(p, side);
-      svg += `<circle class="edge-dot" cx="${pt.x}" cy="${pt.y}" r="${DOT_R}" fill="${tint}"/>`;
+      svg += `<circle class="edge-dot"${clip} cx="${pt.x}" cy="${pt.y}" r="${DOT_R}" fill="${tint}"/>`;
     }
   }
   // Dashed preview: while poised over a valid reparent target, draw the would-be new
@@ -213,12 +246,16 @@ export function paintEdges(): void {
   // anchor dot it leads to, not tinted to the dragged card, and drawn in the top overlay so it
   // sits above every other card/edge.
   const preview = previewReparent();
+  const topHosts = new Set<string>();
   if (preview) {
-    top += `<path class="ghost-edge" style="stroke:white" stroke-dasharray="6 5" d="${edgePathBox(preview.parent, preview.box, preview.side)}"/>`;
+    const host = hostFrame(preview.parent);
+    const clip = host ? ` clip-path="url(#${frameClipId(host)})"` : '';
+    if (host) topHosts.add(host.id);
+    top += `<path class="ghost-edge" style="stroke:white"${clip} stroke-dasharray="6 5" d="${edgePathBox(preview.parent, preview.box, preview.side)}"/>`;
     const pt = anchorPoint(preview.parent, preview.side);
-    top += `<circle class="edge-dot edge-dot-preview" cx="${pt.x}" cy="${pt.y}" r="${DOT_R + 1}" fill="white"/>`;
+    top += `<circle class="edge-dot edge-dot-preview"${clip} cx="${pt.x}" cy="${pt.y}" r="${DOT_R + 1}" fill="white"/>`;
   }
-  edgesSvg.innerHTML = svg;
-  dragEdgesSvg.innerHTML = top;
+  edgesSvg.innerHTML = frameClipDefs(hosts) + svg;
+  dragEdgesSvg.innerHTML = frameClipDefs(topHosts) + top;
   togglesSvg.innerHTML = '';             // no edge toggles anymore
 }

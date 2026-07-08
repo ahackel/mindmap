@@ -14,14 +14,14 @@
 import './styles.css';   // app styles (Vite bundles + singlefile inlines into dist/index.html)
 import { renderBodyHTML } from './utils/markdown.js';
 import { childrenOf, isHidden, descendantCount } from './utils/model.js';
-import { state, world, stage, setStatus, isImageCard } from './core/state.js';
+import { state, world, stage, setStatus, isImageCard, isFrameLayout } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { mountIcons } from './view/icons.js';
 import edgeStraightIcon from './assets/icons/edge-straight.svg?raw';
 import edgeOrthogonalIcon from './assets/icons/edge-orthogonal.svg?raw';
 import edgeBezierIcon from './assets/icons/edge-bezier.svg?raw';
 import { zoomAt, frameBox, screenToWorld } from './view/camera.js';
-import { applyLayouts } from './view/layout.js';
+import { applyLayouts, hostFrame, frameInterior } from './view/layout.js';
 import { paintEdges } from './view/edges.js';
 import './features/gestures.js';   // registers the canvas pan/zoom/marquee gesture listeners
 import './features/attachments.js';   // registers the OS image drag/drop listeners
@@ -186,15 +186,20 @@ export function paintNode(n: MindNode): void {
   // this card's own checklist (over ITS children) → an "n/m done" progress readout by the title
   el.querySelector('.progress')!.textContent =
     (n.checklist && hasKids) ? `${kids.filter(k => k.done).length}/${kids.length}` : '';
-  // During drag: keep left/top frozen at the pre-drag origin and move via transform (compositor-only).
-  // Outside drag: commit position normally and clear any leftover transform.
-  const dragOrig = ui.drag?.origins?.get(n.id);
+  // Which frame (if any) hosts this card's element — settled outside gestures (see settledHost).
+  const host = settledHost(n);
+  // During drag: keep left/top frozen at the pre-drag origin and move via transform (compositor-
+  // only) — but only for a TOP-LEVEL card. A hosted card always repaints at its live, host-relative
+  // position instead: frame membership can change mid-drag (see settledHost), so there's no single
+  // frozen origin that stays valid for the whole gesture the way there is for an unhosted card.
+  const dragOrig = !host ? ui.drag?.origins?.get(n.id) : undefined;
   if (dragOrig) {
     el.style.left = dragOrig.x + 'px'; el.style.top = dragOrig.y + 'px';
     el.style.transform = `translate(${n.x - dragOrig.x}px,${n.y - dragOrig.y}px)`;
+    if (el.parentElement !== world) world.appendChild(el);
   } else {
-    el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
     if (el.style.transform) el.style.transform = '';
+    place(el, n.x, n.y, host);
   }
   // A frame (or an image card) is its own resizable box; give the element that size and a
   // drag-to-resize handle. Any other card clears the inline size so a reverted box snaps back
@@ -210,6 +215,7 @@ export function paintNode(n: MindNode): void {
     // leftover floor taller than n.h would silently distort the box (wrong aspect ratio, extra
     // height) after a round-trip through a non-box layout type and back.
     if (el.style.minHeight) el.style.minHeight = '';
+    if (isFrameBox(n)) frameContentEl(n);   // create/reposition/resize this frame's overflow:hidden content wrapper
   } else if (el.style.width) {
     el.style.width = ''; el.style.height = '';
     el.style.removeProperty('--frame-stroke');
@@ -230,9 +236,10 @@ export const NODE_W = 200;
 export const GRID_SNAP = 20;   // world-px grid dragged positions AND frame/image-card sizes snap to
 export const FRAME_W = 360, FRAME_H = 260;   // default frame container size (world px)
 export const IMAGE_W = 240, IMAGE_H = 180;   // default image-card size (world px)
+export const FRAME_BORDER = 4;   // must match .node.frame's CSS `border` width (styles.css)
 // Whether a node currently renders as a frame BOX. A collapsed frame folds to an ordinary card, so
 // its footprint reverts to a normal card (matching paintNode). Shared by the geometry helpers below.
-function isFrameBox(n: MindNode): boolean { return n.layoutType === 'frame' && !n.collapsed; }
+function isFrameBox(n: MindNode): boolean { return isFrameLayout(n.layoutType) && !n.collapsed; }
 // An image card: a resizable leaf that shows nothing but its one image — no children, no title UI.
 function isImageBox(n: MindNode): boolean { return n.layoutType === 'image' && !n.collapsed; }
 // Either kind of resizable box — shares sizing/resize-handle plumbing below.
@@ -255,6 +262,50 @@ export function layoutH(n: MindNode): number {
   if (isBoxNode(n)) return n.h ?? boxDefaultH(n);
   const el = n.el; if (!el) return 64;
   return el.offsetHeight;
+}
+// ---------- frame content containment (real CSS clipping, not per-card math) ----------
+// A card living inside a frame must never visually spill past its box — dragging near a border, or
+// shrinking the frame below its content, shouldn't leave cards overhanging. Frame children are flat
+// DOM siblings under #world like everything else, so real containment means giving each frame its
+// own overflow:hidden wrapper and re-parenting whatever it hosts (cards AND nested frames) into it,
+// rather than a per-card clip-path hack — that also makes nested frames and grandchildren clip for
+// free, and respects the frame's rounded corners.
+//
+// Which frame `n`'s element is CURRENTLY, actually parented under, DOM-wise — settled outside any
+// active gesture (drag / inline-edit / body-edit) so re-parenting can't drop a captured pointer or
+// blur an open editor (same caution as the old orderFrames pass this replaces). Mid-gesture callers
+// just get back whatever was last settled; paintNode still repositions live using that fixed host,
+// so a card mid-drag stays visually clipped to wherever it's actually hosted until the drop settles.
+// `hostFrame` (view/layout.ts) does the actual ancestor walk — shared with edges.ts so an edge
+// between two cards inside the same frame clips to it too, not just the cards themselves.
+function settledHost(n: MindNode): MindNode | null {
+  if (ui.drag || ui.inlineEdit || ui.bodyEdit) return n.hostFrameId ? (state.nodes.get(n.hostFrameId) ?? null) : null;
+  const want = hostFrame(n);
+  n.hostFrameId = want ? want.id : null;
+  return want;
+}
+// Position + (re)parent `el` so its border-box top-left lands at absolute world (absX,absY) — either
+// directly under #world, or inside `host`'s content wrapper (offset by the host's own border so
+// content never draws under the frame's border stroke). Shared by every hosted element: a plain
+// card, a frame's own box, and a nested frame's own content wrapper.
+function place(el: HTMLElement, absX: number, absY: number, host: MindNode | null): void {
+  const container = host ? frameContentEl(host) : world;
+  el.style.left = (host ? absX - host.x - FRAME_BORDER : absX) + 'px';
+  el.style.top  = (host ? absY - host.y - FRAME_BORDER : absY) + 'px';
+  if (el.parentElement !== container) container.appendChild(el);
+}
+// A frame's own clipping wrapper: a plain overflow:hidden box (styles.css .frame-content) sized to
+// its INTERIOR (inside the border), holding every card/frame it hosts as flat DOM children. Created
+// once and kept live (idempotent — safe to call from a child's paint before the frame's own paint
+// runs in the same pass, since Map iteration order isn't parent-before-child).
+function frameContentEl(f: MindNode): HTMLElement {
+  let w = f.frameContentEl;
+  if (!w) { w = document.createElement('div'); w.className = 'frame-content'; f.frameContentEl = w; }
+  const box = frameInterior(f);
+  place(w, box.x, box.y, settledHost(f));
+  w.style.width  = box.w + 'px';
+  w.style.height = box.h + 'px';
+  return w;
 }
 // ---------- frame / image-card resize ----------
 export const MIN_FRAME_W = NODE_W, MIN_FRAME_H = 120;   // a frame is never narrower than a normal card
@@ -299,6 +350,7 @@ function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
   const west = dir.includes('w'), east = dir.includes('e'), north = dir.includes('n'), south = dir.includes('s');
   touch(n.id);
   let lastDx = 0, lastDy = 0;
+  let subtreeRAF: number | null = null;
   const identity = (v: number): number => v;
   const snap = (v: number): number => Math.round(v / GRID_SNAP) * GRID_SNAP;
   // Apply the current drag delta, keeping the non-dragged edges fixed. We snap the SIZE (not the
@@ -342,10 +394,21 @@ function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
     lastDx = (ev.clientX - sx) / state.view.k; lastDy = (ev.clientY - sy) / state.view.k;
     resize(identity);
     paintNode(n); paintEdges();
+    // A north/west resize shifts the frame's own x/y, which shifts its content wrapper's origin —
+    // repaint the whole subtree (not just direct children) so every hosted descendant's live,
+    // wrapper-relative position compensates and stays put in absolute space as the box resizes
+    // around it (an east/south-only resize doesn't move the origin, so this is skipped entirely).
+    // subtreeIds walks the whole node map, so coalesce it to once per animation frame rather than
+    // once per raw pointermove (which can fire far faster than the screen repaints).
+    if ((north || west) && !subtreeRAF) subtreeRAF = requestAnimationFrame(() => {
+      subtreeRAF = null;
+      for (const id of subtreeIds(n.id)) { const k = state.nodes.get(id); if (k) paintNode(k); }
+    });
   };
   const up = (): void => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
+    if (subtreeRAF) { cancelAnimationFrame(subtreeRAF); subtreeRAF = null; }
     resize(snap);   // snap to the grid on release, like a dropped card
     applyLayouts(); paintAll(); scheduleSave(); commitStep();
   };
@@ -363,25 +426,9 @@ function snapCardHeights(): void {
   const hs = cards.map(n => Math.ceil(n.el!.offsetHeight / GRID_SNAP) * GRID_SNAP);
   cards.forEach((n, i) => { n.el!.style.minHeight = hs[i] + 'px'; });
 }
-// Stack frames by nesting depth (deeper = later in DOM = on top among the z-index:1 frames) so a
-// nested frame's body and resize handles sit above its container and stay clickable/grabbable.
-// Skipped mid-drag / mid-edit so re-appending an element can't drop a captured pointer or blur an
-// open inline editor.
-function orderFrames(): void {
-  if (ui.drag || ui.inlineEdit || ui.bodyEdit) return;
-  const frames = [...state.nodes.values()].filter(n => n.el && isFrameBox(n));
-  if (frames.length < 2) return;
-  const depth = (n: MindNode): number => {
-    let d = 0; for (let p = n.parent ? state.nodes.get(n.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null) d++;
-    return d;
-  };
-  frames.sort((a, b) => depth(a) - depth(b));
-  for (const f of frames) world.appendChild(f.el!);
-}
 export function paintAll(): void {
   for (const n of state.nodes.values()) paintNode(n);
   snapCardHeights();
-  orderFrames();
   paintEdges();
   updateEmptyHints();
   renderOutline();   // keep the outline list in sync (no-op while the canvas view is active)
@@ -395,8 +442,8 @@ export function updateEmptyHints(): void {
 
 // ---------- animated relayout (expand / collapse) ----------
 function prefersReducedMotion(): boolean { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } }
-function placeNodeEl(n: MindNode): void { if (n.el){ n.el.style.left = n.x + 'px'; n.el.style.top = n.y + 'px'; } }
-function setNodeElXY(n: MindNode, x: number, y: number): void { if (n.el){ n.el.style.left = x + 'px'; n.el.style.top = y + 'px'; } }
+function placeNodeEl(n: MindNode): void { if (n.el) place(n.el, n.x, n.y, settledHost(n)); }
+function setNodeElXY(n: MindNode, x: number, y: number): void { if (n.el) place(n.el, x, y, settledHost(n)); }
 // Newly revealed cards emanate from the nearest ancestor that was already on screen.
 function ancestorStart(node: MindNode, before: Map<string, Pt>): Pt {
   let p = node.parent ? state.nodes.get(node.parent) : null;
@@ -414,7 +461,11 @@ function followEdges(tok: number, ms: number): void {
       if (!n.el || isHidden(n)) continue;
       const c = getComputedStyle(n.el);             // interpolated left/top while transitioning
       saved.push([n, n.x, n.y]);
-      n.x = parseFloat(c.left) || n.x; n.y = parseFloat(c.top) || n.y;
+      // left/top are HOST-relative for a hosted card — project back to absolute world coords.
+      const host = settledHost(n);
+      const px = parseFloat(c.left), py = parseFloat(c.top);
+      n.x = px ? (host ? px + host.x + FRAME_BORDER : px) : n.x;
+      n.y = py ? (host ? py + host.y + FRAME_BORDER : py) : n.y;
     }
     paintEdges();
     for (const [n,x,y] of saved){ n.x = x; n.y = y; }   // restore logical (final) positions

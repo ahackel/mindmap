@@ -8,7 +8,7 @@
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
 import { state, stage, world, setStatus, isImageCard, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
-import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, isFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget } from '../view/layout.js';
+import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, flowReorderTarget, isFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget, ancestorDepth } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
 import { ui, NARROW_MQ, type Pt, type Seg, type Drag } from '../core/ui-state.js';
@@ -201,8 +201,7 @@ function innermostFrameAt(clientX: number, clientY: number): MindNode | null {
   for (const m of state.nodes.values()) {
     if (!isFrame(m) || isHidden(m)) continue;
     if (wx < m.x || wx > m.x + nodeW(m) || wy < m.y || wy > m.y + nodeH(m)) continue;
-    let depth = 0;
-    for (let p = m.parent ? state.nodes.get(m.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null) depth++;
+    const depth = ancestorDepth(m);
     if (depth > bestDepth) { bestDepth = depth; best = m; }
   }
   return best;
@@ -624,17 +623,29 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   let hovered: string | null = null;
   let hoveredCenter = false;
   let hoveredEdge: LayoutSide = 'right';
+  // Plain CARDS win over frames: a frame's box encloses its children, so first-hit iteration order
+  // would let the container shadow the card actually under the cursor (making reparent-onto-a-card
+  // inside a frame unreachable). Among frames, the INNERMOST (deepest-nested) wins, so nested
+  // frames stay reachable too — same rule as the pointerdown retarget (innermostFrameAt).
+  let cardHit: MindNode | null = null;
+  let frameHit: MindNode | null = null, frameHitDepth = -1;
   for (const [id, m] of state.nodes) {
     if (isHidden(m) || sub.has(id)) continue;
     const w = nodeW(m), h = nodeH(m);
-    if (wx >= m.x && wx <= m.x + w && wy >= m.y && wy <= m.y + h){
-      hovered = id;
-      const u = (wx - (m.x + w/2)) / (w/2);
-      const v = (wy - (m.y + h/2)) / (h/2);
-      hoveredCenter = Math.max(Math.abs(u), Math.abs(v)) <= CENTER_FRAC;
-      hoveredEdge = edgeFromUV(u, v);
-      break;
-    }
+    if (!(wx >= m.x && wx <= m.x + w && wy >= m.y && wy <= m.y + h)) continue;
+    if (isFrame(m)) {
+      const d = ancestorDepth(m);
+      if (d > frameHitDepth) { frameHitDepth = d; frameHit = m; }
+    } else if (!cardHit) { cardHit = m; }
+  }
+  const hitNode = cardHit ?? frameHit;
+  if (hitNode) {
+    hovered = hitNode.id;
+    const w = nodeW(hitNode), h = nodeH(hitNode);
+    const u = (wx - (hitNode.x + w/2)) / (w/2);
+    const v = (wy - (hitNode.y + h/2)) / (h/2);
+    hoveredCenter = Math.max(Math.abs(u), Math.abs(v)) <= CENTER_FRAC;
+    hoveredEdge = edgeFromUV(u, v);
   }
   clearDropTarget();
   const drag = ui.drag;
@@ -645,48 +656,47 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   let line: Seg | null = null;   // reorder gap indicator
   if (hovered && sub.has(hovered)){
     setStatus(`Can't parent "${dragged.title}" onto its own child/descendant`);
-  } else if (hovered && isFrame(state.nodes.get(hovered)!)) {
-    const hf = state.nodes.get(hovered)!;
-    // Dragging a card that's ALREADY inside a FLOW frame → no drop target; the release is a plain
-    // reposition that reseeds the flow order by drop position (i.e. reorders it). Otherwise dropping
-    // inside a frame adopts the card as its child — a FREE frame lands it where released
-    // (dropLanding's frame branch), a FLOW frame appends it and re-flows.
-    if (!(frameFlow(hf) && dragged.parent === hovered)) { target = hovered; mode = 'child'; side = 'down'; }
   } else if (hovered) {
     const hoveredNode = state.nodes.get(hovered)!;
-    // Centre zone + hovered card has a parent -> sibling drop (adopt hovered's parent, landing
-    // on the same side hovered already occupies — copy ITS stored side, not the drop point).
-    if (hoveredCenter && hoveredNode.parent) {
-      const sibParent = hoveredNode.parent;
-      // Valid as long as it wouldn't re-parent onto self or create a cycle
-      if (sibParent !== dragged.id && !sub.has(sibParent)) {
-        const parentNode = state.nodes.get(sibParent)!;
-        target = hovered;
-        mode = 'sibling';
-        side = sideOf(parentNode, hoveredNode);
-        // Anchor by the dragged card's midpoint vs the siblings' boxes: hovering the near half
-        // of the card inserts BEFORE it, the far half AFTER — not always-after as before. The
-        // gap line previews the slot among the new siblings, same as an in-parent reorder. A flow
-        // frame is box-flowed (not side-based): skip the anchor (append + re-flow on drop), so it
-        // never draws a side-based insertion bar.
-        if (!frameFlow(parentNode))
+    const pf = hoveredNode.parent ? state.nodes.get(hoveredNode.parent) : null;
+    if (frameFlow(hoveredNode)) {
+      // The FLOW frame's own (empty) area → insert into the flow at the slot under the cursor,
+      // previewed with an insertion bar (like line layout). Covers dropping an external card in
+      // AND reordering a card already inside.
+      target = hovered; mode = 'child'; side = 'down';
+      ({ afterId: after, line } = flowReorderTarget(hoveredNode, dragged));
+    } else if (isFrame(hoveredNode)) {
+      // FREE frame: adopt the card wherever it's released inside the box (dropLanding's frame branch).
+      target = hovered; mode = 'child'; side = 'down';
+    } else if (pf && frameFlow(pf)) {
+      // ANY hover on a card inside a FLOW frame → insert into the flow next to it (bar) —
+      // both centre AND edge zones, unlike the general sibling(centre)/child(edge) split below.
+      // Flow children are a flat flowed list, not a nesting target, and the physical gap between
+      // them is much narrower than a card's own edge zone, so requiring dead-centre would make the
+      // bar nearly unreachable — you'd almost always land in a neighbour's edge zone instead.
+      target = pf.id; mode = 'child'; side = 'down';
+      ({ afterId: after, line } = flowReorderTarget(pf, dragged));
+    } else {
+      // Centre zone + hovered card has a parent -> sibling drop (adopt hovered's parent, landing
+      // on the same side hovered already occupies — copy ITS stored side, not the drop point).
+      if (hoveredCenter && hoveredNode.parent) {
+        const sibParent = hoveredNode.parent;
+        if (sibParent !== dragged.id && !sub.has(sibParent)) {
+          const parentNode = state.nodes.get(sibParent)!;
+          target = hovered; mode = 'sibling'; side = sideOf(parentNode, hoveredNode);
+          // hovering the near half inserts BEFORE the card, the far half AFTER; the gap line previews
+          // the slot among the new siblings. (Not reached for flow frames — handled above.)
           ({ afterId: after, line } = reorderTarget(parentNode, dragged, side));
+        }
       }
-    }
-    // Edge zone (or no valid sibling target) -> child-of-hovered, attaching on whichever side
-    // the drop point sits near. Allowed even when hovered is already this node's parent — that
-    // re-sides the child instead of being a no-op, since the drop point may be near a
-    // different edge than the one it currently occupies. An image card is a leaf — it never
-    // adopts children, so it's not a valid child-drop target (sibling-mode above still is).
-    if (!target && !isImageCard(hoveredNode)) {
-      target = hovered; side = hoveredEdge;
-      // Joining a MANAGED branch that already has children on that side: anchor the insertion
-      // by the dragged card's position among them (instead of always appending) and preview the
-      // slot with the same gap line as a reorder — it's the same "where among the siblings"
-      // question, just without leaving the parent first. (A hovered card here is never a frame —
-      // frames are handled above — so no flow-frame guard is needed.)
-      if (isManagedLayout(hoveredNode))
-        ({ afterId: after, line } = reorderTarget(hoveredNode, dragged, side));
+      // Edge zone (or no valid sibling target) -> child-of-hovered, attaching on whichever side
+      // the drop point sits near. An image card is a leaf — it never adopts children, so it's
+      // not a valid child-drop target (sibling-mode above still is).
+      if (!target && !isImageCard(hoveredNode)) {
+        target = hovered; side = hoveredEdge;
+        if (isManagedLayout(hoveredNode) && !frameFlow(hoveredNode))
+          ({ afterId: after, line } = reorderTarget(hoveredNode, dragged, side));
+      }
     }
   } else if (drag && drag.selRoots.length === 1 && !drag.alt && dragged.parent) {
     // No card hovered: if the dragged card is sliding along its OWN parent's line/fan sibling
@@ -722,7 +732,9 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   if (changed) for (const id of sub) { const m = state.nodes.get(id); if (m) paintNode(m); }
   if (target && side) {
     const targetNode = state.nodes.get(target)!;
-    if (mode !== 'reorder') targetNode.el?.classList.add(mode === 'sibling' ? 'drop-sibling' : 'drop-target');
+    // Highlight the target — EXCEPT a flow frame, which shows the insertion bar (below) instead of
+    // the frame-outline highlight (like line-layout reorder).
+    if (mode !== 'reorder' && !frameFlow(targetNode)) targetNode.el?.classList.add(mode === 'sibling' ? 'drop-sibling' : 'drop-target');
     // One preview at a time, never both: joining/reordering a managed branch with existing
     // children shows ONLY the insertion bar in the sibling gap (the dragged subtree's edge is
     // dropped by paintEdges via drag.dropTarget, and the dashed would-be-edge preview stands
@@ -730,8 +742,11 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
     // cards themselves stay visible under the cursor throughout.
     if (line) {
       // Runs on every pointermove — skip the DOM writes while the segment stays in the same gap
-      // (the bar marks the SIBLINGS' gap, which only moves when the anchor flips).
-      if (!(prevLine && prevLine.x0 === line.x0 && prevLine.y0 === line.y0 && prevLine.x1 === line.x1 && prevLine.y1 === line.y1))
+      // (the bar marks the SIBLINGS' gap, which only moves when the anchor flips). But NOT while
+      // the bar is hidden: alternating with the landing ghost (edge↔centre zones) hides it, and
+      // an unchanged segment must still bring it back.
+      const barShowing = _insertLine && _insertLine.style.display !== 'none';
+      if (!(barShowing && prevLine && prevLine.x0 === line.x0 && prevLine.y0 === line.y0 && prevLine.x1 === line.x1 && prevLine.y1 === line.y1))
         showInsertLine(line);
     } else if (isFrame(targetNode)) {
       // Frame drop-in lands the card exactly where it's released, so it's already under the cursor —

@@ -7,10 +7,10 @@
 // own placement (spreading same-side siblings wide) ever flipping a child's side purely as a
 // side effect of laying it out. layoutH/NODE_W/subtreeIds come from main (render + tree
 // helpers) — a runtime-only cycle.
-import { state, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, isFrameLayout, type MindNode, type LayoutSide } from '../core/state.js';
 import type { Seg } from '../core/ui-state.js';
 import { childrenOf, isHidden, isRoot } from '../utils/model.js';
-import { subtreeIds, layoutH, nodeH, nodeW, NODE_W, GRID_SNAP } from '../main.js';
+import { subtreeIds, layoutH, nodeH, nodeW, NODE_W, GRID_SNAP, FRAME_BORDER } from '../main.js';
 
 const LANDING_GAP = 40;   // gap below/beside the hovered card a drag-reparented child/sibling snaps to
 // Where `dragged` will land if dropped onto `target` in the given mode — CHILD (edge zone of the
@@ -152,8 +152,19 @@ function radialLayoutFrom(root: MindNode | null | undefined): void {
 const LAYOUT_MAIN  = 60;   // gap between a card and its children along the growth axis
 const LAYOUT_CROSS = 22;   // gap between FANNED sibling subtrees (spread across the side)
 const LAYOUT_CHAIN = 12;   // gap between CHAINED sibling subtrees (a line along the direction)
-const FRAME_PAD = 14;      // inset from a frame's border to its content area (flow arrange)
-const FRAME_TITLE_H = 36;  // top strip a frame reserves for its title, above the flowed content
+// Both are multiples of GRID_SNAP so flowed content stays grid-aligned: the frame's own x/y/w/h
+// are already grid multiples (position/resize snap), and every child's w/h is too (NODE_W=200,
+// heights rounded up to the grid in main.ts's snapCardHeights) — so keeping these constants (and
+// the flow gap below) grid multiples means every computed cx/cy stays on the grid, with no
+// runtime rounding needed.
+const FRAME_PAD = 20;       // inset from a frame's border to its content area (flow arrange)
+const FRAME_TITLE_H = 40;   // top strip a frame reserves for its title, above the flowed content
+const FRAME_FLOW_GAP = 20;  // gap between flowed children — GRID_SNAP, not the line/fan LAYOUT_CHAIN
+// Cross-axis tolerance for clustering a flow frame's children into rows/columns when (re)seeding
+// order from raw position (kidsByPosition) — roughly half a default card's row pitch (40 height +
+// 20 gap), so a genuinely different row/column always exceeds it while hand-placed jitter within
+// an intended row doesn't fracture into singleton bands.
+const FLOW_BAND_TOL = 30;
 
 // Bounding box over a node + its VISIBLE descendants (what the layout actually placed).
 export function subtreeBox(node: MindNode){
@@ -177,15 +188,45 @@ export function subtreeBox(node: MindNode){
 // out (see features/drag.ts). Its children aren't repositioned by layout (they stay where placed).
 // A COLLAPSED frame folds to an ordinary card (children hidden), so it isn't a frame while folded —
 // its footprint and behaviour revert to a normal card, matching how it renders.
-export function isFrame(node: MindNode): boolean { return node.layoutType === 'frame' && !node.collapsed; }
+export function isFrame(node: MindNode): boolean { return isFrameLayout(node.layoutType) && !node.collapsed; }
 // Does this node live inside a frame (any frame ancestor)? Such nodes are positioned in the
 // frame's coordinate space, so they must track the frame even while HIDDEN — else a collapsed
 // frame moved by its own parent's layout leaves its (hidden, free) children behind, and they
 // reappear misplaced on expand. Uses layoutType (not isFrame) so a COLLAPSED frame still counts.
 function insideFrame(node: MindNode): boolean {
   for (let p = node.parent ? state.nodes.get(node.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null)
-    if (p.layoutType === 'frame') return true;
+    if (isFrameLayout(p.layoutType)) return true;
   return false;
+}
+// The nearest ANCESTOR frame actually hosting `node` right now — walking PAST non-frame ancestors
+// (a grandchild inherits its parent's host), so it's the frame whose content wrapper `node`'s
+// element lives inside, DOM-wise (main.ts frameContentEl/place). Unlike insideFrame this only
+// counts EXPANDED frames (isFrame, not isFrameLayout), matching what actually renders a wrapper —
+// a collapsed frame has no box/wrapper, so it can't host anything. Shared with edges.ts so an edge
+// between two cards inside the same frame clips to it too, not just the cards themselves.
+export function hostFrame(node: MindNode): MindNode | null {
+  for (let p = node.parent ? state.nodes.get(node.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null)
+    if (isFrame(p)) return p;
+  return null;
+}
+// How many ancestors `node` has (0 for a root). Used to pick the INNERMOST of several nested,
+// overlapping frames — shared by drag.ts's pointerdown retarget (innermostFrameAt) and its
+// pointer-hover hit-test (updateDropTarget), which both need "deepest wins" among frame hits.
+export function ancestorDepth(node: MindNode): number {
+  let d = 0;
+  for (let p = node.parent ? state.nodes.get(node.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null) d++;
+  return d;
+}
+// A frame's INTERIOR rect (absolute world coords, inside its border) — the single source of truth
+// for "where does this frame's content go". Shared by main.ts's frameContentEl (the real DOM
+// containment wrapper) and edges.ts's frameClipDefs (the SVG clip-path for edges/backgrounds,
+// which can't be DOM-reparented into that wrapper) so the two containment mechanisms stay
+// pixel-identical by construction instead of by two hand-synced copies of the same arithmetic.
+export function frameInterior(f: MindNode): { x: number; y: number; w: number; h: number } {
+  return {
+    x: f.x + FRAME_BORDER, y: f.y + FRAME_BORDER,
+    w: Math.max(0, nodeW(f) - FRAME_BORDER * 2), h: Math.max(0, nodeH(f) - FRAME_BORDER * 2),
+  };
 }
 function shiftSubtree(node: MindNode, dx: number, dy: number): void {
   // Saved positions are integers; layout targets are floats. Ignore sub-pixel nudges so a
@@ -217,7 +258,7 @@ export function effectiveLayout(node: MindNode): { type: string } {
 // (which flow frames opt out of, ordering by 2D position rather than a single side axis).
 export function frameFlow(node: MindNode): 'flow-h' | 'flow-v' | null {
   if (!isFrame(node)) return null;
-  return node.arrange === 'flow-h' || node.arrange === 'flow-v' ? node.arrange : null;
+  return node.layoutType === 'frame-h' ? 'flow-h' : node.layoutType === 'frame-v' ? 'flow-v' : null;
 }
 // Whether a node's effective layout actively MANAGES its children's positions — line/fan (side-based)
 // or a flow frame (box-flow) — vs free/free-frame, where children stay where dragged. The single
@@ -261,7 +302,6 @@ export function orderAxisIsX(node: MindNode, side: LayoutSide): boolean {
   const horiz = side === 'left' || side === 'right';
   return effectiveLayout(node).type === 'fan' ? !horiz : horiz;
 }
-const FLOW_BAND = 60;   // cross-axis span within which items count as the same flow row/column
 function kidsByPosition(node: MindNode, kids: MindNode[]): string[] {
   const tie = (n: MindNode) => n.file || n.title || n.id;
   const cmpTie = (a: MindNode, b: MindNode) => (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0);
@@ -273,17 +313,32 @@ function kidsByPosition(node: MindNode, kids: MindNode[]): string[] {
       ? { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 }
       : { x: k.x + NODE_W / 2, y: k.y + nodeH(k) / 2 };
   };
-  // FLOW frame: order by reading order along the flow axis. flow-h reads row-major (band by y, then
-  // left→right); flow-v reads column-major (band by x, then top→bottom). This is how a dropped card
-  // finds its slot among siblings, so dragging one to a new spot reorders it.
+  // FLOW frame: order by reading order along the flow axis. Read the subtree box's TOP-LEFT — NOT
+  // its midpoint — because that's exactly what the flow layout aligns to a row/column line, so all
+  // items in a row (flow-h) share the same box-top even when one has a tall subtree (a midpoint
+  // would band that item into a later row and sort it to the end, losing its saved order on reload).
+  // Cluster into bands by GAP (not exact equality): sort by the cross axis, then start a new band
+  // whenever the jump from the previous item exceeds FLOW_BAND_TOL. Already flow-placed siblings
+  // share an EXACT top per row, so this clusters them correctly too — but tolerant clustering is
+  // what makes a FIRST-time conversion (a free frame's hand-placed cards, never pixel-aligned)
+  // group into sensible rows/columns instead of every card landing in its own singleton band.
   const flow = frameFlow(node);
   if (flow) {
-    return kids.slice().sort((a, b) => {
-      const ma = midXY(a), mb = midXY(b);
-      return flow === 'flow-h'
-        ? (Math.round(ma.y / FLOW_BAND) - Math.round(mb.y / FLOW_BAND)) || (ma.x - mb.x) || cmpTie(a, b)
-        : (Math.round(ma.x / FLOW_BAND) - Math.round(mb.x / FLOW_BAND)) || (ma.y - mb.y) || cmpTie(a, b);
-    }).map(k => k.id);
+    const tl = (k: MindNode): { x: number; y: number } => {
+      const b = subtreeBox(k);
+      return Number.isFinite(b.x0) ? { x: b.x0, y: b.y0 } : { x: k.x, y: k.y };
+    };
+    const cross = (k: MindNode) => flow === 'flow-h' ? tl(k).y : tl(k).x;
+    const along = (k: MindNode) => flow === 'flow-h' ? tl(k).x : tl(k).y;
+    const byCross = kids.slice().sort((a, b) => cross(a) - cross(b) || cmpTie(a, b));
+    let band = 0;
+    const banded = byCross.map((k, i) => {
+      if (i > 0 && cross(k) - cross(byCross[i - 1]) > FLOW_BAND_TOL) band++;
+      return { k, band };
+    });
+    return banded
+      .sort((a, b) => (a.band - b.band) || (along(a.k) - along(b.k)) || cmpTie(a.k, b.k))
+      .map(x => x.k.id);
   }
   // Sort by the SUBTREE box's midpoint, not the card's own corner — a sibling with a big
   // subtree visually occupies its whole box, so that's the order the user perceives. Grouped by
@@ -372,6 +427,78 @@ export function reorderTarget(parent: MindNode, dragged: MindNode, forcedSide?: 
   }
   return { side, afterId, line, near };
 }
+// Where a card dragged inside a FLOW frame would be inserted: the sibling it lands AFTER in the flow
+// reading order (`null` = front), plus the insertion bar to draw. flow-h reads row-major and draws a
+// VERTICAL bar in the gap; flow-v reads column-major and draws a HORIZONTAL bar. The 2D analogue of
+// reorderTarget — used for both the live preview and the drop commit so they agree.
+//
+// Two-step, like reading a grid: (1) which BAND (row for flow-h, column for flow-v) is the dragged
+// card in — resolved by NEAREST band centre on the cross axis, not exact position matching, since
+// the dragged card's live position rarely lands exactly on a row/column line (drag offset, no snap
+// mid-drag); (2) where within that band, by comparing along-axis midpoints — same technique as
+// reorderTarget. Bands are grouped from already-placed siblings, whose box-tops are EXACT per row
+// (that's what the flow layout assigns), so grouping consecutive same-top siblings is reliable.
+export function flowReorderTarget(frame: MindNode, dragged: MindNode): { afterId: string | null; line: Seg } {
+  const flow = frameFlow(frame)!;                                   // caller ensures a flow frame
+  const kids = childrenOf(frame.id).filter(k => !isHidden(k) && k.id !== dragged.id);
+  const sibs = orderedKids(frame, kids);                            // flow reading order
+  if (!sibs.length) return { afterId: null, line: flowLine(frame, null, null, flow) };
+
+  type Band = { key: number; size: number; items: MindNode[] };
+  const bands: Band[] = [];
+  for (const s of sibs) {
+    const b = subtreeBox(s);
+    const key = Math.round(flow === 'flow-h' ? b.y0 : b.x0);
+    const size = flow === 'flow-h' ? (b.y1 - b.y0) : (b.x1 - b.x0);
+    const last = bands[bands.length - 1];
+    if (last && last.key === key) { last.items.push(s); last.size = Math.max(last.size, size); }
+    else bands.push({ key, size, items: [s] });
+  }
+
+  const dCross = flow === 'flow-h' ? dragged.y + nodeH(dragged) / 2 : dragged.x + nodeW(dragged) / 2;
+  let bandIdx = 0, bestDist = Infinity;
+  bands.forEach((b, i) => {
+    const d = Math.abs(dCross - (b.key + b.size / 2));
+    if (d < bestDist) { bestDist = d; bandIdx = i; }
+  });
+  const band = bands[bandIdx];
+
+  const dAlong = flow === 'flow-h' ? dragged.x + nodeW(dragged) / 2 : dragged.y + nodeH(dragged) / 2;
+  let afterInBand: MindNode | null = null;
+  for (const s of band.items) {
+    const b = subtreeBox(s);
+    const mid = flow === 'flow-h' ? (b.x0 + b.x1) / 2 : (b.y0 + b.y1) / 2;
+    if (mid <= dAlong) afterInBand = s; else break;
+  }
+  const afterId = afterInBand ? afterInBand.id
+    : bandIdx > 0 ? bands[bandIdx - 1].items[bands[bandIdx - 1].items.length - 1].id
+    : null;
+
+  const idxInSibs = afterId ? sibs.findIndex(s => s.id === afterId) : -1;
+  const prev = idxInSibs >= 0 ? sibs[idxInSibs] : null;
+  const next = sibs[idxInSibs + 1] ?? null;
+  return { afterId, line: flowLine(frame, prev, next, flow) };
+}
+// The insertion bar between `prev` and `next` (either may be null at the ends) for a flow frame.
+// flow-h draws a VERTICAL bar (positioned along x, spanning a y range); flow-v draws a HORIZONTAL
+// bar (positioned along y, spanning an x range) — same along/cross-axis split as flowReorderTarget,
+// so the two branches below differ only in which axis is "along" vs "cross", not in the logic.
+function flowLine(frame: MindNode, prev: MindNode | null, next: MindNode | null, flow: 'flow-h' | 'flow-v'): Seg {
+  const G = 6;
+  type Box = { x0: number; y0: number; x1: number; y1: number };
+  const pb = prev ? subtreeBox(prev) : null, nb = next ? subtreeBox(next) : null;
+  const alongLo = (b: Box) => flow === 'flow-h' ? b.x0 : b.y0, alongHi = (b: Box) => flow === 'flow-h' ? b.x1 : b.y1;
+  const crossLo = (b: Box) => flow === 'flow-h' ? b.y0 : b.x0, crossHi = (b: Box) => flow === 'flow-h' ? b.y1 : b.x1;
+  // same row (flow-h) / column (flow-v): the flow layout gives row-mates an identical box top.
+  const sameBand = !!pb && !!nb && Math.round(crossLo(pb)) === Math.round(crossLo(nb));
+  let pos: number, spanLo: number, spanHi: number;
+  if (pb && nb && sameBand) { pos = (alongHi(pb) + alongLo(nb)) / 2; spanLo = Math.min(crossLo(pb), crossLo(nb)); spanHi = Math.max(crossHi(pb), crossHi(nb)); }
+  else if (nb) { pos = alongLo(nb) - G; spanLo = crossLo(nb); spanHi = crossHi(nb); }
+  else if (pb) { pos = alongHi(pb) + G; spanLo = crossLo(pb); spanHi = crossHi(pb); }
+  else if (flow === 'flow-h') { pos = frame.x + FRAME_PAD; spanLo = frame.y + FRAME_TITLE_H; spanHi = spanLo + 40; }
+  else { pos = frame.y + FRAME_TITLE_H; spanLo = frame.x + FRAME_PAD; spanHi = spanLo + NODE_W; }
+  return flow === 'flow-h' ? { x0: pos, y0: spanLo, x1: pos, y1: spanHi } : { x0: spanLo, y0: pos, x1: spanHi, y1: pos };
+}
 // After a drag the dropped positions are authoritative (heights didn't change), so refresh the
 // sibling order of every parent that had a child moved — this is the ONLY place order changes.
 export function reorderDraggedParents(movedIds: Iterable<string>): void {
@@ -407,7 +534,7 @@ function layoutSubtree(node: MindNode): void {
   // the next child won't fit. flow-h fills rows left→right (wrap down); flow-v fills columns
   // top→bottom (wrap right). Reflows as the frame is resized (content width/height changes).
   if (flow) {
-    const gap = LAYOUT_CHAIN;
+    const gap = FRAME_FLOW_GAP;
     const left = ax + FRAME_PAD, top = ay + FRAME_TITLE_H;
     const right = ax + nodeW(node) - FRAME_PAD, bottom = ay + nodeH(node) - FRAME_PAD;
     let cx = left, cy = top, band = 0;   // band = tallest row (flow-h) / widest column (flow-v) so far

@@ -5,10 +5,12 @@
 // #stage; edges in the #edges SVG, collapse toggles in #toggles.
 // ============================================================
 
-export type LayoutType = 'none' | 'free' | 'line' | 'fan' | 'frame' | 'image';
-// How a FRAME arranges its children: free placement (default), or auto-flow that fills one axis
-// and wraps to the next — horizontal (left→right, wrap down) or vertical (top→bottom, wrap right).
-export type FrameArrange = 'free' | 'flow-h' | 'flow-v';
+// Frame comes in three flavours, each its own layout type: `frame` (children placed freely inside),
+// `frame-h` (auto-flow rows: left→right, wrap down), `frame-v` (auto-flow columns: top→bottom, wrap
+// right). All three render as a resizable container box. `image` is an unrelated leaf layout (see
+// the `w`/`h` comment below).
+export type LayoutType = 'none' | 'free' | 'line' | 'fan' | 'frame' | 'frame-h' | 'frame-v' | 'image';
+export const isFrameLayout = (t: LayoutType): boolean => t === 'frame' || t === 'frame-h' || t === 'frame-v';
 export type LayoutSide = 'left' | 'right' | 'up' | 'down';
 export type EdgeStyle = 'straight' | 'orthogonal' | 'bezier';
 
@@ -37,14 +39,11 @@ export interface MindNode {
   bg: boolean;                     // draw a translucent background enclosing me + all my visible
                                     // descendants (see view/edges.ts paintBackgrounds)
   layoutType: LayoutType;
-  // Resizable box size (world px). Meaningful for layoutType === 'frame' (the box whose interior
-  // adopts cards dropped in) and layoutType === 'image' (an image-only leaf card — no children,
+  // Resizable box size (world px). Meaningful for a frame layout type (the box whose interior
+  // adopts cards dropped in) and for layoutType === 'image' (an image-only leaf card — no children,
   // no title UI; its body is a single `![alt](path)` filling the box). Persisted as mm_w/mm_h.
   w?: number;
   h?: number;
-  // How a frame arranges its children (only for layoutType === 'frame'). Persisted as mm_arrange;
-  // absent/undefined means 'free'.
-  arrange?: FrameArrange;
   // Which of the PARENT's 4 sides this node attaches on. Stored, not derived — set explicitly
   // by a drop (or copied onto a clone), and backfilled once from position on load/creation if
   // absent (see view/layout.ts sideOf/deriveSide). Meaningless (and omitted) for a root.
@@ -59,6 +58,10 @@ export interface MindNode {
   dirtyLayout: boolean;            // needs (re)positioning by applyLayouts
   kidOrder?: string[];             // stored child order (line/fan layouts); reseeded only on child drag
   el?: HTMLElement | null;         // the rendered card (added during paint)
+  frameContentEl?: HTMLElement | null;   // this frame's overflow:hidden content wrapper (frames only)
+  hostFrameId?: string | null;     // which frame's content wrapper el/frameContentEl currently live
+                                    // in, DOM-wise (null = directly under #world) — transient render
+                                    // bookkeeping, settled outside gestures (see main.ts settledHost)
 }
 
 // An image card is a leaf: no children, no title/body-edit UI (its body is just `![alt](path)`).
@@ -67,7 +70,7 @@ export interface MindNode {
 export function isImageCard(n: MindNode | null | undefined): boolean { return n?.layoutType === 'image'; }
 // Layout types that carry their own resizable box size (w/h persisted as mm_w/mm_h) rather than
 // sizing from title/body content.
-export function isBoxLayoutType(t: LayoutType): boolean { return t === 'frame' || t === 'image'; }
+export function isBoxLayoutType(t: LayoutType): boolean { return isFrameLayout(t) || t === 'image'; }
 
 export interface View { x: number; y: number; k: number; }
 

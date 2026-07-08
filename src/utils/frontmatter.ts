@@ -6,7 +6,7 @@
 // rewrite ONLY the app-owned keys (tags/color/mm_*) while preserving everything else —
 // `date`, `category`, `aliases`, custom fields, and the note body — verbatim.
 // ============================================================
-import { state, isBoxLayoutType, type MindNode, type FmEntry } from '../core/state.js';
+import { state, isBoxLayoutType, isFrameLayout, type MindNode, type FmEntry } from '../core/state.js';
 
 // The shape parseMd yields — a node-to-be plus its raw layout (mm_*) values.
 export interface ParsedNote {
@@ -27,7 +27,6 @@ export interface ParsedNote {
     checklist: boolean;
     bg: boolean;
     layout: string;
-    arrange: string;
     side: string;
   };
 }
@@ -88,11 +87,18 @@ export function parseMd(text: string, fileName: string): ParsedNote {
       done: fmValue(entries, 'mm_done') === 'true',
       checklist: fmValue(entries, 'mm_checklist') === 'true',
       bg: fmValue(entries, 'mm_bg') === 'true',
-      // none(inherit) | free | line | fan | frame — legacy `two-sided` and the retired `grid` both
-      // fold to `fan` (their saved mm_x/mm_y reproduce a reasonable fan), rather than being unknown.
-      layout: (v => v === 'two-sided' || v === 'grid' ? 'fan' : v || 'none')(fmValue(entries, 'mm_layout')),
-      // how a frame arranges its children: free (default) | flow-h | flow-v
-      arrange: fmValue(entries, 'mm_arrange'),
+      // none(inherit) | free | line | fan | frame | frame-h | frame-v. Legacy `two-sided`/`grid`
+      // fold to `fan`; a legacy `frame` + `mm_arrange: flow-h/flow-v` folds to `frame-h`/`frame-v`.
+      layout: (() => {
+        const v = fmValue(entries, 'mm_layout');
+        if (v === 'two-sided' || v === 'grid') return 'fan';
+        if (v === 'frame') {
+          const a = fmValue(entries, 'mm_arrange');
+          if (a === 'flow-h') return 'frame-h';
+          if (a === 'flow-v') return 'frame-v';
+        }
+        return v || 'none';
+      })(),
       // left | right | up | down | '' (unset — backfilled from position once loaded, see
       // data/persistence.ts). This is the CHILD's own attachment side, not the parent's.
       side: fmValue(entries, 'mm_side'),
@@ -116,7 +122,7 @@ export function serializeMd(n: MindNode): string {
   // A frame's children live in the frame's coordinate space: store mm_x/mm_y RELATIVE to the frame
   // (data/persistence.ts converts back to absolute on load), so moving the frame doesn't rewrite
   // every child, and a child's saved offset stays stable. In memory everything stays absolute.
-  const inFrame = parentNode?.layoutType === 'frame';
+  const inFrame = !!parentNode && isFrameLayout(parentNode.layoutType);
   entries.push({ key:'mm_x', lines:[`mm_x: ${Math.round(inFrame ? n.x - parentNode!.x : n.x)}`] });
   entries.push({ key:'mm_y', lines:[`mm_y: ${Math.round(inFrame ? n.y - parentNode!.y : n.y)}`] });
   if (n.collapsed) entries.push({ key:'mm_collapsed', lines:['mm_collapsed: true'] });
@@ -125,10 +131,9 @@ export function serializeMd(n: MindNode): string {
   if (n.bg) entries.push({ key:'mm_bg', lines:['mm_bg: true'] });
   if (n.layoutType && n.layoutType !== 'none')   // none (inherit) is the default — omit from file
     entries.push({ key:'mm_layout', lines:[`mm_layout: ${n.layoutType}`] });
-  if (isBoxLayoutType(n.layoutType)) {   // the resizable box's own size (+ a frame's arrange)
+  if (isBoxLayoutType(n.layoutType)) {   // the resizable box's own size (a frame variant or an image)
     if (n.w != null) entries.push({ key:'mm_w', lines:[`mm_w: ${Math.round(n.w)}`] });
     if (n.h != null) entries.push({ key:'mm_h', lines:[`mm_h: ${Math.round(n.h)}`] });
-    if (n.arrange && n.arrange !== 'free') entries.push({ key:'mm_arrange', lines:[`mm_arrange: ${n.arrange}`] });
   }
   const fm = entries.flatMap(e => e.lines).join('\n');
   const body = n.body.trim();
