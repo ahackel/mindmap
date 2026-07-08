@@ -270,7 +270,7 @@ export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] 
   if (anyFrame && !state.readOnly)
     entries.push({ label: multi ? 'Auto-size frames' : 'Auto-size frame', shortcut:'A',
       run: () => { selectTargetFirst(); autoSizeSelection(); } });
-  entries.push('sep', { label:'Export', run: () => { selectTargetFirst(); exportSelection(); } });
+  entries.push('sep', { label:'Download selected cards', run: () => { selectTargetFirst(); exportSelection(); } });
   entries.push({ label:'Share…', run: () => { selectTargetFirst(); void shareSelection(); }, disabled: !canShareFiles });
   if (!state.readOnly)
     entries.push('sep', { label: multi ? `Delete ${state.sel.size} cards` : 'Delete', shortcut:'Del',

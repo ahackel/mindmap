@@ -206,12 +206,23 @@ export function exportSelection(): void {
 }
 
 // Whether the OS share sheet is available for files — feature-detected once; gates the kebab
-// menu's "Share" entry (Chrome/Edge/Android/iOS Safari; no Firefox/desktop-Safari support).
-// Chrome's `canShare()` still reports true when the page was opened as a bare `file://` — it
-// only rejects at call time (`share()` throws NotAllowedError), so exclude that scheme up front
-// rather than greying the entry in on a false positive.
+// menu's "Share" entry. canShare()/navigator.share can report truthy yet every real share() call
+// still rejects with the exact same NotAllowedError, because the browser has no OS share surface
+// to hand the file to at all — excluded up front rather than greying the entry in on a false
+// positive:
+//  - a bare `file://` page (only rejects at call time)
+//  - any desktop Linux browser (no native share sheet exists on that platform at all)
+//  - Chromium (Chrome/Edge) on macOS before Chrome 128 — crbug.com/1144920, a long-standing
+//    macOS-specific gap in Chromium's Web Share implementation (Safari on macOS always had it;
+//    Chromium fixed it around Chrome 128 per caniuse, so 128+ is trusted at face value).
+const ua = navigator.userAgent;
+const isMac = /Macintosh|Mac OS X/.test(ua) && !/iPhone|iPad|iPod/.test(ua);
+const isLinux = /Linux/.test(ua) && !/Android/.test(ua) && !/CrOS/.test(ua);
+const chromeVersion = Number(ua.match(/Chrome\/(\d+)/)?.[1]);
+const isPreFix128MacChrome = isMac && chromeVersion > 0 && chromeVersion < 128;
+const noOsShareSurface = isLinux || isPreFix128MacChrome;
 const shareFile = new File(['x'], 'x.md', { type: 'text/markdown' });
-export const canShareFiles = location.protocol !== 'file:'
+export const canShareFiles = location.protocol !== 'file:' && !noOsShareSurface
   && typeof navigator.share === 'function' && !!navigator.canShare?.({ files: [shareFile] });
 
 // Share the selected cards (with their subtrees) via the OS share sheet — same payload as
@@ -223,9 +234,6 @@ export async function shareSelection(): Promise<void> {
   if (!files.length) return;
   const f = exportFile(files);
   const file = new File([f.bytes as BlobPart], f.name, { type: f.mime });
-  // the module-load-time canShareFiles check used a dummy .md file — re-check with the REAL
-  // file here since some platforms accept text/markdown but reject application/zip (multi-card
-  // selections), which would otherwise fail navigator.share below with no visible feedback.
   if (!navigator.canShare?.({ files: [file] })){
     console.error('shareSelection: navigator.canShare rejected', file.type, file.name);
     setStatus('Can’t share this as a file');
@@ -234,14 +242,8 @@ export async function shareSelection(): Promise<void> {
   try {
     await navigator.share({ files: [file], title: f.name });
   } catch (err) {
-    if ((err as DOMException)?.name !== 'AbortError'){
-      // Chrome's "NotAllowedError: Permission denied" (as opposed to its distinct user-gesture
-      // wording) means the Permissions Policy for "web-share" rejected the call — the default
-      // allowlist is self-only AND top-level-document-only, so this fires whenever the page runs
-      // inside an iframe without allow="web-share", even same-origin.
-      const embedded = window.top !== window.self;
-      console.error('shareSelection: navigator.share failed', err, { embedded, href: location.href });
-      setStatus(embedded ? 'Can’t share from an embedded page' : 'Couldn’t share');
-    }
+    if ((err as DOMException)?.name === 'AbortError') return;   // user dismissed the share sheet
+    console.error('shareSelection: navigator.share failed', err, { ua: navigator.userAgent, platform: navigator.platform });
+    setStatus('Couldn’t share');
   }
 }
