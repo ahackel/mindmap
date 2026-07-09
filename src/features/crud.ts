@@ -31,6 +31,7 @@ export function mkNode(fields: Partial<MindNode> = {}): MindNode {
 interface CreateOpts {
   x?: number; y?: number; parent?: string | null; title?: string; color?: string;
   tags?: string[]; body?: string; layoutType?: LayoutType; isNew?: boolean;
+  w?: number; h?: number;
   edit?: boolean;   // false = don't open the inline rename (e.g. paste — the content is final)
 }
 export function createNode(opts: CreateOpts = {}): MindNode | undefined {
@@ -43,6 +44,7 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
     color: opts.color ?? '',
     tags: opts.tags ? [...opts.tags] : [], body: opts.body ?? '',
     layoutType: opts.layoutType ?? 'none',
+    w: opts.w, h: opts.h,
   });
   const id = n.id;
   state.nodes.set(id, n);

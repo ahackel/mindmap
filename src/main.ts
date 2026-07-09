@@ -22,7 +22,7 @@ import edgeStraightIcon from './assets/icons/edge-straight.svg?raw';
 import edgeOrthogonalIcon from './assets/icons/edge-orthogonal.svg?raw';
 import edgeBezierIcon from './assets/icons/edge-bezier.svg?raw';
 import { zoomAt, frameBox, screenToWorld } from './view/camera.js';
-import { applyLayouts, hostFrame, frameInterior } from './view/layout.js';
+import { applyLayouts, hostFrame, frameInterior, frameFlow } from './view/layout.js';
 import { paintEdges } from './view/edges.js';
 import './features/gestures.js';   // registers the canvas pan/zoom/marquee gesture listeners
 import './features/attachments.js';   // registers the OS image drag/drop listeners
@@ -347,6 +347,7 @@ function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
   e.stopPropagation(); e.preventDefault();
   const minW = boxMinW(n), minH = boxMinH(n);
   const aspect = isImageBox(n) ? imageAspect(n) : null;   // width/height — locked while dragging an image card
+  const flow = !!frameFlow(n);   // frame-h/frame-v: reflow its children live as the box resizes, not just on release
   const left0 = n.x, top0 = n.y, right0 = n.x + (n.w ?? boxDefaultW(n)), bottom0 = n.y + (n.h ?? boxDefaultH(n));
   const sx = e.clientX, sy = e.clientY;
   const west = dir.includes('w'), east = dir.includes('e'), north = dir.includes('n'), south = dir.includes('s');
@@ -396,13 +397,22 @@ function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
     lastDx = (ev.clientX - sx) / state.view.k; lastDy = (ev.clientY - sy) / state.view.k;
     resize(identity);
     paintNode(n); paintEdges();
+    // A flow frame (frame-h/frame-v) arranges its children by wrapping them into the box's own
+    // width/height — reflow them live as that box changes size, not just once on release, so the
+    // wrap point visibly updates while dragging. Coalesced to once per animation frame (applyLayouts
+    // walks every root's subtree, so it's not free) rather than once per raw pointermove.
+    if (flow && !subtreeRAF) subtreeRAF = requestAnimationFrame(() => {
+      subtreeRAF = null;
+      applyLayouts(); paintAll();
+    });
     // A north/west resize shifts the frame's own x/y, which shifts its content wrapper's origin —
     // repaint the whole subtree (not just direct children) so every hosted descendant's live,
     // wrapper-relative position compensates and stays put in absolute space as the box resizes
     // around it (an east/south-only resize doesn't move the origin, so this is skipped entirely).
     // subtreeIds walks the whole node map, so coalesce it to once per animation frame rather than
-    // once per raw pointermove (which can fire far faster than the screen repaints).
-    if ((north || west) && !subtreeRAF) subtreeRAF = requestAnimationFrame(() => {
+    // once per raw pointermove (which can fire far faster than the screen repaints). Skipped for a
+    // flow frame — the applyLayouts()+paintAll() above already repaints the whole subtree.
+    else if ((north || west) && !subtreeRAF) subtreeRAF = requestAnimationFrame(() => {
       subtreeRAF = null;
       for (const id of subtreeIds(n.id)) { const k = state.nodes.get(id); if (k) paintNode(k); }
     });

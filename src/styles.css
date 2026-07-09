@@ -85,8 +85,8 @@ body.light {
 .c-pink   { --card:var(--pal-pink); }
 .c-grey   { --card:var(--pal-grey); }
 .c-white  { --card:var(--pal-white); }
-/* "none" = no colour at all: blend into the canvas (border returns when selected) */
-.c-none   { --card:var(--bg); }
+/* "none" = no colour at all: truly transparent, not just canvas-bg-coloured (border returns when selected) */
+.c-none   { --card:transparent; }
 
 * { box-sizing: border-box; }
 html, body { margin:0; height:100%; overflow:hidden;
@@ -299,8 +299,8 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
    the top of this file) — an image card with no image reference in its body (e.g. freshly
    flipped from another layout type) shows as a plain colour rect instead of empty transparency;
    once an image loads it covers the whole box, so the colour never actually shows through except
-   at transparent pixels or before the image resolves. `none` maps to --bg (.c-none above), which
-   IS the canvas's own background — effectively transparent against it. */
+   at transparent pixels or before the image resolves. `none` is truly transparent (.c-none above),
+   so an image card with alpha shows whatever's behind the canvas, not a solid bg-coloured patch. */
 .node.image-card { z-index:1; background:var(--card, var(--bg)); min-height:0; border-radius:10px;
   border:none; padding:0; overflow:hidden; }
 .node.image-card .title-row, .node.image-card .progress, .node.image-card .hidden-count { display:none; }
