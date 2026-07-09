@@ -16,6 +16,7 @@ import { renderBodyHTML } from './utils/markdown.js';
 import { childrenOf, isHidden, descendantCount } from './utils/model.js';
 import { state, world, stage, setStatus, isImageCard, isFrameLayout } from './core/state.js';
 import { setupTheme } from './view/theme.js';
+import { setupGrid } from './view/grid.js';
 import { mountIcons } from './view/icons.js';
 import edgeStraightIcon from './assets/icons/edge-straight.svg?raw';
 import edgeOrthogonalIcon from './assets/icons/edge-orthogonal.svg?raw';
@@ -53,6 +54,7 @@ window.__dbg = { get state(){ return state; }, get drag(){ return ui.drag; } }; 
 
 mountIcons();                         // fill [data-icon] placeholders with their SVG assets
 setupTheme();
+setupGrid();
 
 
 

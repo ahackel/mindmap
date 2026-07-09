@@ -16,6 +16,7 @@ import { clearHistory } from '../features/history.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, seenFolders, markFolderSeen, setLastMap, touchMap, createDeviceMap, type Store, type MapKind, type MapRef } from '../store/index.js';
 import { paintAll, selectNode } from '../main.js';
 import { paintStrokes } from '../features/sketch.js';
+import { refreshGrid } from '../view/grid.js';
 import { ui, isTypingInField, editSessionActive, frozenFileNodeId } from '../core/ui-state.js';
 import { hideStart } from '../boot.js';
 
@@ -23,6 +24,10 @@ import { hideStart } from '../boot.js';
 // not a note — it holds no mm_* / frontmatter, just world-space strokes. Read/written through the
 // same store I/O as everything else (see load/save below).
 export const SKETCH_FILE = 'sketch.json';
+
+// Small per-map view preferences that should travel with the vault (like the sketch layer)
+// rather than live in localStorage (which is per-browser). Currently just the background grid.
+export const SETTINGS_FILE = 'settings.json';
 
 // Active backend. Local-first: default to on-device; "Open folder" swaps in fsaStore.
 // `ref` identifies WHICH map is now open (registry entry + what boot() reopens); omit it
@@ -129,6 +134,8 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   state.nodes.clear(); state.toDelete = []; world.querySelectorAll('[data-id]').forEach(e=>e.remove());
   resetImageCache();   // blob URLs from the previous map (or store) are stale now
   await loadSketch();  // read the freehand ink layer (sketch.json) for this map, if any
+  await loadSettings(); // read this map's view prefs (settings.json), e.g. the background grid
+  refreshGrid();
 
   // First pass: read every .md and parse it (layout now lives in each note's frontmatter).
   const entries: { rel: string; parsed: ReturnType<typeof parseMd> }[] = [];
@@ -312,6 +319,9 @@ export async function settleSave(): Promise<void> {
   const sketchPending = sketchTimer != null;
   clearTimeout(sketchTimer); sketchTimer = undefined;
   if (sketchPending) await flushSketch();
+  const settingsPending = settingsTimer != null;
+  clearTimeout(settingsTimer); settingsTimer = undefined;
+  if (settingsPending) await flushSettings();
   if (saveTimer != null || savePromise) await flushSave();
 }
 
@@ -343,6 +353,34 @@ async function flushSketch(): Promise<void> {
   } catch (err) {
     console.error('Sketch save failed:', err);
     setStatus('⚠ Sketch save failed: ' + ((err as Error).message || (err as Error).name));
+  }
+}
+
+// ---------- per-map settings (view prefs that travel with the vault, e.g. the background grid) ----------
+function settingsJSON(): string { return JSON.stringify({ version: 1, grid: state.gridStyle }); }
+export async function loadSettings(): Promise<void> {
+  state.gridStyle = 'none';
+  try {
+    const blob = store.readBlob ? await store.readBlob(SETTINGS_FILE) : null;
+    if (!blob) return;
+    const data = JSON.parse(await blob.text());
+    if (data?.grid === 'dot' || data?.grid === 'line') state.gridStyle = data.grid;
+  } catch { /* missing or malformed → default to no grid */ }
+}
+let settingsTimer: number | undefined;
+export function scheduleSaveSettings(): void {
+  if (state.readOnly || !store.isOpen) return;   // read-only / demo mode: never write
+  clearTimeout(settingsTimer);
+  settingsTimer = setTimeout(flushSettings, 400);
+}
+async function flushSettings(): Promise<void> {
+  if (state.readOnly || !store.isOpen) return;
+  try {
+    await store.write(SETTINGS_FILE, settingsJSON());
+    state.lastSelfWrite = Date.now();            // so the focus-reload ignores our own write
+  } catch (err) {
+    console.error('Settings save failed:', err);
+    setStatus('⚠ Settings save failed: ' + ((err as Error).message || (err as Error).name));
   }
 }
 
