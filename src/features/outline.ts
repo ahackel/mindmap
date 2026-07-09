@@ -403,24 +403,52 @@ function startRowDrag(e: PointerEvent, n: MindNode, row: HTMLElement): void {
   };
   const EDGE = 0.3;   // top/bottom 30% of a row = insert in that gap; the middle 40% = nest
   const GAP = 12;     // inter-row spacing — MUST match .ol-row margin-bottom
+  // Row rects are cached once at engage time, in viewport coordinates AS OF THEN. Edge
+  // auto-scroll (scrollStep below) moves the list under the pointer afterwards, so every
+  // comparison/placement translates by the scroll accumulated since engage instead of
+  // re-measuring all rows per frame.
+  let scroll0 = 0;
   const update = (cy: number): void => {
-    row.style.transform = `translateY(${cy - startY}px)`;
+    const dy = outlineScrollEl.scrollTop - scroll0;   // list content moved up by dy since engage
+    row.style.transform = `translateY(${cy - startY + dy}px)`;
     drop = null; setHi(null); line.style.display = 'none';
     if (!rows.length) return;
     // Pick the row whose band — its rect expanded by half the inter-row gap — contains cy. The
     // bands tile the list contiguously, so hovering in the literal gap between two rows resolves
     // to the nearer row's edge rather than falling through to the end of the list.
-    const refRow = rows.find(r => cy <= r.rect.bottom + GAP / 2) ?? rows[rows.length - 1];
-    const frac = (cy - refRow.rect.top) / refRow.rect.height;   // <0 above the row, >1 below it
+    const cyL = cy + dy;   // pointer y in the cached rects' (engage-time) coordinates
+    const refRow = rows.find(r => cyL <= r.rect.bottom + GAP / 2) ?? rows[rows.length - 1];
+    const frac = (cyL - refRow.rect.top) / refRow.rect.height;   // <0 above the row, >1 below it
     if (frac > EDGE && frac < 1 - EDGE) { drop = { kind: 'child', target: refRow.node }; setHi(refRow.el); return; }
     drop = { kind: frac <= EDGE ? 'before' : 'after', ref: refRow.node };
     const indent = parseFloat(refRow.el.style.marginLeft || '0');
     line.style.display = '';
     line.style.left = (listRect.left + indent + 6) + 'px';
     line.style.width = (listRect.width - indent - 12) + 'px';
-    // centre the 3px bar in the gap between the two rows
-    const edge = drop.kind === 'before' ? refRow.rect.top - GAP / 2 : refRow.rect.bottom + GAP / 2;
+    // centre the 3px bar in the gap between the two rows (.ol-insert is position:fixed → viewport)
+    const edge = (drop.kind === 'before' ? refRow.rect.top - GAP / 2 : refRow.rect.bottom + GAP / 2) - dy;
     line.style.top = (edge - 1.5) + 'px';
+  };
+  // Edge auto-scroll — the outline counterpart of the canvas drag's autoPanStep: while the
+  // pointer sits in the top/bottom band of the scroll viewport, scroll the list at a speed
+  // proportional to how deep into the band it is, and re-run update() so the drop target and
+  // the lifted row track the moving list. Needed on touch especially, since the engaged drag
+  // preventDefault()s native scrolling entirely.
+  const SCROLL_M = 48, SCROLL_MAX = 12;   // edge band (px) and max scroll speed (px/frame)
+  let scrollRAF = 0;
+  const scrollStep = (): void => {
+    scrollRAF = 0;
+    if (!engaged) return;
+    const sr = outlineScrollEl.getBoundingClientRect();
+    let v = 0;
+    if (curY < sr.top + SCROLL_M)         v = -SCROLL_MAX * Math.min(1, (sr.top + SCROLL_M - curY) / SCROLL_M);
+    else if (curY > sr.bottom - SCROLL_M) v =  SCROLL_MAX * Math.min(1, (curY - (sr.bottom - SCROLL_M)) / SCROLL_M);
+    if (v) {
+      const before = outlineScrollEl.scrollTop;
+      outlineScrollEl.scrollTop = before + v;
+      if (outlineScrollEl.scrollTop !== before) update(curY);   // clamped at the ends → no repaint
+    }
+    scrollRAF = requestAnimationFrame(scrollStep);
   };
   const engage = (): void => {
     if (engaged) return;
@@ -436,11 +464,19 @@ function startRowDrag(e: PointerEvent, n: MindNode, row: HTMLElement): void {
     line.className = 'ol-insert';
     document.body.appendChild(line);
     row.classList.add('ol-dragging');
-    if (touchInput) row.style.touchAction = 'none';   // only now grab the gesture from native scroll
     try { row.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+    scroll0 = outlineScrollEl.scrollTop;
     update(curY);
+    scrollRAF = requestAnimationFrame(scrollStep);
   };
+  // Blocking native touch scroll mid-gesture can't be done via touch-action (it's only read at
+  // gesture START) — once engaged we must preventDefault() the raw touchmove, else the browser
+  // starts scrolling the (full) list on the first move and pointercancels the drag. Registered
+  // up-front (non-passive) so it's already in place when the long-press fires; it's a no-op
+  // until `engaged`, so plain swipes still scroll.
+  const touchBlock = (ev: TouchEvent): void => { if (engaged) ev.preventDefault(); };
   if (touchInput) {
+    row.addEventListener('touchmove', touchBlock, { passive: false });
     longPressTimer = window.setTimeout(engage, ROW_LONGPRESS_MS);
   }
   const move = (ev: PointerEvent): void => {
@@ -459,16 +495,17 @@ function startRowDrag(e: PointerEvent, n: MindNode, row: HTMLElement): void {
   };
   const finish = (commit: boolean): void => {
     clearTimeout(longPressTimer);
+    if (touchInput) row.removeEventListener('touchmove', touchBlock);
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', cancel);
     if (!engaged) return;   // a plain tap/click — nothing was touched, nothing to repaint
+    if (scrollRAF) cancelAnimationFrame(scrollRAF);
     rowDragActive = false;
     line.remove();
     setHi(null);
     row.classList.remove('ol-dragging');
     row.style.transform = '';
-    if (touchInput) row.style.touchAction = '';
     if (!commit || !drop || !commitRowDrop(n, drop))
       renderOutline();   // nothing changed → catch up on any repaint skipped while dragging
   };
