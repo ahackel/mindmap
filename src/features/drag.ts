@@ -129,7 +129,25 @@ function applyDragTransform(drag: Drag, dx: number, dy: number): void {
   for (const [id, s] of drag.targets){
     const m = state.nodes.get(id); if (!m) continue;
     m.x = s.x + dx; m.y = s.y + dy; m.dirtyLayout = true;
-    if (m.el) { const orig = drag.origins.get(id); if (orig) m.el.style.transform = `translate(${m.x-orig.x}px,${m.y-orig.y}px)`; }
+    if (m.el) {
+      const orig = drag.origins.get(id);
+      if (orig) {
+        // A node hosted inside a frame that's ALSO part of this drag is already carried visually
+        // by that frame's frameContentEl transform below (its left/top sit inside that container,
+        // which itself is about to move) — giving it its own transform too would add the same
+        // shift twice. Only "roots" of the dragged subtree(s) — no host, or a host that isn't
+        // moving in this same gesture — need an explicit transform of their own.
+        const carried = m.hostFrameId != null && drag.targets.has(m.hostFrameId);
+        const t = carried ? '' : `translate(${m.x-orig.x}px,${m.y-orig.y}px)`;
+        m.el.style.transform = t;
+        // An expanded frame's overflow:hidden content wrapper (frameContentEl) is a second,
+        // separately-positioned element (left/top only re-synced by a full paintNode) — mirror
+        // the same compositor transform onto it (only when this frame itself is a root — a
+        // carried frame's wrapper is already moving with its own host's transform) so the clip
+        // window slides with the frame instead of staying stranded at its pre-drag position.
+        if (m.frameContentEl) m.frameContentEl.style.transform = t;
+      }
+    }
   }
 }
 
@@ -333,6 +351,7 @@ function dragPointerUp(): void {
       for (const id of new Set([...drag.targets.keys(), ...drag.start.keys()])){
         const m2 = state.nodes.get(id);
         if (m2?.el){ m2.el.style.transform = ''; m2.el.style.willChange = ''; m2.el.classList.remove('dragging'); }
+        if (m2?.frameContentEl) m2.frameContentEl.style.transform = '';
       }
       const act = drag.active;
       // Released OUTSIDE the browser window → cancel the whole gesture, OS-style snap-back.
@@ -513,6 +532,7 @@ export function abortDrag(): void {
   for (const id of new Set([...drag.targets.keys(), ...drag.start.keys()])){
     const m = state.nodes.get(id);
     if (m?.el){ m.el.style.transform = ''; m.el.style.willChange = ''; m.el.classList.remove('dragging'); }
+    if (m?.frameContentEl) m.frameContentEl.style.transform = '';
   }
   ui.drag = null;
   document.body.classList.remove('grabbing');
@@ -546,6 +566,7 @@ function applyDragClone(): void {
       const m = state.nodes.get(id); if (m){ m.x = s.x; m.y = s.y; m.dirtyLayout = false; }
       // revert their compositor transforms — `drag.active` is about to switch to the clone
       if (m?.el) { m.el.style.transform = ''; }
+      if (m?.frameContentEl) { m.frameContentEl.style.transform = ''; }
     }
     // clone each dragged ROOT (just the card, not its subtree) at its own start spot
     const rootIds = drag.selRoots;
@@ -559,6 +580,7 @@ function applyDragClone(): void {
   } else if (!drag.shift && drag.cloned){
     for (const clone of (drag.clones || [])){
       if (clone.el){ clone.el.style.transform = ''; clone.el.style.willChange = ''; }
+      if (clone.frameContentEl){ clone.frameContentEl.style.transform = ''; }
       state.nodes.delete(clone.id); clone.el?.remove();   // drop the clones we made
     }
     drag.clones = null;
