@@ -85,8 +85,8 @@ body.light {
 .c-pink   { --card:var(--pal-pink); }
 .c-grey   { --card:var(--pal-grey); }
 .c-white  { --card:var(--pal-white); }
-/* "none" = no colour at all: blend into the canvas (border returns when selected) */
-.c-none   { --card:var(--bg); }
+/* "none" = no colour at all: truly transparent, not just canvas-bg-coloured (border returns when selected) */
+.c-none   { --card:transparent; }
 
 * { box-sizing: border-box; }
 html, body { margin:0; height:100%; overflow:hidden;
@@ -214,7 +214,8 @@ input::placeholder { color:var(--muted); opacity:1; }
 body.grabbing, body.grabbing * { cursor:grabbing !important; }
 #world { position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; touch-action:none; }
 
-svg#backgrounds, svg#sketch, svg#edges, svg#toggles, svg#dragEdges { position:absolute; top:0; left:0; overflow:visible; }
+svg#grid, svg#backgrounds, svg#sketch, svg#edges, svg#toggles, svg#dragEdges { position:absolute; top:0; left:0; overflow:visible; }
+svg#grid { z-index:-1; pointer-events:none; }       /* background grid behind everything, incl. group backgrounds */
 svg#backgrounds { z-index:0; pointer-events:none; } /* group backgrounds behind everything */
 svg#sketch { z-index:0; pointer-events:none; }      /* freehand ink behind cards + edges (drawing is handled on #stage) */
 svg#edges { z-index:1; pointer-events:none; }      /* curves behind nodes */
@@ -298,8 +299,8 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
    the top of this file) — an image card with no image reference in its body (e.g. freshly
    flipped from another layout type) shows as a plain colour rect instead of empty transparency;
    once an image loads it covers the whole box, so the colour never actually shows through except
-   at transparent pixels or before the image resolves. `none` maps to --bg (.c-none above), which
-   IS the canvas's own background — effectively transparent against it. */
+   at transparent pixels or before the image resolves. `none` is truly transparent (.c-none above),
+   so an image card with alpha shows whatever's behind the canvas, not a solid bg-coloured patch. */
 .node.image-card { z-index:1; background:var(--card, var(--bg)); min-height:0; border-radius:10px;
   border:none; padding:0; overflow:hidden; }
 .node.image-card .title-row, .node.image-card .progress, .node.image-card .hidden-count { display:none; }
@@ -468,6 +469,8 @@ body.empty-canvas:not(.readonly) .emptyhint { opacity:1; }
 #ghostHint span { position:relative; top:-5px; }        /* nudge only the label up, arrow stays */
 /* help toggle — bottom-right corner */
 #helpBtn { right:12px; bottom:12px; overflow:visible; }
+/* grid toggle — its own floating button, sitting immediately to the left of help */
+#gridBtn { right:calc(12px + var(--bar-btn) + 8px); bottom:12px; }
 /* help hint lives INSIDE the help button, so it tracks it with no JS — sits ABOVE the
    bottom-right button and points down at it */
 #helpHint {
@@ -730,7 +733,7 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    narrow/phone treatment below), not just because outline is active. #outlineBtn joins them here
    too: once open, #olCloseBtn (top-right of the drawer) is the way to close it, and on wide
    screens the drawer sits right over this corner anyway. */
-body.outline #sketchBtn, body.outline #helpBtn, body.outline #outlineBtn { display:none !important; }
+body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #outlineBtn { display:none !important; }
 
 @media (max-width: 700px) {
   body.outline #stage, body.outline #ghostCard, body.outline #ghostHint,

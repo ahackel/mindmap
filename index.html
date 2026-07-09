@@ -52,6 +52,21 @@
 
   <div id="stage">
     <div id="world">
+      <!-- background grid (none/dot/line, toggled by #gridBtn): behind everything, incl. group
+           backgrounds. Pattern cell is 20 world units — GRID_SNAP in main.ts — so it lines up
+           with where dragged cards snap to. Lives inside #world so it inherits the pan/zoom
+           transform for free, no per-frame position math needed. -->
+      <svg id="grid">
+        <defs>
+          <pattern id="gridDotPat" width="20" height="20" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="1" fill="var(--grid)"/>
+          </pattern>
+          <pattern id="gridLinePat" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="var(--grid)" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect id="gridRect" x="-100000" y="-100000" width="200000" height="200000" fill="none"/>
+      </svg>
       <!-- group backgrounds: the "encloses card + descendants" tint, behind everything else -->
       <svg id="backgrounds"></svg>
       <!-- freehand sketch layer: ink drawn on the canvas, behind the cards -->
@@ -163,6 +178,9 @@
   <!-- sketch toggle: floating top-right, outside the toolbar -->
   <button id="sketchBtn" class="floating-btn" title="Sketch (S) — draw freehand on the canvas" aria-label="Toggle sketch mode">
     <span class="ic" data-icon="sketch"></span></button>
+
+  <!-- background grid toggle: floating bottom-right, immediately left of help (features/../view/grid.ts) -->
+  <button id="gridBtn" class="floating-btn" title="Background grid — click to cycle" aria-label="Cycle background grid"></button>
 
   <!-- help toggle: floating bottom-right, outside the toolbar -->
   <button id="helpBtn" class="floating-btn" title="Open help (F1)" aria-label="Open help">

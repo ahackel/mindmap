@@ -32,6 +32,25 @@ async function storeImage(file: File): Promise<string> {
   state.lastSelfWrite = Date.now();        // our own write — don't let focus-reload react to it
   return path;
 }
+// The image's natural pixel size, used to give a fresh image card the same aspect ratio as its
+// image instead of the generic IMAGE_W×IMAGE_H box. Falls back to that default box if decoding fails
+// (e.g. an unsupported format) — the card still gets created, just without a matched aspect ratio.
+async function imageSize(file: File): Promise<{ w: number; h: number }> {
+  try {
+    const bmp = await createImageBitmap(file);
+    const { width: w, height: h } = bmp;
+    bmp.close();
+    if (w > 0 && h > 0) return { w, h };
+  } catch { /* fall through to default */ }
+  return { w: IMAGE_W, h: IMAGE_H };
+}
+// Fit a natural image size into a card box: keep the image's aspect ratio, capped to IMAGE_W so a
+// huge photo doesn't land as an oversized card (it can still be resized up afterwards).
+function imageCardSize(size: { w: number; h: number }): { w: number; h: number } {
+  const w = Math.min(IMAGE_W, size.w);
+  const h = w * (size.h / size.w);
+  return { w: Math.round(w), h: Math.round(h) };
+}
 // Strip the extension (and any path separators, for names that came in as a full path) from a
 // file's name to use as markdown alt text / an image card's title. Shared by markdownForImages
 // and createImageCards so the two paths can't drift.
@@ -98,12 +117,13 @@ async function createImageCards(imgs: File[], sx: number | null, sy: number | nu
   const p = sx != null && sy != null ? screenToWorld(sx, sy) : screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
   let i = 0;
   for (const f of imgs){
-    const path = await storeImage(f);
+    const [path, natural] = await Promise.all([storeImage(f), imageSize(f)]);
     const alt = altFromFile(f);
+    const { w, h } = imageCardSize(natural);
     createNode({
-      x: p.x - IMAGE_W / 2 + i * 24, y: p.y - IMAGE_H / 2 + i * 24,
+      x: p.x - w / 2 + i * 24, y: p.y - h / 2 + i * 24,
       parent, title: uniqueTitle(alt), body: `![${alt}](${path})`,
-      layoutType: 'image', edit: false,
+      layoutType: 'image', color: 'none', w, h, edit: false,
     });
     i++;
   }

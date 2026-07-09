@@ -13,6 +13,7 @@ export type LayoutType = 'none' | 'free' | 'line' | 'fan' | 'frame' | 'frame-h' 
 export const isFrameLayout = (t: LayoutType): boolean => t === 'frame' || t === 'frame-h' || t === 'frame-v';
 export type LayoutSide = 'left' | 'right' | 'up' | 'down';
 export type EdgeStyle = 'straight' | 'orthogonal' | 'bezier';
+export type GridStyle = 'none' | 'dot' | 'line';
 
 // One ordered frontmatter entry: a top-level `key:` line plus its continuation lines.
 // `key` is null for leading content with no key (preserved verbatim on save).
@@ -91,6 +92,7 @@ export interface AppState {
   selId: string | null;            // primary selection — drives the single-node editor fields
   sel: Set<string>;                // full selection set (⌘-click / marquee)
   edgeStyle: EdgeStyle;            // restored from localStorage
+  gridStyle: GridStyle;            // restored per-map from settings.json — see data/persistence.ts
   strokes: Stroke[];               // freehand sketch layer (loaded from / saved to sketch.json)
   searchMatch: Set<string> | null; // ids to highlight for the find query (matches' visible reps), or null when not searching
   searchActiveId: string | null;   // visible rep of the active dropdown option → gets a white outline
@@ -107,6 +109,7 @@ export const state: AppState = {
   selId: null,
   sel: new Set<string>(),
   edgeStyle: 'orthogonal',
+  gridStyle: 'none',
   strokes: [],
   searchMatch: null,
   searchActiveId: null,
