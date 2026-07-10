@@ -7,7 +7,7 @@
 // existing generic context menu (openMenu, features/context-menu.ts).
 // On narrow/touch widths (NARROW_MQ) styles.css docks the bar to the bottom edge instead —
 // this module skips the floating position math there and lets CSS own it.
-import { state, stage, setStatus, isImageCard, isFrameLayout, type MindNode, type LayoutType } from '../core/state.js';
+import { state, stage, setStatus, isImageCard, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
 import { NARROW_MQ, ui } from '../core/ui-state.js';
 import { record } from './history.js';
 import { scheduleSave } from '../data/persistence.js';
@@ -27,14 +27,17 @@ function byId<T extends HTMLElement = HTMLElement>(id: string): T { return docum
 
 const bar = byId('floatBar');
 const fbColor = byId<HTMLButtonElement>('fbColor');
+const fbType = byId<HTMLButtonElement>('fbType');
 const fbLayout = byId<HTMLButtonElement>('fbLayout');
 const fbChecklist = byId<HTMLInputElement>('fbChecklist');
 const fbBg = byId<HTMLInputElement>('fbBg');
 const fbMore = byId<HTMLButtonElement>('fbMore');
 const colorPop = byId('fbColorPop');
+const typePop = byId('fbTypePop');
 const layoutPop = byId('fbLayoutPop');
 const popConnector = byId('fbPopConnector');
 const edColors = byId('edColors');
+const edTypes = byId('edTypes');
 const edLayoutTypes = byId('edLayoutTypes');
 
 // colour / checklist / group-bg share the SAME control wiring the sidebar (and the outline's
@@ -53,24 +56,43 @@ function props(): PropertyControls {
 // render core.
 const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
 const DOT = (cx: number, cy: number, r = 2.2) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="currentColor" stroke="none"/>`;
-const LAYOUT_TYPES: { key: LayoutType; label: string; icon: string }[] = [
-  { key:'none', label:'None — inherit layout from the parent (default)',
-    icon: SVG_OPEN + '<rect x="5" y="7" width="14" height="10" rx="2" stroke-dasharray="3 2.5"/></svg>' },
-  { key:'free', label:'Free — children stay where you drag them',
-    icon: SVG_OPEN + DOT(6,7) + DOT(17,8) + DOT(11,17) + '</svg>' },
-  { key:'line', label:'Line — children chained one after another, each on whichever side it sits on',
-    icon: SVG_OPEN + DOT(4,12) + '<path d="M6.5 12h3"/>' + DOT(12,12) + '<path d="M14.5 12h3"/>' + DOT(20,12) + '</svg>' },
-  { key:'fan', label:'Fan — children spread out, each to whichever side it’s placed on',
-    icon: SVG_OPEN + DOT(4,12) + '<path d="M6 12l6-6M6 12h6M6 12l6 6"/>' + DOT(14,6,1.8) + DOT(14,12,1.8) + DOT(14,18,1.8) + '</svg>' },
-  { key:'frame', label:'Frame — a resizable box; drag cards inside to hold them, out to release',
-    icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="6.5" y="8.5" width="6" height="4.5" rx="1" fill="currentColor" stroke="none"/></svg>' },
-  { key:'frame-h', label:'Frame (horizontal) — cards flow left to right, wrapping down',
-    icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="6.5" y="9.5" width="4.5" height="5" rx="1" fill="currentColor" stroke="none"/><rect x="13" y="9.5" width="4.5" height="5" rx="1" fill="currentColor" stroke="none"/></svg>' },
-  { key:'frame-v', label:'Frame (vertical) — cards flow top to bottom, wrapping right',
-    icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="8.5" y="7.5" width="7" height="4" rx="1" fill="currentColor" stroke="none"/><rect x="8.5" y="12.5" width="7" height="4" rx="1" fill="currentColor" stroke="none"/></svg>' },
-  { key:'image', label:'Image — a resizable box showing one image, nothing else (no children)',
-    icon: SVG_OPEN + '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none"/><path d="M4 15.5l5-5 3.5 3.5 3-3 4.5 4.5"/></svg>' },
+// A node's KIND. Selecting one seeds/tears down its box (see setType) and swaps which layout
+// chips the layout popover offers (LAYOUTS_BY_TYPE below).
+const TYPE_ICONS: Record<NodeType, string> = {
+  card: SVG_OPEN + '<rect x="5" y="6" width="14" height="12" rx="2"/><path d="M8 10h8M8 13.5h5"/></svg>',
+  frame: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="6.5" y="8.5" width="6" height="4.5" rx="1" fill="currentColor" stroke="none"/></svg>',
+  image: SVG_OPEN + '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none"/><path d="M4 15.5l5-5 3.5 3.5 3-3 4.5 4.5"/></svg>',
+};
+const NODE_TYPES: { key: NodeType; label: string; icon: string }[] = [
+  { key:'card',  label:'Card — an ordinary note',                                        icon: TYPE_ICONS.card },
+  { key:'frame', label:'Frame — a resizable box; drag cards inside to hold them, out to release', icon: TYPE_ICONS.frame },
+  { key:'image', label:'Image — a resizable box showing one image, nothing else (no children)',   icon: TYPE_ICONS.image },
 ];
+// How a node of each type arranges its children. The layout popover shows exactly this type's set
+// (image has none — it's a leaf, so its layout chip row is empty and the trigger is hidden).
+const LAYOUTS_BY_TYPE: Record<NodeType, { key: NodeLayout; label: string; icon: string }[]> = {
+  card: [
+    { key:'inherit', label:'Inherit — take the parent’s layout (default)',
+      icon: SVG_OPEN + '<rect x="5" y="7" width="14" height="10" rx="2" stroke-dasharray="3 2.5"/></svg>' },
+    { key:'free', label:'Free — children stay where you drag them',
+      icon: SVG_OPEN + DOT(6,7) + DOT(17,8) + DOT(11,17) + '</svg>' },
+    { key:'line', label:'Line — children chained one after another, each on whichever side it sits on',
+      icon: SVG_OPEN + DOT(4,12) + '<path d="M6.5 12h3"/>' + DOT(12,12) + '<path d="M14.5 12h3"/>' + DOT(20,12) + '</svg>' },
+    { key:'fan', label:'Fan — children spread out, each to whichever side it’s placed on',
+      icon: SVG_OPEN + DOT(4,12) + '<path d="M6 12l6-6M6 12h6M6 12l6 6"/>' + DOT(14,6,1.8) + DOT(14,12,1.8) + DOT(14,18,1.8) + '</svg>' },
+  ],
+  frame: [
+    { key:'free', label:'Free — children placed freely inside the box',
+      icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="6.5" y="8.5" width="6" height="4.5" rx="1" fill="currentColor" stroke="none"/></svg>' },
+    { key:'horizontal', label:'Horizontal — cards flow left to right, wrapping down',
+      icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="6.5" y="9.5" width="4.5" height="5" rx="1" fill="currentColor" stroke="none"/><rect x="13" y="9.5" width="4.5" height="5" rx="1" fill="currentColor" stroke="none"/></svg>' },
+    { key:'vertical', label:'Vertical — cards flow top to bottom, wrapping right',
+      icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="8.5" y="7.5" width="7" height="4" rx="1" fill="currentColor" stroke="none"/><rect x="8.5" y="12.5" width="7" height="4" rx="1" fill="currentColor" stroke="none"/></svg>' },
+  ],
+  image: [],
+};
+// The default layout for a freshly-set type — omitted from frontmatter (see serializeMd).
+const DEFAULT_LAYOUT: Record<NodeType, NodeLayout> = { card: 'inherit', frame: 'free', image: 'free' };
 // Fit a frame's box snugly around its children: a title strip on top, a margin on the other sides,
 // snapped to the grid and clamped to the min size. Children keep their positions (the box moves to
 // enclose them). With no children it's left as-is, or given the default size when `orDefault` (used
@@ -92,53 +114,91 @@ function fitFrameToContent(n: MindNode, orDefault = false): void {
 }
 // Auto-size every selected frame to fit its content (shortcut / context menu).
 export function autoSizeSelection(): void {
-  const ids = selectedIds().filter(id => { const t = state.nodes.get(id)?.layoutType; return t && isFrameLayout(t); });
+  const ids = selectedIds().filter(id => state.nodes.get(id)?.type === 'frame');
   if (!ids.length) return;
   record(ids, () => { for (const id of ids){ const n = state.nodes.get(id); if (n) { fitFrameToContent(n); n.dirty = true; } } });
   applyLayouts(); paintAll(); scheduleSave();
 }
-(function buildLayoutChips(){
-  edLayoutTypes.innerHTML = LAYOUT_TYPES.map(t =>
+(function buildTypeChips(){
+  edTypes.innerHTML = NODE_TYPES.map(t =>
     `<div class="layoutchip" data-type="${t.key}" title="${t.label}">${t.icon}</div>`).join('');
-  edLayoutTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-    c.addEventListener('click', () => { setLayout(c.dataset.type as LayoutType); closePopovers(); }));
+  edTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
+    c.addEventListener('click', () => { setType(c.dataset.type as NodeType); closePopovers(); }));
 })();
-function setLayout(type: LayoutType): void {
+// The layout chips are type-dependent, so they're (re)built lazily whenever the selected type
+// changes — `builtFor` avoids rebuilding (and re-binding listeners) on every sync.
+let builtFor: NodeType | null = null;
+function rebuildLayoutChips(type: NodeType): void {
+  if (builtFor === type) return;
+  builtFor = type;
+  edLayoutTypes.innerHTML = LAYOUTS_BY_TYPE[type].map(l =>
+    `<div class="layoutchip" data-layout="${l.key}" title="${l.label}">${l.icon}</div>`).join('');
+  edLayoutTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
+    c.addEventListener('click', () => { setLayout(c.dataset.layout as NodeLayout); closePopovers(); }));
+}
+// Change the KIND of the selection: seed/reset the box, drop a now-invalid layout, reseed order.
+function setType(type: NodeType): void {
   const ids = selectedIds(); if (!ids.length) return;
-  // an image card is a leaf — refuse to flip a card that already has children into one
+  // an image is a leaf — refuse to flip a card that already has children into one
   if (type === 'image' && ids.some(id => childrenOf(id).length)) {
     setStatus('An image card can’t have children — move or delete them first');
     return;
   }
   record(ids, () => {
     for (const id of ids){
-      const n = state.nodes.get(id); if (!n) continue;
-      // becoming a frame (from a non-frame) gets a box; switching between frame variants keeps it
-      if (isFrameLayout(type) && !isFrameLayout(n.layoutType)) fitFrameToContent(n, true);
-      if (type === 'image' && n.layoutType !== 'image' && (n.w == null || n.h == null)) { n.w = IMAGE_W; n.h = IMAGE_H; }
-      // Drop the stored child order on any real layout-type change: a switch INTO a managed
-      // layout (line/fan/flow-frame) must reseed order from the children's CURRENT positions —
-      // e.g. a free frame's cards, manually rearranged while free, become a stale-order flow
-      // frame otherwise (kidOrder from an earlier managed pass never gets cleared by a plain
-      // drag in free/free-frame mode, since that mode doesn't touch kidOrder at all).
-      if (n.layoutType !== type) n.kidOrder = undefined;
-      n.layoutType = type;
+      const n = state.nodes.get(id); if (!n || n.type === type) continue;
+      if (type === 'frame') fitFrameToContent(n, true);   // give it a box enclosing its children
+      if (type === 'image' && (n.w == null || n.h == null)) { n.w = IMAGE_W; n.h = IMAGE_H; }
+      n.type = type;
+      // keep the current arrangement if the new type still supports it (e.g. free across card↔frame);
+      // otherwise fall back to the type's default (card→inherit, frame→free, image→none).
+      if (!LAYOUTS_BY_TYPE[type].some(l => l.key === n.layout)) n.layout = DEFAULT_LAYOUT[type];
+      n.kidOrder = undefined;   // reseed order from the children's CURRENT positions under the new type
       n.dirty = true;
     }
   });
-  markLayoutChips();
+  markChips();
   applyLayouts(); paintAll(); scheduleSave();
 }
-// reflect the selection's current layout in the popover chips AND the trigger button's icon
-// (mixed selection → no chip active, trigger falls back to the "none" icon).
-function markLayoutChips(): void {
+// Change the child-ARRANGEMENT of the selection (within its current type).
+function setLayout(layout: NodeLayout): void {
+  const ids = selectedIds(); if (!ids.length) return;
+  record(ids, () => {
+    for (const id of ids){
+      const n = state.nodes.get(id); if (!n || n.layout === layout) continue;
+      // Drop the stored child order: a switch INTO a managed layout (line/fan/flow) must reseed
+      // order from the children's CURRENT positions — a free layout never touches kidOrder, so a
+      // stale order from an earlier managed pass would otherwise survive.
+      n.layout = layout;
+      n.kidOrder = undefined;
+      n.dirty = true;
+    }
+  });
+  markChips();
+  applyLayouts(); paintAll(); scheduleSave();
+}
+// Reflect the selection's current type + layout in both popovers AND their trigger icons. A single
+// type shows its chip active and its layout set; a mixed-type selection leaves both blank. The
+// layout picker is rebuilt for the selected type and hidden entirely for an image (a leaf).
+function markChips(): void {
   const ids = selectedIds();
-  const types = new Set(ids.map(id => state.nodes.get(id)?.layoutType || 'none'));
-  const t = types.size === 1 ? [...types][0] : null;
+  const typeSet = new Set(ids.map(id => state.nodes.get(id)?.type ?? 'card'));
+  const type = typeSet.size === 1 ? [...typeSet][0] : null;
+  edTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
+    c.classList.toggle('active', c.dataset.type === type));
+  fbType.innerHTML = type ? TYPE_ICONS[type] : TYPE_ICONS.card;
+
+  const forType: NodeType = type ?? 'card';
+  rebuildLayoutChips(forType);
+  const hasLayout = forType !== 'image';
+  fbLayout.style.display = hasLayout ? '' : 'none';
+  if (!hasLayout) { fbLayout.innerHTML = ''; return; }
+  const layoutSet = new Set(ids.map(id => state.nodes.get(id)?.layout));
+  const layout = (type && layoutSet.size === 1) ? [...layoutSet][0] : null;
   edLayoutTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
-    c.classList.toggle('active', c.dataset.type === t));
+    c.classList.toggle('active', c.dataset.layout === layout));
   const active = edLayoutTypes.querySelector('.layoutchip.active');
-  fbLayout.innerHTML = active ? active.innerHTML : LAYOUT_TYPES[0].icon;
+  fbLayout.innerHTML = active ? active.innerHTML : LAYOUTS_BY_TYPE[forType][0].icon;
 }
 
 // ---------- colour trigger ----------
@@ -156,7 +216,7 @@ function markColorTrigger(): void {
 
 function syncControls(): void {
   props().sync();
-  markLayoutChips();
+  markChips();
   markColorTrigger();
 }
 
@@ -191,6 +251,7 @@ function positionPopover(pop: HTMLElement, anchor: HTMLElement): void {
 }
 function closePopovers(): void {
   colorPop.classList.remove('open');
+  typePop.classList.remove('open');
   layoutPop.classList.remove('open');
   popConnector.classList.remove('open');
   activePopover = null;
@@ -201,6 +262,7 @@ function togglePopover(pop: HTMLElement, anchor: HTMLElement): void {
   if (willOpen){ pop.classList.add('open'); activePopover = { pop, anchor }; positionPopover(pop, anchor); }
 }
 fbColor.addEventListener('click', (e) => { e.stopPropagation(); togglePopover(colorPop, fbColor); });
+fbType.addEventListener('click', (e) => { e.stopPropagation(); togglePopover(typePop, fbType); });
 fbLayout.addEventListener('click', (e) => { e.stopPropagation(); togglePopover(layoutPop, fbLayout); });
 // a colour pick updates the trigger's own swatch look and closes the popover (the layout popover
 // already closes itself in setLayout above). Runs after properties.ts's own listener has already
@@ -212,7 +274,8 @@ colorPop.addEventListener('click', (e) => {
 });
 document.addEventListener('pointerdown', (e) => {
   const t = e.target as Node;
-  if (activePopover && !colorPop.contains(t) && !layoutPop.contains(t) && t !== fbColor && t !== fbLayout) closePopovers();
+  if (activePopover && !colorPop.contains(t) && !typePop.contains(t) && !layoutPop.contains(t)
+      && t !== fbColor && t !== fbType && t !== fbLayout) closePopovers();
 }, true);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && activePopover) closePopovers(); }, true);
 
@@ -226,7 +289,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && activePo
 export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] {
   const multi = state.sel.has(n.id) && state.sel.size > 1;
   const targetIds = multi ? [...state.sel] : [n.id];
-  const anyFrame = targetIds.some(id => { const t = state.nodes.get(id)?.layoutType; return t && isFrameLayout(t); });
+  const anyFrame = targetIds.some(id => state.nodes.get(id)?.type === 'frame');
   // group actions (Duplicate/Cut/Copy/Export/Share/Auto-size) act on state.sel via selectedIds();
   // when the target isn't already part of the selection, select it first so they act on IT.
   const selectTargetFirst = () => { if (!multi) selectNode(n.id); };

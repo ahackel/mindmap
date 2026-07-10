@@ -5,7 +5,7 @@
 // render core (main.ts) and the feature modules split out of it (drag / inline-edit / gestures
 // / attachments). Imported `let` bindings are read-only, hence the holder-object pattern.
 // ============================================================
-import type { MindNode, LayoutType, LayoutSide } from './state.js';
+import type { MindNode, LayoutSide } from './state.js';
 
 export type Pt = { x: number; y: number };
 // World-space line segment (axis-aligned for the insertion indicator).

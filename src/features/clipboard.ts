@@ -15,7 +15,7 @@
 // pasting into a text editor / Obsidian yields real notes. Anything on the clipboard that
 // doesn't start with the marker falls through to the existing paste-as-new-card behaviour
 // (features/attachments.ts).
-import { state, setStatus, type MindNode, type LayoutType, type LayoutSide } from '../core/state.js';
+import { state, setStatus, type MindNode, type LayoutSide } from '../core/state.js';
 import { serializeMd, parseMd, type ParsedNote } from '../utils/frontmatter.js';
 import { isAncestor } from '../utils/model.js';
 import { zipBytes, zipBlob } from '../utils/zip.js';
@@ -130,7 +130,7 @@ export function tryPasteCards(text: string, at: { sx: number | null; sy: number 
         color: c.p.color, keepStatus: c.p.keepStatus,
         tags: [...c.p.tags], body: c.p.body, fmEntries: c.p.fmEntries,
         collapsed: c.p.mm.collapsed, done: c.p.mm.done, checklist: c.p.mm.checklist, bg: c.p.mm.bg,
-        layoutType: (c.p.mm.layout || 'none') as LayoutType,
+        type: c.p.mm.type, layout: c.p.mm.layout,
         // a root reattaches to the paste target — its old side is meaningless there
         side: root ? undefined : (c.p.mm.side || undefined) as LayoutSide | undefined,
       });

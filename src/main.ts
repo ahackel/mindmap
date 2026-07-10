@@ -14,7 +14,7 @@
 import './styles.css';   // app styles (Vite bundles + singlefile inlines into dist/index.html)
 import { renderBodyHTML } from './utils/markdown.js';
 import { childrenOf, isHidden, descendantCount } from './utils/model.js';
-import { state, world, stage, setStatus, isImageCard, isFrameLayout } from './core/state.js';
+import { state, world, stage, setStatus, isImageCard } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { setupGrid } from './view/grid.js';
 import { mountIcons } from './view/icons.js';
@@ -265,9 +265,9 @@ export const IMAGE_W = 240, IMAGE_H = 180;   // default image-card size (world p
 export const FRAME_BORDER = 4;   // must match .node.frame's CSS `border` width (styles.css)
 // Whether a node currently renders as a frame BOX. A collapsed frame folds to an ordinary card, so
 // its footprint reverts to a normal card (matching paintNode). Shared by the geometry helpers below.
-function isFrameBox(n: MindNode): boolean { return isFrameLayout(n.layoutType) && !n.collapsed; }
+function isFrameBox(n: MindNode): boolean { return n.type === 'frame' && !n.collapsed; }
 // An image card: a resizable leaf that shows nothing but its one image — no children, no title UI.
-function isImageBox(n: MindNode): boolean { return n.layoutType === 'image' && !n.collapsed; }
+function isImageBox(n: MindNode): boolean { return n.type === 'image' && !n.collapsed; }
 // Either kind of resizable box — shares sizing/resize-handle plumbing below.
 function isBoxNode(n: MindNode): boolean { return isFrameBox(n) || isImageBox(n); }
 function boxDefaultW(n: MindNode): number { return isImageBox(n) ? IMAGE_W : FRAME_W; }

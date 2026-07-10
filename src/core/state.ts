@@ -5,12 +5,22 @@
 // #stage; edges in the #edges SVG, collapse toggles in #toggles.
 // ============================================================
 
-// Frame comes in three flavours, each its own layout type: `frame` (children placed freely inside),
-// `frame-h` (auto-flow rows: left→right, wrap down), `frame-v` (auto-flow columns: top→bottom, wrap
-// right). All three render as a resizable container box. `image` is an unrelated leaf layout (see
-// the `w`/`h` comment below).
-export type LayoutType = 'none' | 'free' | 'line' | 'fan' | 'frame' | 'frame-h' | 'frame-v' | 'image';
-export const isFrameLayout = (t: LayoutType): boolean => t === 'frame' || t === 'frame-h' || t === 'frame-v';
+// A node's KIND, orthogonal to how it arranges its children (`layout` below):
+//   · card  — an ordinary titled/bodied node.
+//   · frame — a resizable container box (mm_w/mm_h) that adopts cards dropped inside.
+//   · image — a leaf box (mm_w/mm_h) showing one image, no children, no title/body UI.
+// Extensible: new kinds slot in here. Persisted as `mm_type` (omitted for the `card` default).
+export type NodeType = 'card' | 'frame' | 'image';
+// How a node ARRANGES its children. The valid set depends on the node's `type`:
+//   · card  → inherit (take the parent's), free (stay where dragged), line (chained), fan (spread).
+//   · frame → free (children placed freely inside), horizontal (auto-flow rows: left→right, wrap
+//             down), vertical (auto-flow columns: top→bottom, wrap right).
+//   · image → none (a leaf; `layout` is unused, kept `free`).
+// Persisted as `mm_layout` (omitted when it equals the type's default: card→inherit, frame→free).
+export type NodeLayout = 'inherit' | 'free' | 'line' | 'fan' | 'horizontal' | 'vertical';
+// Node kinds that carry their own resizable box size (w/h persisted as mm_w/mm_h) rather than
+// sizing from title/body content — a frame or an image.
+export const isBoxType = (t: NodeType): boolean => t === 'frame' || t === 'image';
 export type LayoutSide = 'left' | 'right' | 'up' | 'down';
 export type EdgeStyle = 'straight' | 'orthogonal' | 'bezier';
 export type GridStyle = 'none' | 'dot' | 'line';
@@ -45,10 +55,11 @@ export interface MindNode {
                                     // cascade further down; a child can run its own checklist too.
   bg: boolean;                     // draw a translucent background enclosing me + all my visible
                                     // descendants (see view/edges.ts paintBackgrounds)
-  layoutType: LayoutType;
-  // Resizable box size (world px). Meaningful for a frame layout type (the box whose interior
-  // adopts cards dropped in) and for layoutType === 'image' (an image-only leaf card — no children,
-  // no title UI; its body is a single `![alt](path)` filling the box). Persisted as mm_w/mm_h.
+  type: NodeType;                  // card | frame | image — the node's kind (persisted as mm_type)
+  layout: NodeLayout;              // how it arranges its children — valid set depends on `type`
+  // Resizable box size (world px). Meaningful for a frame (the box whose interior adopts cards
+  // dropped in) and for type === 'image' (an image-only leaf card — no children, no title UI;
+  // its body is a single `![alt](path)` filling the box). Persisted as mm_w/mm_h.
   w?: number;
   h?: number;
   // Which of the PARENT's 4 sides this node attaches on. Stored, not derived — set explicitly
@@ -72,12 +83,9 @@ export interface MindNode {
 }
 
 // An image card is a leaf: no children, no title/body-edit UI (its body is just `![alt](path)`).
-// Single source of truth for that fact — call this instead of comparing layoutType directly, so
-// every "can this node have children / be renamed" check stays in sync as layout types evolve.
-export function isImageCard(n: MindNode | null | undefined): boolean { return n?.layoutType === 'image'; }
-// Layout types that carry their own resizable box size (w/h persisted as mm_w/mm_h) rather than
-// sizing from title/body content.
-export function isBoxLayoutType(t: LayoutType): boolean { return isFrameLayout(t) || t === 'image'; }
+// Single source of truth for that fact — call this instead of comparing `type` directly, so
+// every "can this node have children / be renamed" check stays in sync as kinds evolve.
+export function isImageCard(n: MindNode | null | undefined): boolean { return n?.type === 'image'; }
 
 export interface View { x: number; y: number; k: number; }
 

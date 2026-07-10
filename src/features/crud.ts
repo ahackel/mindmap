@@ -2,7 +2,7 @@
 // Every node is one .md file; ids are ephemeral (minted in mkNode). All create/duplicate paths go
 // through mkNode so the node schema stays in one place. Each mutation schedules a save. Re-parenting
 // by drag lives in features/drag.ts; this is the keyboard/toolbar-driven lifecycle.
-import { state, setStatus, isImageCard, type MindNode, type LayoutType } from '../core/state.js';
+import { state, setStatus, isImageCard, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
 import { ui, type Pt } from '../core/ui-state.js';
 import { childrenOf, takenTitles } from '../utils/model.js';
 import { applyLayouts, insertedKidOrder, sideOf } from '../view/layout.js';
@@ -22,7 +22,7 @@ export function mkNode(fields: Partial<MindNode> = {}): MindNode {
     id, file:null,
     x:0, y:0, rx:0, ry:0, parent:null, collapsed:false, done:false, checklist:false, bg:false,
     title:'', color:'', keepStatus:'', tags:[], body:'',
-    layoutType:'none',
+    type:'card', layout:'inherit',
     dirty:true, dirtyLayout:true,
     ...fields,
   };
@@ -30,7 +30,7 @@ export function mkNode(fields: Partial<MindNode> = {}): MindNode {
 // Make a new UNCONNECTED node (parent:null) at the viewport centre (or a given spot).
 interface CreateOpts {
   x?: number; y?: number; parent?: string | null; title?: string; color?: string;
-  tags?: string[]; body?: string; layoutType?: LayoutType; isNew?: boolean;
+  tags?: string[]; body?: string; type?: NodeType; layout?: NodeLayout; isNew?: boolean;
   w?: number; h?: number;
   edit?: boolean;   // false = don't open the inline rename (e.g. paste — the content is final)
 }
@@ -43,7 +43,7 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
     title: opts.title ?? newCardTitle(),
     color: opts.color ?? '',
     tags: opts.tags ? [...opts.tags] : [], body: opts.body ?? '',
-    layoutType: opts.layoutType ?? 'none',
+    type: opts.type ?? 'card', layout: opts.layout ?? 'inherit',
     w: opts.w, h: opts.h,
   });
   const id = n.id;
@@ -100,7 +100,7 @@ function cloneNodeAt(s: MindNode, x: number, y: number): MindNode {
     title: copyTitle(s.title),
     color: s.color,
     tags: [...s.tags], body: s.body, done: s.done, checklist: s.checklist, bg: s.bg,
-    layoutType: s.layoutType || 'none', side: s.side,
+    type: s.type, layout: s.layout, side: s.side,
     w: s.w, h: s.h,   // a frame/image card's own box size
   });
   state.nodes.set(copy.id, copy);
