@@ -2,7 +2,7 @@
 // Every node is one .md file; ids are ephemeral (minted in mkNode). All create/duplicate paths go
 // through mkNode so the node schema stays in one place. Each mutation schedules a save. Re-parenting
 // by drag lives in features/drag.ts; this is the keyboard/toolbar-driven lifecycle.
-import { state, setStatus, isImageCard, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
+import { state, setStatus, isLeafType, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
 import { ui, type Pt } from '../core/ui-state.js';
 import { childrenOf, takenTitles } from '../utils/model.js';
 import { applyLayouts, insertedKidOrder, sideOf } from '../view/layout.js';
@@ -146,7 +146,7 @@ export function leaveClone(s: MindNode, pos: Pt): MindNode {
 export function addChild(parentId: string): void {
   if (state.readOnly) return;
   const parent = state.nodes.get(parentId); if (!parent) return;
-  if (isImageCard(parent)) return;   // an image card is a leaf — it can't have children
+  if (isLeafType(parent)) return;   // image/annotation are leaves — they can't have children
   touch(parentId);   // the reveal below (and a line/fan kidOrder change) belong to the create step
   if (parent.collapsed){ parent.collapsed = false; } // reveal so the new child is visible
   const sibs = childrenOf(parentId);

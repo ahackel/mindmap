@@ -72,7 +72,7 @@ function fmRemove(entries: FmEntry[], key: string): void {
 // frame(+mm_arrange flow-h/flow-v)→frame·free|horizontal|vertical, frame-h/-v→frame·*, image→image.
 function foldTypeLayout(entries: FmEntry[]): { type: NodeType; layout: NodeLayout } {
   const t = fmValue(entries, 'mm_type');
-  if (t === 'frame' || t === 'image' || t === 'card')
+  if (t === 'frame' || t === 'image' || t === 'card' || t === 'annotation')
     return { type: t, layout: (fmValue(entries, 'mm_layout') || (t === 'frame' ? 'free' : 'inherit')) as NodeLayout };
   // legacy: infer both from the combined mm_layout token
   const v = fmValue(entries, 'mm_layout');
@@ -152,9 +152,10 @@ export function serializeMd(n: MindNode): string {
   if (n.checklist) entries.push({ key:'mm_checklist', lines:['mm_checklist: true'] });
   if (n.bg) entries.push({ key:'mm_bg', lines:['mm_bg: true'] });
   if (n.type !== 'card') entries.push({ key:'mm_type', lines:[`mm_type: ${n.type}`] });   // card is the default
-  // Omit the layout when it's the type's default (card→inherit, frame→free); an image has no layout.
+  // Only card/frame carry a layout; omit it when it's the type's default (card→inherit, frame→free).
+  // image/annotation are leaves with no layout, so they never write mm_layout.
   const layoutDefault = n.type === 'frame' ? 'free' : 'inherit';
-  if (n.type !== 'image' && n.layout !== layoutDefault)
+  if ((n.type === 'card' || n.type === 'frame') && n.layout !== layoutDefault)
     entries.push({ key:'mm_layout', lines:[`mm_layout: ${n.layout}`] });
   if (isBoxType(n.type)) {   // the resizable box's own size (a frame or an image)
     if (n.w != null) entries.push({ key:'mm_w', lines:[`mm_w: ${Math.round(n.w)}`] });

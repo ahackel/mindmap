@@ -7,7 +7,7 @@
 // own placement (spreading same-side siblings wide) ever flipping a child's side purely as a
 // side effect of laying it out. layoutH/NODE_W/subtreeIds come from main (render + tree
 // helpers) — a runtime-only cycle.
-import { state, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, isAnnotation, type MindNode, type LayoutSide } from '../core/state.js';
 import type { Seg } from '../core/ui-state.js';
 import { childrenOf, isHidden, isRoot } from '../utils/model.js';
 import { subtreeIds, layoutH, nodeH, nodeW, NODE_W, GRID_SNAP, FRAME_BORDER } from '../main.js';
@@ -150,7 +150,9 @@ export function subtreeBox(node: MindNode){
   // Otherwise a fan/line/grid parent would size a frame child by its content and re-space it (and
   // shift the frame's children with it) whenever the frame is expanded or its content changes.
   const walk = (n: MindNode): void => {
-    if (isHidden(n)) return;
+    // annotations don't contribute to layout — they float on top and are sized/placed on their own,
+    // so a fan/line parent or a frame's auto-fit must not count their extent.
+    if (isHidden(n) || isAnnotation(n)) return;
     x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
     x1 = Math.max(x1, n.x + nodeW(n)); y1 = Math.max(y1, n.y + layoutH(n));
     if (isFrame(n)) return;   // frame footprint = its box; its children are contained within it
@@ -181,6 +183,7 @@ function insideFrame(node: MindNode): boolean {
 // a collapsed frame has no box/wrapper, so it can't host anything. Shared with edges.ts so an edge
 // between two cards inside the same frame clips to it too, not just the cards themselves.
 export function hostFrame(node: MindNode): MindNode | null {
+  if (isAnnotation(node)) return null;   // annotations render on top, under #world — never hosted/clipped by a frame
   for (let p = node.parent ? state.nodes.get(node.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null)
     if (isFrame(p)) return p;
   return null;
@@ -505,7 +508,9 @@ export function reorderDraggedParents(movedIds: Iterable<string>): void {
 // CURRENT positions, so dragging a child past a sibling reorders them on the next pass.
 function layoutSubtree(node: MindNode): void {
   if (node.collapsed) return;
-  const kids = childrenOf(node.id).filter(k => !isHidden(k));
+  // annotations opt out of layout: never ordered, spaced, or flowed — they stay where dragged and
+  // float on top (they still ride shiftSubtree when an ancestor moves, so they track their parent).
+  const kids = childrenOf(node.id).filter(k => !isHidden(k) && !isAnnotation(k));
   if (!kids.length) return;
   // lay out each child's own subtree first, so subtreeBox() reflects the grandchildren
   for (const k of kids) layoutSubtree(k);

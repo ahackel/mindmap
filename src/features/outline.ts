@@ -9,7 +9,7 @@
 // mm_collapsed, so jumping around the tree doesn't silently expand/save a pile of ancestors. All
 // edits reuse the existing kernels (crud / drag reparent / history), so undo, autosave and
 // read-only behave the same as on the canvas.
-import { state, setStatus, type MindNode } from '../core/state.js';
+import { state, setStatus, isAnnotation, isLeafType, type MindNode } from '../core/state.js';
 import { NARROW_MQ } from '../core/ui-state.js';
 import { childrenOf, isRoot, isAncestor, descendantCount } from '../utils/model.js';
 import { orderedKids, sideOf, deriveSide, orderAxisIsX, applyLayouts } from '../view/layout.js';
@@ -103,7 +103,7 @@ function* ancestors(n: MindNode): Generator<MindNode> {
 }
 // Roots in the outline's canonical top-level order (canvas y, then x; filename as a stable tie).
 function sortedRoots(exclude?: string): MindNode[] {
-  return [...state.nodes.values()].filter(n => isRoot(n) && n.id !== exclude)
+  return [...state.nodes.values()].filter(n => isRoot(n) && n.id !== exclude && !isAnnotation(n))
     .sort((a, b) => a.y - b.y || a.x - b.x || (a.file ?? a.title).localeCompare(b.file ?? b.title));
 }
 
@@ -160,7 +160,7 @@ export function renderOutline(): void {
   outlineScrollEl.scrollTop = scroll;
 }
 function walk(n: MindNode, depth: number): void {
-  const kids = childrenOf(n.id);
+  const kids = childrenOf(n.id).filter(k => !isAnnotation(k));   // annotations aren't listed in the outliner
   rowsEl.appendChild(rowFor(n, depth, kids));
   if (isFolded(n)) return;
   for (const k of orderedKids(n, kids)) walk(k, depth + 1);
@@ -628,7 +628,7 @@ function renderPicker(): void {
   };
   if (src.parent && !q) item('⌂ Make root', 'detach from its parent', null, () => moveTo(src, null));
   const targets = [...state.nodes.values()]
-    .filter(c => c.id !== src.id && c.id !== src.parent && !isAncestor(src.id, c.id))
+    .filter(c => c.id !== src.id && c.id !== src.parent && !isAncestor(src.id, c.id) && !isLeafType(c))   // leaves can't be parents
     .filter(c => !q || c.title.toLowerCase().includes(q))
     .sort((a, b) => a.title.localeCompare(b.title));
   for (const c of targets) item(c.title, crumbFor(c), effectiveColor(c), () => moveTo(src, c));

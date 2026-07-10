@@ -6,7 +6,7 @@
 // auto-pan keeps the dragged subtree glued under the cursor while the view scrolls. All transient
 // drag state lives in `ui.drag`. Importing this module registers the global Alt/Shift modifier
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
-import { state, stage, world, setStatus, isImageCard, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, stage, world, setStatus, isLeafType, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
 import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, flowReorderTarget, isFrame, centreInFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget, ancestorDepth } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
@@ -751,9 +751,9 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
         }
       }
       // Edge zone (or no valid sibling target) -> child-of-hovered, attaching on whichever side
-      // the drop point sits near. An image card is a leaf — it never adopts children, so it's
-      // not a valid child-drop target (sibling-mode above still is).
-      if (!target && !isImageCard(hoveredNode)) {
+      // the drop point sits near. Image/annotation are leaves — they never adopt children, so
+      // they're not valid child-drop targets (sibling-mode above still is).
+      if (!target && !isLeafType(hoveredNode)) {
         target = hovered; side = hoveredEdge;
         if (isManagedLayout(hoveredNode) && !frameFlow(hoveredNode))
           ({ afterId: after, line } = reorderTarget(hoveredNode, dragged, side));

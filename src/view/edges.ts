@@ -2,7 +2,7 @@
 // Edges are DERIVED from each node's parent (no stored edge list). This module owns the parent→child
 // connector geometry for the three edge styles and paints them into the #edges SVG. It reads the
 // render core's live card heights (nodeH) and branch colour (effectiveColor) from main.
-import { state, backgroundsSvg, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, backgroundsSvg, edgesSvg, togglesSvg, dragEdgesSvg, isAnnotation, type MindNode, type LayoutSide } from '../core/state.js';
 import { isRoot, isHidden } from '../utils/model.js';
 import { dropLanding, sideOf, subtreeBox, isFrame, hostFrame, frameInterior } from './layout.js';
 import { ui, type Pt } from '../core/ui-state.js';
@@ -185,6 +185,8 @@ export function paintEdges(): void {
   // edges converge (see anchorPoint), tinted to match the PARENT card (its own socket).
   const occupiedSides = new Map<string, Set<LayoutSide>>();
   const hosts = new Set<string>();   // frames referenced by a clip-path below — see frameClipDefs
+  let annos = '';   // annotation connectors: always dotted, tinted by the annotation's own colour,
+                    // NEVER clipped, drawn on top (dragEdgesSvg) — see the isAnnotation branch below
   // Draw a connector for every parent→child edge where BOTH ends are visible.
   // A collapsed node hides its children, so those edges simply don't appear.
   for (const n of state.nodes.values()) {
@@ -192,6 +194,17 @@ export function paintEdges(): void {
     const parent = n.parent ? state.nodes.get(n.parent) : null;
     if (!parent) continue;
     if (isHidden(parent) || isHidden(n)) continue;
+    // An annotation is pinned on top of its parent: draw a dotted connector tinted by the
+    // annotation's OWN colour, with a matching anchor dot on the parent — unclipped and on top
+    // (dragEdgesSvg), and drawn even when the parent is a frame (which otherwise draws no edges).
+    if (isAnnotation(n)) {
+      const tint = SWATCH_BG[effectiveColor(n)] ?? 'var(--edge)';
+      const side = sideOf(parent, n);
+      annos += `<path class="anno-edge" style="stroke:${tint}" stroke-dasharray="2 6" d="${edgePathBox(parent, { x:n.x, y:n.y, h:nodeH(n), w:nodeW(n) }, side)}"/>`;
+      const pt = anchorPoint(parent, side);
+      annos += `<circle class="edge-dot" cx="${pt.x}" cy="${pt.y}" r="${DOT_R}" fill="${tint}"/>`;
+      continue;
+    }
     // A frame IS the container (its own box holds the children), so it draws no child edges.
     if (isFrame(parent)) continue;
     // While Alt-dragging this node we're previewing detach-to-root, so drop its parent
@@ -256,6 +269,8 @@ export function paintEdges(): void {
     top += `<circle class="edge-dot edge-dot-preview"${clip} cx="${pt.x}" cy="${pt.y}" r="${DOT_R + 1}" fill="white"/>`;
   }
   edgesSvg.innerHTML = frameClipDefs(hosts) + svg;
-  dragEdgesSvg.innerHTML = frameClipDefs(topHosts) + top;
+  // annotation connectors ride the same above-cards layer as the drag preview (unclipped) so they
+  // sit over normal cards/frames but under the annotation card itself (z-index:7 vs dragEdges' 4).
+  dragEdgesSvg.innerHTML = frameClipDefs(topHosts) + annos + top;
   togglesSvg.innerHTML = '';             // no edge toggles anymore
 }

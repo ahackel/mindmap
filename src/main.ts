@@ -14,7 +14,7 @@
 import './styles.css';   // app styles (Vite bundles + singlefile inlines into dist/index.html)
 import { renderBodyHTML } from './utils/markdown.js';
 import { childrenOf, isHidden, descendantCount } from './utils/model.js';
-import { state, world, stage, setStatus, isImageCard } from './core/state.js';
+import { state, world, stage, setStatus, isImageCard, isAnnotation } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { setupGrid } from './view/grid.js';
 import { mountIcons } from './view/icons.js';
@@ -140,6 +140,9 @@ export function foldNodeOrGroup(n: MindNode): void {
 // to grey, so it gets the same neutral card bg as an explicit grey rather than going transparent.
 // Explicit 'none' still short-circuits below (it's truthy), so "no colour" stays transparent.
 export function effectiveColor(n: MindNode): string {
+  // An annotation never inherits a background — only its OWN colour counts (drives its dotted
+  // connector + the anchor dot on its parent); with none it falls back to the neutral card colour.
+  if (isAnnotation(n)) return n.color || (document.body.classList.contains('light') ? 'white' : 'grey');
   const drag = ui.drag;
   let previewId: string | null = null;
   let previewParent: MindNode | null | undefined;
@@ -175,6 +178,7 @@ export function paintNode(n: MindNode): void {
   el.className = 'node c-' + effectiveColor(n)
     + (isFrameBox(n) ? ' frame' : '')
     + (isImageBox(n) ? ' image-card' : '')
+    + (isAnnotation(n) ? ' annotation' : '')
     + (state.sel.has(n.id) ? ' sel' : '')
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
     + (collapsed ? ' collapsed' : '')
@@ -218,7 +222,13 @@ export function paintNode(n: MindNode): void {
     // no per-descendant left/top rewrite. Roots stay under #world; a direct frame child stays in the
     // frame's overflow:hidden wrapper (place()). isFrameBox covers frames (image cards are leaves).
     const p = n.parent ? state.nodes.get(n.parent) : null;
-    if (p && !isFrameBox(p)) {
+    if (isAnnotation(n)) {
+      // An annotation always renders directly under #world at absolute coords — never nested in its
+      // parent nor in a frame's overflow:hidden wrapper — so a high z-index (styles.css) floats it on
+      // TOP of everything and no frame mask ever clips it. It still tracks its parent: layout keeps
+      // n.x/n.y = parent + offset, and drag carries it (it's in the parent's subtreeIds → own transform).
+      place(el, n.x, n.y, null);
+    } else if (p && !isFrameBox(p)) {
       const pEl = nodeEl(p);
       el.style.left = (n.x - p.x) + 'px';
       el.style.top  = (n.y - p.y) + 'px';

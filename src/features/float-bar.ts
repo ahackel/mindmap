@@ -7,7 +7,7 @@
 // existing generic context menu (openMenu, features/context-menu.ts).
 // On narrow/touch widths (NARROW_MQ) styles.css docks the bar to the bottom edge instead —
 // this module skips the floating position math there and lets CSS own it.
-import { state, stage, setStatus, isImageCard, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
+import { state, stage, setStatus, isImageCard, isAnnotation, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
 import { NARROW_MQ, ui } from '../core/ui-state.js';
 import { record } from './history.js';
 import { scheduleSave } from '../data/persistence.js';
@@ -62,11 +62,13 @@ const TYPE_ICONS: Record<NodeType, string> = {
   card: SVG_OPEN + '<rect x="5" y="6" width="14" height="12" rx="2"/><path d="M8 10h8M8 13.5h5"/></svg>',
   frame: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="6.5" y="8.5" width="6" height="4.5" rx="1" fill="currentColor" stroke="none"/></svg>',
   image: SVG_OPEN + '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none"/><path d="M4 15.5l5-5 3.5 3.5 3-3 4.5 4.5"/></svg>',
+  annotation: SVG_OPEN + '<path d="M4 4l3.5 3.5" stroke-dasharray="2 2"/><rect x="8" y="8" width="12" height="9" rx="2"/><path d="M10.5 12h7"/></svg>',
 };
 const NODE_TYPES: { key: NodeType; label: string; icon: string }[] = [
   { key:'card',  label:'Card — an ordinary note',                                        icon: TYPE_ICONS.card },
   { key:'frame', label:'Frame — a resizable box; drag cards inside to hold them, out to release', icon: TYPE_ICONS.frame },
   { key:'image', label:'Image — a resizable box showing one image, nothing else (no children)',   icon: TYPE_ICONS.image },
+  { key:'annotation', label:'Annotation — a title-less note pinned on top of its parent, ignored by layout', icon: TYPE_ICONS.annotation },
 ];
 // How a node of each type arranges its children. The layout popover shows exactly this type's set
 // (image has none — it's a leaf, so its layout chip row is empty and the trigger is hidden).
@@ -90,16 +92,17 @@ const LAYOUTS_BY_TYPE: Record<NodeType, { key: NodeLayout; label: string; icon: 
       icon: SVG_OPEN + '<rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="8.5" y="7.5" width="7" height="4" rx="1" fill="currentColor" stroke="none"/><rect x="8.5" y="12.5" width="7" height="4" rx="1" fill="currentColor" stroke="none"/></svg>' },
   ],
   image: [],
+  annotation: [],
 };
 // The default layout for a freshly-set type — omitted from frontmatter (see serializeMd).
-const DEFAULT_LAYOUT: Record<NodeType, NodeLayout> = { card: 'inherit', frame: 'free', image: 'free' };
+const DEFAULT_LAYOUT: Record<NodeType, NodeLayout> = { card: 'inherit', frame: 'free', image: 'free', annotation: 'free' };
 // Fit a frame's box snugly around its children: a title strip on top, a margin on the other sides,
 // snapped to the grid and clamped to the min size. Children keep their positions (the box moves to
 // enclose them). With no children it's left as-is, or given the default size when `orDefault` (used
 // when a card first becomes a frame). Shared by the frame chip and the Auto-size action.
 const FRAME_FIT_PAD = 16, FRAME_FIT_TITLE = 36;   // side/bottom margin; top strip for the title
 function fitFrameToContent(n: MindNode, orDefault = false): void {
-  const kids = childrenOf(n.id).filter(k => !isHidden(k));
+  const kids = childrenOf(n.id).filter(k => !isHidden(k) && !isAnnotation(k));   // annotations don't size the frame
   const snap = (v: number): number => Math.round(v / GRID_SNAP) * GRID_SNAP;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const k of kids) {
@@ -139,9 +142,9 @@ function rebuildLayoutChips(type: NodeType): void {
 // Change the KIND of the selection: seed/reset the box, drop a now-invalid layout, reseed order.
 function setType(type: NodeType): void {
   const ids = selectedIds(); if (!ids.length) return;
-  // an image is a leaf — refuse to flip a card that already has children into one
-  if (type === 'image' && ids.some(id => childrenOf(id).length)) {
-    setStatus('An image card can’t have children — move or delete them first');
+  // image/annotation are leaves — refuse to flip a card that already has children into one
+  if ((type === 'image' || type === 'annotation') && ids.some(id => childrenOf(id).length)) {
+    setStatus(`A${type === 'image' ? 'n image card' : 'n annotation'} can’t have children — move or delete them first`);
     return;
   }
   record(ids, () => {
@@ -179,7 +182,7 @@ function setLayout(layout: NodeLayout): void {
 }
 // Reflect the selection's current type + layout in both popovers AND their trigger icons. A single
 // type shows its chip active and its layout set; a mixed-type selection leaves both blank. The
-// layout picker is rebuilt for the selected type and hidden entirely for an image (a leaf).
+// layout picker is rebuilt for the selected type and hidden entirely for leaves (image/annotation).
 function markChips(): void {
   const ids = selectedIds();
   const typeSet = new Set(ids.map(id => state.nodes.get(id)?.type ?? 'card'));
@@ -190,7 +193,7 @@ function markChips(): void {
 
   const forType: NodeType = type ?? 'card';
   rebuildLayoutChips(forType);
-  const hasLayout = forType !== 'image';
+  const hasLayout = LAYOUTS_BY_TYPE[forType].length > 0;
   fbLayout.style.display = hasLayout ? '' : 'none';
   if (!hasLayout) { fbLayout.innerHTML = ''; return; }
   const layoutSet = new Set(ids.map(id => state.nodes.get(id)?.layout));
@@ -293,13 +296,15 @@ export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] 
   // group actions (Duplicate/Cut/Copy/Export/Share/Auto-size) act on state.sel via selectedIds();
   // when the target isn't already part of the selection, select it first so they act on IT.
   const selectTargetFirst = () => { if (!multi) selectNode(n.id); };
-  const isImage = isImageCard(n);   // a leaf card: no title/body UI, no children
+  const isImage = isImageCard(n);   // a leaf: no title/body UI, no children
+  const isAnno = isAnnotation(n);   // a leaf with a body but no title, no children
+  const isLeaf = isImage || isAnno; // neither can hold children
   const entries: MenuEntry[] = [];
   if (!state.readOnly){
     if (!multi){
-      if (!isImage){
-        entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n) });
-        entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n) });
+      if (!isLeaf) entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n) });   // has a title
+      if (!isImage) entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n) });   // annotation keeps its body
+      if (!isLeaf){
         entries.push('sep');
         entries.push({ label:'Add child', shortcut:'Tab', run: () => addChild(n.id) });
         entries.push({ label:'Paste as child', shortcut:'⌘V', run: () => { void pasteFromClipboard(sx, sy, n.id); } });

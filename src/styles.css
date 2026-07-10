@@ -313,6 +313,14 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
    real containing block, so it needs the same explicit height passed down to it. */
 .node.image-card > .body > p { width:100%; height:100%; margin:0; }
 .node.image-card > .body .md-img { width:100%; height:100%; margin:0; object-fit:cover; display:block; border-radius:inherit; }
+/* ---------- annotation: a title-less note pinned ON TOP of its parent ---------- */
+/* z-index above every other #world child (cards:2, frames:1, edges:1, toggles:3, dragEdges:4,
+   a dragged card:6) so it never sits behind anything and — placed directly under #world, never in
+   a frame's overflow:hidden wrapper (main.ts paintNode) — is never clipped by a frame mask. No
+   title row; just the body. Looks like a card otherwise (its own colour, never inherited). */
+.node.annotation { z-index:7; min-height:32px; min-width:80px; }
+.node.annotation .title-row { display:none; }
+.node.annotation.no-body > .body { min-height:1em; min-width:2em; }   /* stay clickable while empty */
 /* an uncoloured card sits on the page background, so its text follows the theme, not white */
 .node.c-none { color: var(--text); }
 /* white is the one palette colour too light for white text — dark grey instead, both themes */
