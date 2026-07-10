@@ -228,6 +228,16 @@ export function frameInterior(f: MindNode): { x: number; y: number; w: number; h
     w: Math.max(0, nodeW(f) - FRAME_BORDER * 2), h: Math.max(0, nodeH(f) - FRAME_BORDER * 2),
   };
 }
+// Is `child`'s centre inside `frame`'s OUTER box? The single source of truth for "a frame child is
+// still in its frame" — the trigger drag.ts uses in BOTH the rip PREVIEW (updateRip) and the detach
+// COMMIT (dragPointerUp), so a child ripping out previews the detach exactly where it commits. Uses
+// the full box (not frameInterior's inset) deliberately: a card counts as inside until its centre
+// clears the frame edge.
+export function centreInFrame(child: MindNode, frame: MindNode): boolean {
+  const cx = child.x + NODE_W/2, cy = child.y + nodeH(child)/2;
+  return cx >= frame.x && cx <= frame.x + nodeW(frame)
+      && cy >= frame.y && cy <= frame.y + nodeH(frame);
+}
 function shiftSubtree(node: MindNode, dx: number, dy: number): void {
   // Saved positions are integers; layout targets are floats. Ignore sub-pixel nudges so a
   // re-opened, already-laid-out map settles to zero movement (no spurious rewrites, no drift).

@@ -106,11 +106,7 @@ function endGesturePointer(e: PointerEvent): boolean {
   if (gPointers.size === 0){
     ui.pan = null; stage.classList.remove('panning');
     // End marquee exactly like the mouse path does
-    if (ui.marquee){
-      marqueeEl.style.display = 'none';
-      if (!ui.marquee.moved && !ui.marquee.add) selectNode(null);   // tap on empty = deselect
-      ui.marquee = null;
-    }
+    if (ui.marquee){ endMarquee(); }
   }
   // gPointers.size === 1: one finger remains after pinch — don't start a new marquee mid-gesture
   return true;
@@ -119,16 +115,33 @@ window.addEventListener('pointerup', (e) => {
   if (ui.sketchDraw){ gPointers.delete(e.pointerId); if (gPointers.size < 2) ui.pinch = null; sketchUp(); return; }
   if (endGesturePointer(e)) return;
   if (ui.pan){ ui.pan = null; stage.classList.remove('panning'); return; }
-  if (ui.marquee){
-    marqueeEl.style.display = 'none';
-    if (!ui.marquee.moved && !ui.marquee.add) selectNode(null);   // plain click on empty = deselect
-    ui.marquee = null;
-  }
+  if (ui.marquee) endMarquee();
 });
+// Tear down the active marquee. A no-move, non-additive gesture resolves to a plain click: on empty
+// canvas that DESELECTS; started from an unselected frame (clickNode set) it SELECTS that frame.
+function endMarquee(): void {
+  const m = ui.marquee; if (!m) return;
+  marqueeEl.style.display = 'none';
+  if (!m.moved && !m.add) selectNode(m.clickNode ?? null);
+  ui.marquee = null;
+}
 window.addEventListener('pointercancel', (e) => {
   if (ui.sketchDraw){ gPointers.delete(e.pointerId); sketchCancel(); return; }
   endGesturePointer(e);
 });
+// Start a rubber-band select from a press that landed on `nodeId`'s element (an UNSELECTED frame),
+// rather than on the empty canvas. Behaves exactly like a canvas marquee — the shared window
+// move/up handlers drive and finish it — except a no-move click selects the frame (see endMarquee).
+// Registering the touch pointer in gPointers lets a second finger still upgrade to pinch-zoom.
+export function beginMarqueeFromNode(e: PointerEvent, nodeId: string): void {
+  cancelViewAnim();
+  if (ui.inlineEdit) endInlineEdit();
+  if (ui.bodyEdit)   endBodyEdit();
+  if (e.pointerType !== 'mouse') gPointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  ui.marquee = { sx:e.clientX, sy:e.clientY, add:e.metaKey||e.ctrlKey, base:new Set(state.sel), moved:false, clickNode:nodeId };
+  drawMarquee(e.clientX, e.clientY);
+  marqueeEl.style.display = 'block';
+}
 function drawMarquee(cx: number, cy: number): void {
   const marquee = ui.marquee;
   if (!marquee) return;
@@ -146,6 +159,9 @@ function selectWithinMarquee(cx: number, cy: number): void {
   const hits: string[] = [];
   for (const n of state.nodes.values()){
     if (isHidden(n)) continue;
+    // A marquee started from inside a frame (clickNode) never selects that frame itself — dragging
+    // within its box would otherwise always enclose it. Only its CONTENTS get rubber-banded.
+    if (n.id === marquee.clickNode) continue;
     if (n.x < b.x && n.x + NODE_W > a.x && n.y < b.y && n.y + nodeH(n) > a.y) hits.push(n.id);
   }
   setSelectionSet(marquee.add ? new Set([...marquee.base, ...hits]) : hits);

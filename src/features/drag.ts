@@ -8,12 +8,13 @@
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
 import { state, stage, world, setStatus, isImageCard, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
-import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, flowReorderTarget, isFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget, ancestorDepth } from '../view/layout.js';
+import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, flowReorderTarget, isFrame, centreInFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget, ancestorDepth } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
 import { ui, NARROW_MQ, type Pt, type Seg, type Drag } from '../core/ui-state.js';
 import { paintEdges } from '../view/edges.js';
 import { outlineActive } from './outline.js';
+import { beginMarqueeFromNode } from './gestures.js';
 import { NODE_W, nodeW, nodeH, GRID_SNAP, paintAll, paintNode, selectNode, setSelectionSet, toggleSel,
          subtreeIds, foldNodeOrGroup } from '../main.js';
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit } from './inline-edit.js';
@@ -100,18 +101,31 @@ const outsideWindow = (x: number, y: number): boolean =>
 // no actual pull yet. Must be called before paintEdges() so the hidden-edge rendering reads the
 // latest state.
 function updateRip(drag: Drag): void {
-  if (drag.multi || drag.cloned || !drag.moved) return;
+  // Runs for a multi-selection too (all roots move by the same delta, so the anchor's rip state is
+  // the whole group's) — dragPointerUp detaches every dragged root that this gesture pulls off.
+  if (drag.cloned || !drag.moved) return;
   const act = drag.active;
   let rip = false;
   // A live in-parent reorder preview overrides rip: while the card slides along its sibling
   // band (updateDropTarget ran just before us), releasing means "re-slot", never "detach".
   const reordering = drag.dropMode === 'reorder' && !!drag.dropTarget;
+  // A direct child of a frame is NEVER ripped off by distance: its cards live in the frame's own
+  // coordinate space and are meant to be freely repositioned inside the box. It counts as "ripping"
+  // (about to detach) only once its centre leaves the frame's bounds — the SAME outOfFrame trigger
+  // dragPointerUp commits on. Sharing drag.rip means effectiveColor previews the detach colour the
+  // instant it crosses out, exactly as a distance-rip does for a non-frame child.
+  const parent = act.parent ? state.nodes.get(act.parent) : null;
+  const inFrame = !!(parent && isFrame(parent));
   if (act.parent && !reordering) {
-    const origin = drag.start.get(act.id);
-    if (origin) {
-      const dx = (act.x - origin.x) * state.view.k;
-      const dy = (act.y - origin.y) * state.view.k;
-      rip = Math.hypot(dx, dy) > RIP_THRESHOLD;
+    if (inFrame) {
+      rip = !centreInFrame(act, parent!);
+    } else {
+      const origin = drag.start.get(act.id);
+      if (origin) {
+        const dx = (act.x - origin.x) * state.view.k;
+        const dy = (act.y - origin.y) * state.view.k;
+        rip = Math.hypot(dx, dy) > RIP_THRESHOLD;
+      }
     }
   }
   if (rip === drag.rip) return;
@@ -269,6 +283,14 @@ export function bindNodeDrag(n: MindNode): void {
     // while this card's title/body is being edited, let clicks place the caret — don't start a drag
     if ((ui.inlineEdit && ui.inlineEdit.id === n.id) || (ui.bodyEdit && ui.bodyEdit.id === n.id)) { e.stopPropagation(); return; }
     clearTimeout(ui.renameTimer);   // any fresh interaction cancels a pending slow-click rename
+    // A drag on an UNSELECTED (expanded) frame rubber-band-selects the cards INSIDE it rather than
+    // moving the frame — you move the frame only once it's selected. A no-move click selects the
+    // frame (endMarquee). ⌘/Ctrl-click still falls through to the normal add-to-selection toggle.
+    if (isFrame(n) && !n.collapsed && !state.sel.has(n.id) && e.button === 0 && !e.metaKey && !e.ctrlKey) {
+      e.stopPropagation();
+      beginMarqueeFromNode(e, n.id);
+      return;
+    }
     e.stopPropagation();
     try { el.setPointerCapture(e.pointerId); } catch { /* no active pointer (e.g. synthetic) */ }
     // Dragging a card that's part of a multi-selection moves the WHOLE selection at once;
@@ -331,7 +353,13 @@ function dragPointerMove(e: { clientX: number; clientY: number; altKey: boolean;
   drag.alt = e.altKey; drag.shift = e.shiftKey;   // Shift = clone (live — release to cancel), Alt = detach
   drag.cx = e.clientX; drag.cy = e.clientY;   // remembered for edge auto-pan and RAF flush
   const dx = (e.clientX - drag.sx)/state.view.k, dy = (e.clientY - drag.sy)/state.view.k;
+  const wasMoved = drag.moved;
   if (Math.abs(dx)+Math.abs(dy) > (drag.touch ? 8 : 2)){ drag.moved = true; document.body.classList.add('grabbing'); }
+  // The instant a drag begins, repaint the dragged cards so any frame child lifts OUT of its
+  // frame's overflow:hidden wrapper into #world (see paintNode) — otherwise it stays clipped to
+  // the frame bounds until the next drop-target change, masking it while it's dragged out.
+  if (drag.moved && !wasMoved)
+    for (const id of drag.targets.keys()) { const m = state.nodes.get(id); if (m) paintNode(m); }
   applyDragClone();   // Shift held -> leave a clone & drag the copy; Shift released -> undo it
   // Update world-space positions immediately (cheap) — visual render is deferred to rAF so that
   // multiple pointermove events arriving within one display frame collapse into a single paint.
@@ -389,7 +417,7 @@ function dragPointerUp(): void {
         // dropped onto a node? re-parent (the whole multi-selection, if that's what's dragging).
         // Alt+drop on empty canvas? detach to root. Otherwise it's just a move.
         const tgt = drag.dropTarget;
-        const { cloned, targets, alt, shift, clones, rip, dropMode, dropSide, dropAfter, selRoots } = drag;
+        const { cloned, targets, alt, shift, clones, dropMode, dropSide, dropAfter, selRoots } = drag;
         clearDropTarget();
         hideLandingGhost();
         // Null drag NOW so every paintAll/paintEdges in the commit phase sees no active drag
@@ -455,29 +483,35 @@ function dragPointerUp(): void {
             const m = state.nodes.get(id); if (!m) continue;
             m.x += ddx; m.y += ddy; m.dirtyLayout = true;
           }
-          // Dragged a frame's child out past the frame's box (no other drop target) → it leaves
-          // the frame, same as an Alt/rip detach. Its centre being outside the parent frame's
-          // rectangle is the trigger.
-          const outOfFrame = inFrame
-            && !(act.x + NODE_W/2 >= fp!.x && act.x + NODE_W/2 <= fp!.x + nodeW(fp!)
-              && act.y + nodeH(act)/2 >= fp!.y && act.y + nodeH(act)/2 <= fp!.y + nodeH(fp!));
-          if ((alt || rip || outOfFrame) && !shift && act.parent) {
-            act.parent = null;
-            act.side = undefined;   // a root has no side
-            setStatus(outOfFrame ? `"${act.title}" left the frame` : `"${act.title}" is now a root`);
-          } else {
-            // No drop target and no detach — a plain reposition. For a MANAGED parent (line/fan)
-            // refresh each root's stored side from its new position (same rule as the load
-            // backfill) so its edge/bucket still tracks visually. A FREE parent never reflows its
-            // children, so the side is purely a stored label — keep whatever it already was
-            // rather than relabeling it from wherever the drag happened to leave the card.
-            for (const rootId of selRoots){
-              const r = state.nodes.get(rootId);
-              if (!r?.parent) continue;
-              const p = state.nodes.get(r.parent);
-              if (p && isManagedLayout(p)) r.side = deriveSide(p, r);
+          // Resolve each dragged ROOT this gesture pulls off its parent — a whole multi-selection
+          // detaches together, not just the anchor. A root inside a frame detaches ONLY by leaving
+          // that frame's box (its centre outside the rectangle) — never by distance or Alt while
+          // still inside it. Any other root detaches on Alt or once dragged past the rip threshold;
+          // the whole selection moved by the same delta, so measuring the anchor covers the group.
+          const oAct = drag.start.get(act.id);
+          const pastThreshold = !!oAct &&
+            Math.hypot((act.x - oAct.x) * state.view.k, (act.y - oAct.y) * state.view.k) > RIP_THRESHOLD;
+          let detached = 0, leftFrame = 0;
+          for (const rootId of selRoots){
+            const r = state.nodes.get(rootId);
+            if (!r?.parent) continue;
+            const rp = state.nodes.get(r.parent);
+            const rInFrame = !!(rp && isFrame(rp));
+            const rOut = rInFrame && !centreInFrame(r, rp!);
+            if (!shift && (rInFrame ? rOut : (alt || pastThreshold))){
+              r.parent = null; r.side = undefined;   // a root has no side / frame host
+              detached++; if (rOut) leftFrame++;
+            } else if (rp && isManagedLayout(rp)){
+              // A root NOT detached is a plain reposition. For a MANAGED parent (line/fan) refresh its
+              // stored side from the new position (same rule as the load backfill) so its edge/bucket
+              // still tracks visually; a FREE parent never reflows, so its side is just a label — keep it.
+              r.side = deriveSide(rp, r);
             }
           }
+          if (detached) setStatus(
+            detached > 1 ? `Detached ${detached} cards`
+              : leftFrame ? `"${act.title}" left the frame`
+              : `"${act.title}" is now a root`);
           // Refresh sibling order from the dropped positions (the ONLY position-based reorder).
           // The drop-target branch above skips this: there the previewed kidOrder was just set
           // explicitly via insertedKidOrder, and re-sorting from positions is exactly the
@@ -691,13 +725,18 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
       // FREE frame: adopt the card wherever it's released inside the box (dropLanding's frame branch).
       target = hovered; mode = 'child'; side = 'down';
     } else if (pf && frameFlow(pf)) {
-      // ANY hover on a card inside a FLOW frame → insert into the flow next to it (bar) —
-      // both centre AND edge zones, unlike the general sibling(centre)/child(edge) split below.
-      // Flow children are a flat flowed list, not a nesting target, and the physical gap between
-      // them is much narrower than a card's own edge zone, so requiring dead-centre would make the
-      // bar nearly unreachable — you'd almost always land in a neighbour's edge zone instead.
-      target = pf.id; mode = 'child'; side = 'down';
-      ({ afterId: after, line } = flowReorderTarget(pf, dragged));
+      // A card inside a FLOW frame. Dead-CENTRE nests the dragged card as a CHILD of it (a grand-
+      // child of the frame), exactly like dropping onto any other card — this is what makes a frame
+      // child reparentable at all. EVERYWHERE ELSE on the card (and the gaps) inserts into the flow
+      // next to it, previewed with the bar: flow children are a flat flowed list and the physical
+      // gap between them is much narrower than a card's edge zone, so the surrounding-the-centre
+      // area must stay flow-insert or the bar would be nearly unreachable during a reorder.
+      if (hoveredCenter) {
+        target = hovered; mode = 'child'; side = hoveredEdge;
+      } else {
+        target = pf.id; mode = 'child'; side = 'down';
+        ({ afterId: after, line } = flowReorderTarget(pf, dragged));
+      }
     } else {
       // Centre zone + hovered card has a parent -> sibling drop (adopt hovered's parent, landing
       // on the same side hovered already occupies — copy ITS stored side, not the drop point).

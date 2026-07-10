@@ -50,7 +50,10 @@ export interface SheetEdit { id: string; origTitle: string; origBody: string; is
 // isn't clobbered.
 export interface GroupFold { ids: Set<string>; node: string; t: number; }
 export interface PanState { sx: number; sy: number; ox: number; oy: number; }
-export interface Marquee { sx: number; sy: number; add: boolean; base: Set<string>; moved: boolean; }
+export interface Marquee { sx: number; sy: number; add: boolean; base: Set<string>; moved: boolean;
+  // When a marquee is started from an unselected FRAME (drag inside it rubber-band-selects its
+  // contents), a no-move click should SELECT that frame instead of deselecting — this holds its id.
+  clickNode?: string | null; }
 export interface Pinch { dist: number; cx: number; cy: number; }
 // Safari-only pinch events (not in lib.dom): clientX/Y + a scale factor.
 export interface GestureEvt extends Event { clientX: number; clientY: number; scale: number; }

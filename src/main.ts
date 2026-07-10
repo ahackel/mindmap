@@ -191,10 +191,21 @@ export function paintNode(n: MindNode): void {
   // Which frame (if any) hosts this card's element — settled outside gestures (see settledHost).
   const host = settledHost(n);
   // During drag: keep left/top frozen at the pre-drag origin and move via transform (compositor-
-  // only) — but only for a TOP-LEVEL card. A hosted card always repaints at its live, host-relative
-  // position instead: frame membership can change mid-drag (see settledHost), so there's no single
-  // frozen origin that stays valid for the whole gesture the way there is for an unhosted card.
-  const dragOrig = !host ? ui.drag?.origins?.get(n.id) : undefined;
+  // only) — the SAME scheme applyDragTransform (drag.ts) uses on every pointermove. Doing it here
+  // too means a mid-drag repaint (e.g. drop-target / rip colour change) can't desync the card from
+  // the cursor: if paintNode instead placed the card at its LIVE, already-moved n.x and cleared the
+  // transform, the next pointermove would re-add translate(n.x-origin) on top of that moved left/top
+  // and double-count the delta — the "offset jumps when a card touches its frame's bounds" bug.
+  // A dragged card lifts OUT of its frame's overflow:hidden content wrapper into #world for the
+  // duration of the gesture, so it's never masked by the frame's bounds while being dragged (in
+  // particular while being carried out of the box). It repaints in plain world coordinates — the
+  // same as a top-level card. The one exception is a child CARRIED by its own host frame's drag:
+  // that child stays inside the frame (the whole box moves together) and repaints at its live
+  // host-relative position with no transform of its own (giving it one too would shift it twice —
+  // mirrors applyDragTransform), so it keeps clipping to the frame that carries it.
+  const drag = ui.drag;
+  const carried = !!(drag && n.hostFrameId != null && drag.targets.has(n.hostFrameId));
+  const dragOrig = !carried ? drag?.origins?.get(n.id) : undefined;
   if (dragOrig) {
     el.style.left = dragOrig.x + 'px'; el.style.top = dragOrig.y + 'px';
     el.style.transform = `translate(${n.x - dragOrig.x}px,${n.y - dragOrig.y}px)`;
