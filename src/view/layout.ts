@@ -1,5 +1,5 @@
-// ---------- node layout: radial seeding + per-node free/line/fan ----------
-// Computes node x/y. radialLayout seeds a fresh map; applyLayouts re-flows every node per
+// ---------- node layout: per-node free/line/fan ----------
+// Computes node x/y. applyLayouts re-flows every node per
 // its own layoutType after any change. The node itself stays put — only its children (and
 // their subtrees) move. A child's SIDE (left/right/up/down) is STORED (MindNode.side, mm_side
 // in frontmatter) — set explicitly by a drop, or backfilled once from position (see sideOf/
@@ -102,44 +102,6 @@ function simulateLanding(dragged: MindNode, governor: MindNode, side: LayoutSide
   governor.kidOrder = prevKidOrder;
   for (const [id, p] of snap) { const n = state.nodes.get(id); if (n) { n.x = p.x; n.y = p.y; } }
   return land;
-}
-
-// number of leaves under a node (a collapsed node counts as a single leaf, since its
-// subtree is hidden and shouldn't claim angular space)
-function leafCount(id: string): number {
-  const node = state.nodes.get(id);
-  if (node && node.collapsed) return 1;
-  const kids = childrenOf(id);
-  if (kids.length === 0) return 1;
-  let s = 0; for (const k of kids) s += leafCount(k.id); return s;
-}
-// Lay out a single subtree radially around `root`, keeping `root` where it already is
-// (so re-laying a branch doesn't teleport it). Children fan out on widening rings; a
-// collapsed node's subtree is skipped.
-function radialLayoutFrom(root: MindNode | null | undefined): void {
-  if (!root) return;
-  const RING = 280;
-  const ox = root.x, oy = root.y;     // pivot stays put
-  const place = (node: MindNode, depth: number, a0: number, a1: number) => {
-    if (depth > 0){
-      const mid = (a0 + a1) / 2, radius = depth * RING;
-      node.x = ox + Math.cos(mid) * radius;
-      node.y = oy + Math.sin(mid) * radius;
-      node.dirtyLayout = true;
-    }
-    if (node.collapsed) return;        // don't lay out a folded subtree
-    const kids = childrenOf(node.id);
-    if (!kids.length) return;
-    const total = kids.reduce((s,k)=>s + leafCount(k.id), 0) || 1;
-    const span  = (depth === 0) ? Math.PI*2 : (a1 - a0);
-    let cur     = (depth === 0) ? -Math.PI/2 : a0;
-    for (const k of kids){
-      const frac = leafCount(k.id) / total;
-      place(k, depth+1, cur, cur + span*frac);
-      cur += span * frac;
-    }
-  };
-  place(root, 0, 0, Math.PI*2);
 }
 
 // ---------- per-node layout (free / line / fan) ----------
@@ -621,17 +583,6 @@ function layoutSubtree(node: MindNode): void {
 // when read-only is left and the map is reloaded from disk.
 export function applyLayouts(): void {
   for (const n of state.nodes.values()) if (isRoot(n)) layoutSubtree(n);
-}
-
-// Used on first-ever load of a big map: lay every root out radially, side by side.
-export function radialLayout(): void {
-  const roots = [...state.nodes.values()].filter(n => isRoot(n));
-  let ox = 0;
-  for (const root of roots){
-    root.x = ox; root.y = 0;
-    radialLayoutFrom(root);
-    ox += (leafCount(root.id) * 60) + 600;   // separate multiple roots
-  }
 }
 
 // ---------- auto-collapse deep branches ----------

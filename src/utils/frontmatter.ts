@@ -6,7 +6,7 @@
 // rewrite ONLY the app-owned keys (tags/color/mm_*) while preserving everything else —
 // `date`, `category`, `aliases`, custom fields, and the note body — verbatim.
 // ============================================================
-import { state, isBoxLayoutType, isFrameLayout, type MindNode, type FmEntry } from '../core/state.js';
+import { state, isBoxLayoutType, type MindNode, type FmEntry } from '../core/state.js';
 
 // The shape parseMd yields — a node-to-be plus its raw layout (mm_*) values.
 export interface ParsedNote {
@@ -18,7 +18,9 @@ export interface ParsedNote {
   body: string;
   mm: {
     parent: string;
-    x: number | null;
+    px: number | null;   // mm_position_x/y — position relative to parent (current fields)
+    py: number | null;
+    x: number | null;    // mm_x/mm_y — legacy absolute position (read as fallback)
     y: number | null;
     w: number | null;
     h: number | null;
@@ -79,6 +81,10 @@ export function parseMd(text: string, fileName: string): ParsedNote {
     // mindmap layout — note identity is its filename; parent stored as the PARENT note's path.
     mm: {
       parent: fmValue(entries, 'mm_parent'),
+      // Position RELATIVE to the parent (world origin for roots). `px`/`py` are the current
+      // fields; `x`/`y` are the legacy absolute fields, read as a fallback (see data/persistence.ts).
+      px: num(fmValue(entries, 'mm_position_x')),
+      py: num(fmValue(entries, 'mm_position_y')),
       x: num(fmValue(entries, 'mm_x')),
       y: num(fmValue(entries, 'mm_y')),
       w: num(fmValue(entries, 'mm_w')),
@@ -119,12 +125,13 @@ export function serializeMd(n: MindNode): string {
   const parentNode = n.parent ? state.nodes.get(n.parent) : null;
   if (parentNode) entries.push({ key:'mm_parent', lines:[`mm_parent: ${parentNode.file}`] });
   if (parentNode && n.side) entries.push({ key:'mm_side', lines:[`mm_side: ${n.side}`] });
-  // A frame's children live in the frame's coordinate space: store mm_x/mm_y RELATIVE to the frame
-  // (data/persistence.ts converts back to absolute on load), so moving the frame doesn't rewrite
-  // every child, and a child's saved offset stays stable. In memory everything stays absolute.
-  const inFrame = !!parentNode && isFrameLayout(parentNode.layoutType);
-  entries.push({ key:'mm_x', lines:[`mm_x: ${Math.round(inFrame ? n.x - parentNode!.x : n.x)}`] });
-  entries.push({ key:'mm_y', lines:[`mm_y: ${Math.round(inFrame ? n.y - parentNode!.y : n.y)}`] });
+  // Position is stored RELATIVE to the parent (world origin for a root) — data/persistence.ts
+  // converts back to absolute on load. So moving a parent doesn't rewrite every descendant, and a
+  // child's saved offset stays stable. In memory everything stays absolute (n.x/n.y).
+  const relX = parentNode ? n.x - parentNode.x : n.x;
+  const relY = parentNode ? n.y - parentNode.y : n.y;
+  entries.push({ key:'mm_position_x', lines:[`mm_position_x: ${Math.round(relX)}`] });
+  entries.push({ key:'mm_position_y', lines:[`mm_position_y: ${Math.round(relY)}`] });
   if (n.collapsed) entries.push({ key:'mm_collapsed', lines:['mm_collapsed: true'] });
   if (n.done) entries.push({ key:'mm_done', lines:['mm_done: true'] });
   if (n.checklist) entries.push({ key:'mm_checklist', lines:['mm_checklist: true'] });

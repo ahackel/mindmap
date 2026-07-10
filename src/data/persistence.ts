@@ -9,7 +9,7 @@ import { parseMd, serializeMd } from '../utils/frontmatter.js';
 import { zipBlob, unzip } from '../utils/zip.js';
 import { downloadBlob } from '../utils/download.js';
 import { childrenOf } from '../utils/model.js';
-import { applyLayouts, radialLayout, collapseAtDepth, deriveSide } from '../view/layout.js';
+import { applyLayouts, collapseAtDepth, deriveSide } from '../view/layout.js';
 import { fit } from '../view/camera.js';
 import { resetImageCache } from '../features/images.js';
 import { clearHistory } from '../features/history.js';
@@ -148,14 +148,21 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   // parent links are stored/resolved BY PATH, so ids never need to survive a reload.
   let seq = 0;
   let placed = 0;          // count of notes lacking a saved position, for fallback layout
-  const hadSavedPos = new Set<string>();   // ids whose mm_x/mm_y were present (frame kids: relative)
+  // Ids whose seeded x/y are RELATIVE to the parent and need the parent's absolute added (below):
+  //  · relSeed  — the current mm_position_x/y fields (always parent-relative; roots are world-relative)
+  //  · legacySeed — the legacy mm_x/mm_y fields, which were parent-relative ONLY for frame children
+  //    (decided in the top-down pass once parents/layouts are known); otherwise they're absolute.
+  const relSeed = new Set<string>();
+  const legacySeed = new Set<string>();
   for (const { rel, parsed } of entries) {
     const { mm, ...rest } = parsed;
-    const hasPos = (mm.x != null && mm.y != null);
+    const hasRel = (mm.px != null && mm.py != null);
+    const hasLegacy = (mm.x != null && mm.y != null);
+    const hasPos = hasRel || hasLegacy;
     const node: MindNode = {
       id: 'n' + (++seq), file:rel,
-      x: hasPos ? mm.x! : (120 + (placed % 4) * 240),
-      y: hasPos ? mm.y! : (120 + Math.floor(placed / 4) * 200),
+      x: hasRel ? mm.px! : hasLegacy ? mm.x! : (120 + (placed % 4) * 240),
+      y: hasRel ? mm.py! : hasLegacy ? mm.y! : (120 + Math.floor(placed / 4) * 200),
       _parentPath: mm.parent || '',                // resolved to an id once all notes are loaded
       parent: null,
       collapsed: !!mm.collapsed,
@@ -168,7 +175,9 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
       side: (mm.side || undefined) as LayoutSide | undefined,
       ...rest, dirty:false, dirtyLayout: !hasPos,   // notes lacking a position get one persisted
     };
-    if (hasPos) hadSavedPos.add(node.id); else placed++;   // no saved position → fallback layout
+    if (hasRel) relSeed.add(node.id);
+    else if (hasLegacy) legacySeed.add(node.id);
+    else placed++;                                  // no saved position → fallback layout
     state.nodes.set(node.id, node);
   }
   // Resolve each note's parent path -> the loaded node's id (drops links to missing files).
@@ -177,16 +186,18 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
     n.parent = n._parentPath ? (byPath.get(n._parentPath) || null) : null;
     delete n._parentPath;
   }
-  // A frame's children were saved RELATIVE to the frame (see utils/frontmatter.ts) — convert them
-  // back to absolute in-memory coords. Walk parents-before-children (so nested frames cascade) and
-  // add the parent frame's absolute position; only convert nodes that actually had a saved position.
+  // Positions were saved RELATIVE to the parent (see utils/frontmatter.ts) — convert back to
+  // absolute in-memory coords. Walk parents-before-children (so nested subtrees cascade) and add
+  // the parent's absolute position to every parent-relative seed. Legacy mm_x/mm_y seeds are only
+  // relative when the parent is a frame (the old behaviour); otherwise they were already absolute.
   const kidsOf = new Map<string | null, MindNode[]>();
   for (const n of state.nodes.values()) { const k = kidsOf.get(n.parent) ?? []; k.push(n); kidsOf.set(n.parent, k); }
   const stack = [...(kidsOf.get(null) ?? [])];
   while (stack.length) {
     const n = stack.pop()!;
     const p = n.parent ? state.nodes.get(n.parent) : null;
-    if (p && isFrameLayout(p.layoutType) && hadSavedPos.has(n.id)) { n.x += p.x; n.y += p.y; }
+    const relative = relSeed.has(n.id) || (legacySeed.has(n.id) && !!p && isFrameLayout(p.layoutType));
+    if (p && relative) { n.x += p.x; n.y += p.y; }
     for (const k of kidsOf.get(n.id) ?? []) stack.push(k);
   }
   // A note with no `mm_side` yet (never dropped, or from before this field existed) gets one
@@ -203,10 +214,8 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   // always restore exactly the saved frontmatter state — reopening must look like you left it.
   const seenKey = store.seenKey;   // stable per map (names can be renamed / collide)
   const firstEver = !seenFolders().includes(seenKey);
-  if (!keepView && firstEver && state.nodes.size > 40) {
-    collapseAtDepth(1);
-    radialLayout();
-  }
+  if (!keepView && firstEver && state.nodes.size > 40)
+    collapseAtDepth(1);   // applyLayouts() below resolves positions
   if (!keepView) markFolderSeen(seenKey);
   // Resolve layouts in three steps: paint once so every card has a real measured height, run
   // the line/fan layout against those true heights, then paint the resolved positions.
