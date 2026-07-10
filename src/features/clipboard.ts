@@ -15,13 +15,14 @@
 // pasting into a text editor / Obsidian yields real notes. Anything on the clipboard that
 // doesn't start with the marker falls through to the existing paste-as-new-card behaviour
 // (features/attachments.ts).
-import { state, setStatus, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, setStatus, isImageCard, type MindNode, type LayoutSide } from '../core/state.js';
 import { serializeMd, parseMd, type ParsedNote } from '../utils/frontmatter.js';
 import { isAncestor } from '../utils/model.js';
 import { zipBytes, zipBlob } from '../utils/zip.js';
 import { mkNode, uniqueTitle, deleteSelection } from './crud.js';
 import { touch, record } from './history.js';
 import { cancelDragRestore } from './drag.js';
+import { imageExtractInProgress } from './image-extract.js';
 import { downloadBlob } from '../utils/download.js';
 import { screenToWorld } from '../view/camera.js';
 import { applyLayouts } from '../view/layout.js';
@@ -183,6 +184,14 @@ export function bindCardFileDrag(n: MindNode): void {
   el.draggable = true;
   el.addEventListener('dragstart', (e: DragEvent) => {
     if (!e.altKey || !e.dataTransfer){ e.preventDefault(); return; }
+    // ⌥-press began on an inline body image → that's an image EXTRACT gesture (image-extract.ts),
+    // not a card-file export; let the native drag stand down so the pointer machinery keeps it.
+    if (imageExtractInProgress()){ e.preventDefault(); return; }
+    // ⌥-dragging an image CARD is a merge-into-a-card / reposition gesture handled entirely by the
+    // pointer machinery (drag.ts updateDropTarget) — an image isn't a note, so never take it over
+    // as a .md export; bail so the pointer drag keeps control (otherwise cancelDragRestore below
+    // would abort it, killing the drop-target highlight and the merge).
+    if (isImageCard(n)){ e.preventDefault(); return; }
     // the pointer machinery grabbed this gesture at pointerdown — take it back cleanly
     cancelDragRestore();
     const ids = state.sel.has(n.id) && state.sel.size > 1 ? [...state.sel] : [n.id];

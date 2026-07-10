@@ -38,6 +38,7 @@ import { copySelection, cutSelection, bindCardFileDrag } from './features/clipbo
 import { toggleSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
 import { commitStep, record, touch, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
+import { openImageViewer } from './features/image-viewer.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
 import { showStart, openHelpTab, boot } from './boot.js';
 import type { MindNode, EdgeStyle } from './core/state.js';
@@ -78,6 +79,13 @@ function nodeEl(n: MindNode): HTMLElement {
   // body links: open externally, or jump to a wikilink's node. Don't let the click bubble to
   // the card (which would select / toggle the panel); pointerdown is stopped in bindNodeDrag.
   bodyEl.addEventListener('click', (e)=>{
+    const zoom = (e.target as HTMLElement).closest('.img-zoom') as HTMLElement | null;
+    if (zoom){
+      e.stopPropagation();
+      const img = zoom.closest('.img-wrap')?.querySelector('img.md-img') as HTMLImageElement | null;
+      if (img && img.src && !img.classList.contains('md-img-missing')) openImageViewer(img.src, img.alt);
+      return;
+    }
     const a = (e.target as HTMLElement).closest('a.lk') as HTMLElement | null; if (!a) return;
     e.stopPropagation();
     if (a.classList.contains('wikilink')){

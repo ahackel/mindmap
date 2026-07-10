@@ -37,6 +37,9 @@ export interface Drag {
   alt: boolean; shift: boolean; cloned: boolean; rip: boolean;
   downTarget: EventTarget | null; meta: boolean; touch: boolean;
   clones?: MindNode[] | null;
+  // Alt-dragging image CARD(s) over a plain body card: the target card's id to fold the image(s)
+  // into on drop (instead of reparenting). Set by updateDropTarget, consumed by dragPointerUp.
+  imageMerge?: string | null;
 }
 export interface InlineEdit { id: string; orig: string; el: HTMLElement; isNew?: boolean; }
 export interface BodyEdit { id: string; orig: string; el: HTMLElement; ta: HTMLTextAreaElement; }
