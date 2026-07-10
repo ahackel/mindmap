@@ -77,6 +77,11 @@
       <!-- drag overlay: the dragged card's edges + the reparent preview edge render here,
            above every other card and edge, so the thing you're dragging is never occluded -->
       <svg id="dragEdges"></svg>
+      <!-- drag GROUP layer: while dragging, the dragged cards AND their connectors are moved in
+           here so the whole set composites as ONE translucent group (opacity on the layer, not
+           per item) — you see the canvas below but the dragged items never shine through each
+           other. Its own edges SVG stays first so connectors sit behind the cards. -->
+      <div id="dragLayer"><svg id="dragLayerEdges"></svg></div>
     </div>
   </div>
 

@@ -148,5 +148,10 @@ export const edgesSvg = document.getElementById('edges') as unknown as SVGSVGEle
 export const togglesSvg = document.getElementById('toggles') as unknown as SVGSVGElement;
 // Top overlay for drag-time edges (dragged card's connectors + reparent preview) — see view/edges.ts.
 export const dragEdgesSvg = document.getElementById('dragEdges') as unknown as SVGSVGElement;
+// Group-opacity layer for the CURRENTLY DRAGGED items: while a drag is live the dragged cards and
+// their connectors are re-parented in here so the whole set composites as one translucent group
+// (see #dragLayer in styles.css / dragRoot() in main.ts). dragLayerEdges holds their connectors.
+export const dragLayer = document.getElementById('dragLayer') as HTMLElement;
+export const dragLayerEdges = document.getElementById('dragLayerEdges') as unknown as SVGSVGElement;
 export const statusEl = document.getElementById('status') as HTMLElement;
 export const setStatus = (t: string): void => { statusEl.textContent = t; };

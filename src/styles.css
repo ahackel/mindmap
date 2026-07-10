@@ -335,8 +335,16 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: 
    own outline shows */
 .node.sel:has(.title.editing), .node.sel:has(.body.editing) { box-shadow:none; }
 /* the dragged card (and its subtree) floats above every other card — including the
-   landing ghost / insert bar (z-index:5) — and goes translucent while moving */
-.node.dragging { z-index:6; opacity:.75; }
+   landing ghost / insert bar (z-index:5). Translucency is applied to the whole #dragLayer as
+   ONE group (below), not per card, so overlapping dragged items don't shine through each other. */
+.node.dragging { z-index:6; }
+/* the group-opacity layer: while dragging, main.ts moves the dragged cards AND their connectors
+   (dragLayerEdges, kept first so it sits behind the cards) in here. Opacity on the layer composites
+   the whole set once — you see the canvas below, but the items never show through one another. */
+#dragLayer { position:absolute; top:0; left:0; z-index:6; opacity:.75; pointer-events:none; }
+#dragLayer > .node, #dragLayer > .frame-content { pointer-events:auto; }
+#dragLayerEdges { position:absolute; top:0; left:0; overflow:visible; pointer-events:none; }
+#dragLayerEdges path { fill:none; stroke:var(--edge); stroke-width:4; }
 /* while poised over a valid parent the dragged card becomes just a dotted outline,
    so the parent underneath stays visible. Border colour is set inline to match the
    dragged card's branch colour (see features/drag.ts showLandingGhost). */

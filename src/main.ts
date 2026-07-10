@@ -14,7 +14,7 @@
 import './styles.css';   // app styles (Vite bundles + singlefile inlines into dist/index.html)
 import { renderBodyHTML } from './utils/markdown.js';
 import { childrenOf, isHidden, descendantCount } from './utils/model.js';
-import { state, world, stage, setStatus, isImageCard, isAnnotation } from './core/state.js';
+import { state, world, dragLayer, stage, setStatus, isImageCard, isAnnotation } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { setupGrid } from './view/grid.js';
 import { mountIcons } from './view/icons.js';
@@ -214,7 +214,8 @@ export function paintNode(n: MindNode): void {
   if (dragOrig) {
     el.style.left = dragOrig.x + 'px'; el.style.top = dragOrig.y + 'px';
     el.style.transform = `translate(${n.x - dragOrig.x}px,${n.y - dragOrig.y}px)`;
-    if (el.parentElement !== world) world.appendChild(el);
+    const root = dragRoot();
+    if (el.parentElement !== root) root.appendChild(el);
   } else {
     if (el.style.transform) el.style.transform = '';
     // A child card is nested INSIDE its parent card's element, positioned by its offset from the
@@ -325,8 +326,13 @@ function settledHost(n: MindNode): MindNode | null {
 // directly under #world, or inside `host`'s content wrapper (offset by the host's own border so
 // content never draws under the frame's border stroke). Shared by every hosted element: a plain
 // card, a frame's own box, and a nested frame's own content wrapper.
+// While a drag is live, dragged items live in #dragLayer (one opacity group) instead of directly
+// under #world — so the whole dragged set composites translucently without shining through itself.
+// Only DRAGGED nodes are painted mid-drag, so this only ever relocates them (and a dragged frame's
+// own content wrapper); resting content is untouched. On drop ui.drag is nulled → back to #world.
+function dragRoot(): HTMLElement { return (ui.drag && ui.drag.moved) ? dragLayer : world; }
 function place(el: HTMLElement, absX: number, absY: number, host: MindNode | null): void {
-  const container = host ? frameContentEl(host) : world;
+  const container = host ? frameContentEl(host) : dragRoot();
   el.style.left = (host ? absX - host.x - FRAME_BORDER : absX) + 'px';
   el.style.top  = (host ? absY - host.y - FRAME_BORDER : absY) + 'px';
   if (el.parentElement !== container) container.appendChild(el);
