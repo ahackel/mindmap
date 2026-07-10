@@ -141,8 +141,9 @@ export function foldNodeOrGroup(n: MindNode): void {
 // Explicit 'none' still short-circuits below (it's truthy), so "no colour" stays transparent.
 export function effectiveColor(n: MindNode): string {
   // An annotation never inherits a background — only its OWN colour counts (drives its dotted
-  // connector + the anchor dot on its parent); with none it falls back to the neutral card colour.
-  if (isAnnotation(n)) return n.color || (document.body.classList.contains('light') ? 'white' : 'grey');
+  // connector + the anchor dot on its parent); with none ('inherit') it takes the THEME'S CONTRAST
+  // colour — white on the dark canvas, black on the light one — so it always stands out on top.
+  if (isAnnotation(n)) return n.color || (document.body.classList.contains('light') ? 'black' : 'white');
   const drag = ui.drag;
   let previewId: string | null = null;
   let previewParent: MindNode | null | undefined;
@@ -693,11 +694,15 @@ function focusOrFit(): void {
 // body.light overrides are picked up; re-read on every theme toggle (see refreshPalette).
 export const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey','white'];
 const pal = (name: string): string => getComputedStyle(document.body).getPropertyValue(`--pal-${name}`).trim();
-export const SWATCH_BG: Record<string, string> = Object.fromEntries(PALETTE.map(c => [c, pal(c)]));
+// `black` is NOT a pickable swatch — it's only the contrast fill for an inherit-bg annotation on the
+// light canvas (see effectiveColor). Tracked in SWATCH_BG (and refreshPalette) so its edge/anchor tint
+// resolves like any other colour key.
+const SWATCH_KEYS = [...PALETTE, 'black'];
+export const SWATCH_BG: Record<string, string> = Object.fromEntries(SWATCH_KEYS.map(c => [c, pal(c)]));
 // re-derive the palette hexes after a theme switch (light/dark have different --pal-* values)
 // and repaint everything that bakes them in as literal hex (edges, group backgrounds, swatches).
 export function refreshPalette(): void {
-  for (const c of PALETTE) SWATCH_BG[c] = pal(c);
+  for (const c of SWATCH_KEYS) SWATCH_BG[c] = pal(c);
   refreshSwatches();
   paintAll();
 }
@@ -818,6 +823,13 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'f' || e.key === 'F'){ e.preventDefault(); focusOrFit(); return; }
   if ((e.key === 'd' || e.key === 'D') && state.sel.size){ e.preventDefault(); duplicateSelection(); return; }
   if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && state.sel.size){ e.preventDefault(); autoSizeSelection(); return; }   // auto-size selected frames to fit
+  // A with NOTHING selected -> create an annotation at the cursor (mirrors Space's new-card tap).
+  if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && !state.sel.size && !outlineActive()){
+    e.preventDefault();
+    const p = ui.lastMouse ? screenToWorld(ui.lastMouse.x, ui.lastMouse.y) : screenToWorld(window.innerWidth/2, window.innerHeight/2);
+    createNode({ x: p.x - 80, y: p.y - 16, type:'annotation' });
+    return;
+  }
   // ⌘/Ctrl C / X copy / cut the selected cards (with their subtrees). No ⌘V handler here —
   // the native `paste` event (features/attachments.ts) carries clipboardData permission-free.
   if ((e.key === 'c' || e.key === 'C') && (e.metaKey || e.ctrlKey) && state.sel.size){

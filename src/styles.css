@@ -30,6 +30,7 @@
   --pal-pink: #d6368e;
   --pal-grey: #3a4759;
   --pal-white: #f2f4f7;
+  --pal-black: #12161d;   /* not a pickable swatch — the contrast fill for an inherit-bg annotation on the light canvas */
 
   /* shared roundness scale — keep every surface on one of these steps */
   --r-card: 8px;    /* mindmap cards + the ghost/template card */
@@ -85,6 +86,7 @@ body.light {
 .c-pink   { --card:var(--pal-pink); }
 .c-grey   { --card:var(--pal-grey); }
 .c-white  { --card:var(--pal-white); }
+.c-black  { --card:var(--pal-black); }
 /* "none" = no colour at all: truly transparent, not just canvas-bg-coloured (border returns when selected) */
 .c-none   { --card:transparent; }
 
@@ -327,7 +329,7 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 .node.c-white { color: #2b3645; }
 /* light theme: coloured cards get black text instead of white, except the dark-grey card
    (still needs white text to stay readable on its dark background) */
-body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
+body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: #000000; }
 .node.sel { box-shadow:0 0 0 2px var(--node-sel); }
 /* while editing a title/body in place, drop the card's selection ring so only the editor's
    own outline shows */

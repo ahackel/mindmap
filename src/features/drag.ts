@@ -6,7 +6,7 @@
 // auto-pan keeps the dragged subtree glued under the cursor while the view scrolls. All transient
 // drag state lives in `ui.drag`. Importing this module registers the global Alt/Shift modifier
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
-import { state, stage, world, setStatus, isLeafType, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, stage, world, setStatus, isLeafType, isAnnotation, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
 import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, flowReorderTarget, isFrame, centreInFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget, ancestorDepth } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
@@ -115,7 +115,9 @@ function updateRip(drag: Drag): void {
   // dragPointerUp commits on. Sharing drag.rip means effectiveColor previews the detach colour the
   // instant it crosses out, exactly as a distance-rip does for a non-frame child.
   const parent = act.parent ? state.nodes.get(act.parent) : null;
-  const inFrame = !!(parent && isFrame(parent));
+  // An annotation is never "in" a frame for rip purposes — it renders on top, not inside the box —
+  // so it detaches ONLY by being dragged past the rip threshold, never by leaving a frame's bounds.
+  const inFrame = !!(parent && isFrame(parent)) && !isAnnotation(act);
   if (act.parent && !reordering) {
     if (inFrame) {
       rip = !centreInFrame(act, parent!);
@@ -496,7 +498,7 @@ function dragPointerUp(): void {
             const r = state.nodes.get(rootId);
             if (!r?.parent) continue;
             const rp = state.nodes.get(r.parent);
-            const rInFrame = !!(rp && isFrame(rp));
+            const rInFrame = !!(rp && isFrame(rp)) && !isAnnotation(r);   // annotations detach by rip only
             const rOut = rInFrame && !centreInFrame(r, rp!);
             if (!shift && (rInFrame ? rOut : (alt || pastThreshold))){
               r.parent = null; r.side = undefined;   // a root has no side / frame host

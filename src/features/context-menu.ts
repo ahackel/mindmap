@@ -153,6 +153,7 @@ function canvasMenuEntries(sx: number, sy: number): MenuEntry[] {
   if (!state.readOnly){
     const p = screenToWorld(sx, sy);
     entries.push({ label:'New card here', shortcut:'Space', run: () => createNode({ x: p.x - 100, y: p.y - 32 }) });
+    entries.push({ label:'Create annotation here', shortcut:'A', run: () => createNode({ x: p.x - 80, y: p.y - 16, type:'annotation' }) });
     entries.push({ label:'Paste', shortcut:'⌘V', run: () => { void pasteFromClipboard(sx, sy, null); } });
     entries.push('sep');
   }

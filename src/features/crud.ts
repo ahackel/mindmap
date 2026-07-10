@@ -40,7 +40,7 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
   const n = mkNode({
     x: opts.x ?? (c.x - 100), y: opts.y ?? (c.y - 40),
     parent: opts.parent ?? null,
-    title: opts.title ?? newCardTitle(),
+    title: opts.title ?? (opts.type === 'annotation' ? uniqueTitle('Annotation') : newCardTitle()),
     color: opts.color ?? '',
     tags: opts.tags ? [...opts.tags] : [], body: opts.body ?? '',
     type: opts.type ?? 'card', layout: opts.layout ?? 'inherit',
