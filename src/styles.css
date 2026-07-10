@@ -303,7 +303,10 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
    once an image loads it covers the whole box, so the colour never actually shows through except
    at transparent pixels or before the image resolves. `none` is truly transparent (.c-none above),
    so an image card with alpha shows whatever's behind the canvas, not a solid bg-coloured patch. */
-.node.image-card { z-index:1; background:var(--card, var(--bg)); min-height:0; border-radius:10px;
+/* z-index:2 (same as any card) — NOT the frame's 1: an image card inside a frame must sit ABOVE
+   the frame's own element so clicks land on the image, not the frame beneath (which would tie at 1
+   and win the hit-test, making the image unselectable — regular cards avoid this by being 2). */
+.node.image-card { z-index:2; background:var(--card, var(--bg)); min-height:0; border-radius:10px;
   border:none; padding:0; overflow:hidden; }
 .node.image-card .title-row, .node.image-card .progress, .node.image-card .hidden-count { display:none; }
 .node.image-card .addnote { display:none !important; }
@@ -311,10 +314,31 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
    resolves against a containing block whose OWN height is set via the `height` property itself,
    not one merely implied by top+bottom insets (CSS2.1 10.5) */
 .node.image-card > .body { position:absolute; inset:0; width:100%; height:100%; margin:0; }
-/* renderBodyHTML wraps a standalone image in a <p> — that paragraph, not .body, is the img's
-   real containing block, so it needs the same explicit height passed down to it. */
-.node.image-card > .body > p { width:100%; height:100%; margin:0; }
+/* renderBodyHTML wraps a standalone image in a <p>, and imgTag wraps the <img> in .img-wrap —
+   both, not .body, are the img's real containing blocks, so the explicit height passes down. */
+.node.image-card > .body > p, .node.image-card > .body > p > .img-wrap { width:100%; height:100%; margin:0; }
 .node.image-card > .body .md-img { width:100%; height:100%; margin:0; object-fit:cover; display:block; border-radius:inherit; }
+/* image wrapper: anchors the magnifier button over each image; block so it stacks like the img did */
+.img-wrap { position:relative; display:block; }
+/* magnifier button — hidden until the card is selected, then floats top-right over each image */
+.img-zoom { position:absolute; top:6px; right:6px; display:none; align-items:center; justify-content:center;
+  width:26px; height:26px; padding:0; border:none; border-radius:6px; cursor:pointer;
+  background:rgba(20,24,33,.62); color:#fff; -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px); }
+.img-zoom:hover { background:rgba(20,24,33,.85); }
+.node.sel .img-zoom { display:flex; }
+/* floating thumbnail that rides the cursor while an image is being ripped out of a card */
+.image-extract-preview { position:fixed; z-index:9998; pointer-events:none; border-radius:8px; overflow:hidden;
+  box-shadow:0 6px 22px rgba(0,0,0,.45); opacity:.9; }
+.image-extract-preview img { width:100%; height:100%; object-fit:cover; display:block; }
+/* full-screen image viewer (magnifier click) */
+#imgViewer { position:fixed; inset:0; z-index:10000; display:none; place-items:center; padding:32px;
+  background:rgba(8,10,14,.88); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
+#imgViewer.open { display:grid; }
+#imgViewer .iv-img { max-width:100%; max-height:100%; object-fit:contain; border-radius:8px;
+  box-shadow:0 10px 40px rgba(0,0,0,.6); }
+#imgViewer .iv-close { position:fixed; top:16px; right:20px; width:40px; height:40px; border:none; cursor:pointer;
+  border-radius:50%; background:rgba(255,255,255,.12); color:#fff; font-size:24px; line-height:1; }
+#imgViewer .iv-close:hover { background:rgba(255,255,255,.24); }
 /* ---------- annotation: a title-less note pinned ON TOP of its parent ---------- */
 /* z-index above every other #world child (cards:2, frames:1, edges:1, toggles:3, dragEdges:4,
    a dragged card:6) so it never sits behind anything and — placed directly under #world, never in
@@ -354,7 +378,9 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: 
 /* dragging an annotation over a candidate parent: highlight it with a dashed ghost-colour outline
    (outline, not border, so no layout shift). Annotations only ever re-parent — no reorder/landing
    preview — so this outline is the whole affordance. */
-.node.anno-drop-target { outline:2px dashed var(--node-sel); outline-offset:3px; border-radius:var(--r-card); }
+/* .drop-merge: alt-dragging an image over a plain card — the dashed outline is the whole
+   affordance (no reorder/reparent ghost is possible while merging an image in). Same look. */
+.node.anno-drop-target, .node.drop-merge { outline:2px dashed var(--node-sel); outline-offset:3px; border-radius:var(--r-card); }
 /* landing-spot preview: where the dragged card will actually land once dropped onto a
    valid reparent target — above resting cards (z-index:5) but below the dragged ones (6) */
 .node.landing-ghost { pointer-events:none; transition:none; z-index:5; }

@@ -6,7 +6,7 @@
 // auto-pan keeps the dragged subtree glued under the cursor while the view scrolls. All transient
 // drag state lives in `ui.drag`. Importing this module registers the global Alt/Shift modifier
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
-import { state, stage, world, setStatus, isLeafType, isAnnotation, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, stage, world, setStatus, isLeafType, isAnnotation, isImageCard, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
 import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, flowReorderTarget, isFrame, centreInFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget, ancestorDepth } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
@@ -18,7 +18,8 @@ import { beginMarqueeFromNode } from './gestures.js';
 import { NODE_W, nodeW, nodeH, GRID_SNAP, paintAll, paintNode, selectNode, setSelectionSet, toggleSel,
          subtreeIds, foldNodeOrGroup } from '../main.js';
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit } from './inline-edit.js';
-import { leaveClone } from './crud.js';
+import { leaveClone, foldImageCardsIntoBody } from './crud.js';
+import { startImageExtractDrag } from './image-extract.js';
 import { touch, commitStep } from './history.js';
 
 // The #outline drawer overlays the canvas from the right on wide screens; cache it too so
@@ -86,6 +87,15 @@ function showInsertLine(seg: Seg): void {
 function trueRoots(ids: string[]): string[] {
   const idSet = new Set(ids);
   return ids.filter(id => { const p = state.nodes.get(id)?.parent; return !p || !idSet.has(p); });
+}
+// The inline body image under a screen point (body images are pointer-events:none, so a geometric
+// hit-test is needed) — used to start an image-extract drag from an Alt-press.
+function bodyImageAt(el: HTMLElement, x: number, y: number): HTMLImageElement | null {
+  for (const img of el.querySelectorAll<HTMLImageElement>('.body img.md-img')){
+    const r = img.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return img;
+  }
+  return null;
 }
 
 const RIP_THRESHOLD = 200; // screen-space px — the base rip distance (see distanceRip)
@@ -268,7 +278,18 @@ export function bindNodeDrag(n: MindNode): void {
     if (e.button === 2) { e.stopPropagation(); return; }   // right-click = context menu only: no drag/select/rename
     const tgt = e.target as HTMLElement;
     if (tgt.classList.contains('addnote')) return;
-    if (tgt.closest('a.lk, input.taskbox')) { e.stopPropagation(); return; }  // let links/checkboxes click, not drag
+    if (tgt.closest('a.lk, input.taskbox, .img-zoom')) { e.stopPropagation(); return; }  // let links/checkboxes/zoom click, not drag
+    // Alt-press over an inline body image (on a plain card) rips THAT image out — extraction rides
+    // its own preview (features/image-extract.ts), not the card drag. Image-only cards drag whole.
+    if (e.altKey && e.button === 0 && !state.readOnly && !isImageCard(n) && !isFrame(n)) {
+      const img = bodyImageAt(el, e.clientX, e.clientY);
+      if (img && img.dataset.path) {
+        e.stopPropagation();
+        try { el.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+        startImageExtractDrag(n, img, e.clientX, e.clientY);
+        return;
+      }
+    }
     // Nested frames overlap and stack by DOM order (not nesting), so the frame that received this
     // press may be an OUTER one. Prefer the INNERMOST frame under the pointer: hand the gesture off
     // to it by re-firing the press on its element (its own handler then finds itself innermost and
@@ -323,7 +344,8 @@ export function bindNodeDrag(n: MindNode): void {
              moved:false, dropTarget:null as string | null, dropMode:'child', dropSide:null, dropAfter:undefined, dropLine:null, alt:e.altKey, shift:e.shiftKey, cloned:false, rip:false,
              downTarget:e.target,              // where the press landed -> slow-click edits title or body
              meta: e.metaKey || e.ctrlKey,     // ⌘/Ctrl-click toggles this card in the selection
-             touch: e.pointerType === 'touch' }; // higher move threshold for finger taps
+             touch: e.pointerType === 'touch',  // higher move threshold for finger taps
+             imageMerge: null };
     for (const id of ids) { const m2 = state.nodes.get(id); if (m2?.el){ m2.el.style.willChange = 'transform'; m2.el.classList.add('dragging'); } }
     // Continue/commit this drag on `window`, not `el` — pointer capture (above) is still requested
     // best-effort so the dragged card's own hover/other handlers stay quiet, but capture can be
@@ -425,7 +447,7 @@ function dragPointerUp(): void {
         // dropped onto a node? re-parent (the whole multi-selection, if that's what's dragging).
         // Alt+drop on empty canvas? detach to root. Otherwise it's just a move.
         const tgt = drag.dropTarget;
-        const { cloned, targets, alt, shift, clones, dropMode, dropSide, dropAfter, selRoots } = drag;
+        const { cloned, targets, alt, shift, clones, dropMode, dropSide, dropAfter, selRoots, imageMerge } = drag;
         clearDropTarget();
         hideLandingGhost();
         // Null drag NOW so every paintAll/paintEdges in the commit phase sees no active drag
@@ -433,6 +455,21 @@ function dragPointerUp(): void {
         // when paintAll was called, and nothing repainted after drag = null.)
         ui.drag = null;
         document.body.classList.remove('grabbing');
+        // Alt-drop image CARD(s) onto a plain card (imageMerge, resolved by updateDropTarget): fold
+        // the image(s) into that card's body as inline markdown and delete the image card(s), rather
+        // than reparenting. The decision was made during the drag (same as dropSide) so preview and
+        // commit can't disagree — this supersedes any reparent/detach below.
+        const mergeNode = imageMerge ? state.nodes.get(imageMerge) : null;
+        if (mergeNode) {
+          const folded = foldImageCardsIntoBody(mergeNode.id, selRoots);
+          if (folded){
+            setStatus(folded > 1 ? `Merged ${folded} images into "${mergeNode.title}"` : `Merged image into "${mergeNode.title}"`);
+            paintAll(); applyLayouts(); paintAll();
+            selectNode(mergeNode.id);
+            scheduleSave(); commitStep();
+            return;
+          }
+        }
         const tgtNode = tgt ? state.nodes.get(tgt)! : null;
         const effectiveParent = tgtNode
           ? (dropMode === 'sibling' ? tgtNode.parent! : tgt!)
@@ -550,7 +587,7 @@ export function startNodeDrag(n: MindNode, clientX: number, clientY: number): vo
   const origins = new Map<string, Pt>([[n.id, { x:n.x, y:n.y }]]);
   ui.drag = { n, active:n, multi:false, sx:clientX, sy:clientY, cx:clientX, cy:clientY,
     start, targets, origins, selRoots:[n.id], moved:true, dropTarget:null, dropMode:'child', dropSide:null, dropAfter:undefined, dropLine:null,
-    alt:false, shift:false, cloned:false, rip:false, downTarget:null, meta:false, touch:false };
+    alt:false, shift:false, cloned:false, rip:false, downTarget:null, meta:false, touch:false, imageMerge:null };
   if (n.el){ n.el.style.willChange = 'transform'; n.el.classList.add('dragging'); }
   document.body.classList.add('grabbing');
 }
@@ -710,13 +747,24 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   }
   clearDropTarget();
   const drag = ui.drag;
+  // Alt-dragging image CARD(s): the drop only ever FOLDS the image(s) into a plain body card — no
+  // reparent, sibling, or reorder is possible (see request). Handled as its own branch below.
+  const imgDrag = !!drag && !!drag.alt && drag.selRoots.length > 0 && drag.selRoots.every(id => isImageCard(state.nodes.get(id)));
   let target: string | null = null;
   let mode: 'child' | 'sibling' | 'reorder' = 'child';
   let side: LayoutSide | null = null;
   let after: string | null | undefined = undefined;   // insertion anchor (sibling/reorder)
   let line: Seg | null = null;   // reorder gap indicator
+  let mergeTarget: string | null = null;   // image-fold target card (imgDrag over a plain card)
   if (hovered && sub.has(hovered)){
     setStatus(`Can't parent "${dragged.title}" onto its own child/descendant`);
+  } else if (imgDrag) {
+    // Only a hovered plain body card is a valid fold target (not another image, a frame, or an
+    // annotation). No target/side/line set → the normal ghost/bar/edge previews all stand down.
+    if (hovered) {
+      const hn = state.nodes.get(hovered)!;
+      if (!isImageCard(hn) && !isFrame(hn) && !isAnnotation(hn)) mergeTarget = hovered;
+    }
   } else if (isAnnotation(dragged)) {
     // An annotation can't be reordered and never adopts siblings — dragging one only ever RE-PARENTS
     // it, to any non-annotation node (cards, frames, AND images). No sibling/reorder preview; the
@@ -802,9 +850,14 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   const colorKey = (t: string | null, m: string): string => (!t || m === 'reorder') ? '' : m + ':' + t;
   const changed = !!drag && colorKey(drag.dropTarget, drag.dropMode) !== colorKey(target, mode);
   const prevLine = drag?.dropLine ?? null;
-  if (drag) { drag.dropTarget = target; drag.dropMode = mode; drag.dropSide = side; drag.dropAfter = after; drag.dropLine = line; }
+  if (drag) { drag.dropTarget = target; drag.dropMode = mode; drag.dropSide = side; drag.dropAfter = after; drag.dropLine = line; drag.imageMerge = mergeTarget; }
   if (changed) for (const id of sub) { const m = state.nodes.get(id); if (m) paintNode(m); }
-  if (target && side && isAnnotation(dragged)) {
+  if (mergeTarget) {
+    // Alt-dragging image card(s) over a plain card: a dashed outline on the target is the whole
+    // affordance — no landing ghost, insertion bar, or reparent edge (target/side stayed null).
+    state.nodes.get(mergeTarget)!.el?.classList.add('drop-merge');
+    hideLandingGhost();
+  } else if (target && side && isAnnotation(dragged)) {
     // Annotation reparent: only a dashed ghost-colour outline on the candidate parent — no landing
     // ghost, no insertion bar, no reparent edge (see edges.ts previewReparent).
     state.nodes.get(target)!.el?.classList.add('anno-drop-target');
@@ -840,8 +893,8 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   }
 }
 function clearDropTarget(): void {
-  document.querySelectorAll('.node.drop-target, .node.drop-sibling, .node.anno-drop-target')
-    .forEach(el => el.classList.remove('drop-target', 'drop-sibling', 'anno-drop-target'));
+  document.querySelectorAll('.node.drop-target, .node.drop-sibling, .node.anno-drop-target, .node.drop-merge')
+    .forEach(el => el.classList.remove('drop-target', 'drop-sibling', 'anno-drop-target', 'drop-merge'));
 }
 // Mutates `child`'s parent + the new parent's kidOrder only — no layout/paint/status. Callers
 // batch layout/paint once for the whole dragged group (see dragPointerUp) rather than per root.

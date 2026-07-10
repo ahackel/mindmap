@@ -45,8 +45,14 @@ function mdLinks(text: string): string {
 // synchronous while disk reads happen lazily.
 // data-img-src is consumed (removed) by hydrateImages; data-path stays on the element so the
 // context menu can map a rendered <img> back to its markdown reference / vault file.
+// Wrapped in .img-wrap so the magnifier button (shown only on a selected card, see styles.css)
+// can position over the image; the button opens the full-screen viewer (main.ts nodeEl click).
 function imgTag(src: string, alt: string): string {
-  return `<img class="md-img" data-img-src="${esc(src.trim())}" data-path="${esc(src.trim())}" alt="${esc(alt || '')}">`;
+  const s = esc(src.trim());
+  return `<span class="img-wrap"><img class="md-img" data-img-src="${s}" data-path="${s}" alt="${esc(alt || '')}">`
+    + `<button type="button" class="img-zoom" tabindex="-1" aria-label="View image">`
+    + `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><line x1="15.5" y1="15.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
+    + `</button></span>`;
 }
 // Full inline pass: protect `code` spans first (no formatting inside), then links + emphasis.
 function mdInline(text: string): string {
