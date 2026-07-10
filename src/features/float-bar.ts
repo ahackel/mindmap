@@ -323,7 +323,7 @@ export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] 
   entries.push({ label:'Fit view', shortcut:'F', run: () => frameBox(targetIds.map(id => state.nodes.get(id))) });
   entries.push({ label:'Copy file path', run: () => copyFilePath(n), disabled: !n.file });
   if (anyFrame && !state.readOnly)
-    entries.push({ label: multi ? 'Auto-size frames' : 'Auto-size frame', shortcut:'A',
+    entries.push({ label: multi ? 'Auto-size frames' : 'Auto-size frame', shortcut:'⇧A',
       run: () => { selectTargetFirst(); autoSizeSelection(); } });
   entries.push('sep', { label:'Download selected cards', run: () => { selectTargetFirst(); exportSelection(); } });
   entries.push({ label:'Share…', run: () => { selectTargetFirst(); void shareSelection(); }, disabled: !canShareFiles });

@@ -54,6 +54,14 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
   scheduleSave();
   return n;
 }
+// Create an annotation at (x,y). If a card is selected it becomes that card's child (the primary
+// selection anchor — as long as it can hold children); otherwise it's a root. Shared by the 'A'
+// shortcut and the "Create annotation here" context-menu entry.
+export function createAnnotationHere(x: number, y: number): MindNode | undefined {
+  const sel = state.selId ? state.nodes.get(state.selId) : null;
+  const parent = sel && !isLeafType(sel) ? sel.id : null;
+  return createNode({ x, y, type:'annotation', parent });
+}
 // Make a new unconnected node at (x,y) and render it, but DON'T select / rename / save yet — the
 // caller drives it (e.g. the ghost-card drag rides it under the cursor, then renames on drop or
 // deletes it on cancel). Kept save-free so an abandoned drag never writes a file.

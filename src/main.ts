@@ -28,7 +28,7 @@ import './features/gestures.js';   // registers the canvas pan/zoom/marquee gest
 import './features/attachments.js';   // registers the OS image drag/drop listeners
 import './features/context-menu.js';   // registers the custom right-click menu on the canvas
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInput, onInlineKeydown } from './features/inline-edit.js';
-import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
+import { createNode, createDetachedNode, createAnnotationHere, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
 import { openSearch } from './features/search.js';
 import { renderOutline, toggleOutlineView, outlineActive } from './features/outline.js';   // also wires the outline toggle button
@@ -822,12 +822,13 @@ window.addEventListener('keydown', (e) => {
   if (e.key === ' '){ e.preventDefault(); if (!e.repeat){ ui.spaceHeld = true; ui.spaceUsedForPan = false; } return; }
   if (e.key === 'f' || e.key === 'F'){ e.preventDefault(); focusOrFit(); return; }
   if ((e.key === 'd' || e.key === 'D') && state.sel.size){ e.preventDefault(); duplicateSelection(); return; }
-  if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && state.sel.size){ e.preventDefault(); autoSizeSelection(); return; }   // auto-size selected frames to fit
-  // A with NOTHING selected -> create an annotation at the cursor (mirrors Space's new-card tap).
-  if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && !state.sel.size && !outlineActive()){
+  if ((e.key === 'a' || e.key === 'A') && e.shiftKey && !e.metaKey && !e.ctrlKey && state.sel.size){ e.preventDefault(); autoSizeSelection(); return; }   // ⇧A: auto-size selected frames to fit
+  // A -> create an annotation at the cursor (mirrors Space's new-card tap). If a card is selected
+  // the annotation becomes its child; otherwise it's a root. ⇧A is auto-size (handled just above).
+  if ((e.key === 'a' || e.key === 'A') && !e.shiftKey && !e.metaKey && !e.ctrlKey && !outlineActive()){
     e.preventDefault();
     const p = ui.lastMouse ? screenToWorld(ui.lastMouse.x, ui.lastMouse.y) : screenToWorld(window.innerWidth/2, window.innerHeight/2);
-    createNode({ x: p.x - 80, y: p.y - 16, type:'annotation' });
+    createAnnotationHere(p.x - 80, p.y - 16);
     return;
   }
   // ⌘/Ctrl C / X copy / cut the selected cards (with their subtrees). No ⌘V handler here —
