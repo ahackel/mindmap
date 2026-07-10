@@ -212,7 +212,20 @@ export function paintNode(n: MindNode): void {
     if (el.parentElement !== world) world.appendChild(el);
   } else {
     if (el.style.transform) el.style.transform = '';
-    place(el, n.x, n.y, host);
+    // A child card is nested INSIDE its parent card's element, positioned by its offset from the
+    // parent (n.x - parent.x — the live, staleness-proof form of rx/ry). So the parent carries its
+    // whole subtree via the compositor: moving the parent's element moves every descendant with it,
+    // no per-descendant left/top rewrite. Roots stay under #world; a direct frame child stays in the
+    // frame's overflow:hidden wrapper (place()). isFrameBox covers frames (image cards are leaves).
+    const p = n.parent ? state.nodes.get(n.parent) : null;
+    if (p && !isFrameBox(p)) {
+      const pEl = nodeEl(p);
+      el.style.left = (n.x - p.x) + 'px';
+      el.style.top  = (n.y - p.y) + 'px';
+      if (el.parentElement !== pEl) pEl.appendChild(el);
+    } else {
+      place(el, n.x, n.y, host);   // root → #world; direct frame child → frame content wrapper
+    }
   }
   // A frame (or an image card) is its own resizable box; give the element that size and a
   // drag-to-resize handle. Any other card clears the inline size so a reverted box snaps back
