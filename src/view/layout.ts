@@ -13,21 +13,11 @@ import { childrenOf, isHidden, isRoot } from '../utils/model.js';
 import { subtreeIds, layoutH, nodeH, nodeW, NODE_W, GRID_SNAP, FRAME_BORDER } from '../main.js';
 
 // ---------- absolute <-> relative position ----------
-// rx/ry (offset from the parent, world origin for a root) is the SOURCE OF TRUTH; x/y is a
-// derived absolute cache. absPos resolves a node's absolute position by summing offsets up the
-// ancestor chain; syncAbs rebuilds the whole x/y cache from rx/ry; commitRel captures live x/y
-// edits back into rx/ry. The layout/drag engines work in absolute x/y, and commitRel()
-// re-canonicalises rx/ry afterwards (called at the end of applyLayouts + before every save).
-export function absPos(n: MindNode): { x: number; y: number } {
-  let x = 0, y = 0;
-  for (let c: MindNode | null = n; c; c = c.parent ? state.nodes.get(c.parent) ?? null : null) {
-    x += c.rx; y += c.ry;
-  }
-  return { x, y };
-}
-export function syncAbs(): void {
-  for (const n of state.nodes.values()) { const p = absPos(n); n.x = p.x; n.y = p.y; }
-}
+// Two forms of a node's position: the WORKING form x/y (absolute world coords, what the layout
+// and drag engines read and mutate) and the PERSISTED form rx/ry (offset from the parent, world
+// origin for a root — what serializeMd writes as mm_position_x/y). commitRel() derives the
+// persisted form from the working form; it's the only bridge, called just before every save
+// (saveAll / exportZip). Load does the reverse — see data/persistence.ts loadFromDir.
 export function commitRel(): void {
   for (const n of state.nodes.values()) {
     const p = n.parent ? state.nodes.get(n.parent) : null;
@@ -607,7 +597,6 @@ function layoutSubtree(node: MindNode): void {
 // when read-only is left and the map is reloaded from disk.
 export function applyLayouts(): void {
   for (const n of state.nodes.values()) if (isRoot(n)) layoutSubtree(n);
-  commitRel();   // re-canonicalise rx/ry from the freshly laid-out absolute positions
 }
 
 // ---------- auto-collapse deep branches ----------

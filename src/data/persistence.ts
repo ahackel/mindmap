@@ -9,7 +9,7 @@ import { parseMd, serializeMd } from '../utils/frontmatter.js';
 import { zipBlob, unzip } from '../utils/zip.js';
 import { downloadBlob } from '../utils/download.js';
 import { childrenOf } from '../utils/model.js';
-import { applyLayouts, collapseAtDepth, deriveSide, absPos, syncAbs, commitRel } from '../view/layout.js';
+import { applyLayouts, collapseAtDepth, deriveSide, commitRel } from '../view/layout.js';
 import { fit } from '../view/camera.js';
 import { resetImageCache } from '../features/images.js';
 import { clearHistory } from '../features/history.js';
@@ -149,12 +149,14 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   // parent links are stored/resolved BY PATH, so ids never need to survive a reload.
   let seq = 0;
   let placed = 0;          // count of notes lacking a saved position, for fallback layout
-  // Seed each node's rx/ry (the source of truth) from disk, then syncAbs() derives the x/y cache.
-  // The raw seed's frame of reference depends on the fields present:
+  // Seed each node's rx/ry from disk; the top-down pass below settles them to parent-relative and
+  // derives the working x/y. The raw seed's frame of reference depends on the fields present:
   //  · relSeed  — the current mm_position_x/y fields: already parent-relative (roots world-relative).
   //  · legacySeed — the legacy mm_x/mm_y fields: parent-relative ONLY for frame children (the old
   //    behaviour), otherwise ABSOLUTE — converted to relative in the top-down pass below.
   //  · neither — a grid fallback (absolute), likewise converted below.
+  // TODO: legacySeed is a transitional migration shim — it can go once every map has been re-saved
+  // (serializeMd only re-emits mm_position_*, so the first save of any note drops its mm_x/mm_y).
   const relSeed = new Set<string>();
   const legacySeed = new Set<string>();
   for (const { rel, parsed } of entries) {
@@ -163,7 +165,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
     const hasLegacy = (mm.x != null && mm.y != null);
     const hasPos = hasRel || hasLegacy;
     const node: MindNode = {
-      id: 'n' + (++seq), file:rel, x: 0, y: 0,   // x/y filled by syncAbs() once rx/ry are settled
+      id: 'n' + (++seq), file:rel, x: 0, y: 0,   // x/y derived from rx/ry in the top-down pass below
       rx: hasRel ? mm.px! : hasLegacy ? mm.x! : (120 + (placed % 4) * 240),
       ry: hasRel ? mm.py! : hasLegacy ? mm.y! : (120 + Math.floor(placed / 4) * 200),
       _parentPath: mm.parent || '',                // resolved to an id once all notes are loaded
@@ -189,20 +191,21 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
     n.parent = n._parentPath ? (byPath.get(n._parentPath) || null) : null;
     delete n._parentPath;
   }
-  // Make every rx/ry parent-relative. relSeed and legacy frame children already are; the rest hold
-  // an ABSOLUTE seed, so subtract the parent's absolute position. Walk parents-before-children so
-  // absPos(parent) is valid (the parent's rx/ry is final by the time we reach a child).
+  // Settle every rx/ry to parent-relative and derive the working x/y, in one top-down pass so the
+  // parent's absolute x/y is already final when we reach a child. relSeed and legacy frame children
+  // are already relative; the rest hold an ABSOLUTE seed, so subtract the parent's position.
   const kidsOf = new Map<string | null, MindNode[]>();
   for (const n of state.nodes.values()) { const k = kidsOf.get(n.parent) ?? []; k.push(n); kidsOf.set(n.parent, k); }
   const stack = [...(kidsOf.get(null) ?? [])];
   while (stack.length) {
     const n = stack.pop()!;
     const p = n.parent ? state.nodes.get(n.parent) : null;
+    const pax = p ? p.x : 0, pay = p ? p.y : 0;   // final (parents are visited before their children)
     const alreadyRel = relSeed.has(n.id) || (legacySeed.has(n.id) && !!p && isFrameLayout(p.layoutType));
-    if (p && !alreadyRel) { const pa = absPos(p); n.rx -= pa.x; n.ry -= pa.y; }
+    if (p && !alreadyRel) { n.rx -= pax; n.ry -= pay; }   // absolute seed → parent-relative
+    n.x = pax + n.rx; n.y = pay + n.ry;                   // working absolute coords
     for (const k of kidsOf.get(n.id) ?? []) stack.push(k);
   }
-  syncAbs();   // derive the absolute x/y cache from the settled rx/ry
   // A note with no `mm_side` yet (never dropped, or from before this field existed) gets one
   // backfilled from its saved position, once, right here — not re-derived on every relayout.
   for (const n of state.nodes.values()) {

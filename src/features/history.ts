@@ -16,8 +16,8 @@ import { endInlineEdit, endBodyEdit } from './inline-edit.js';
 
 // Everything persistent about a node EXCEPT its identity/render/dirty fields. `file` is
 // snapshotted (needed to restore a deleted node) but is NOT written back onto a node that
-// still exists — see applyImages. rx/ry are omitted too: they're the derived relative form of
-// x/y, re-canonicalised by commitRel() (in applyLayouts / before save), so restoring x/y suffices.
+// still exists — see applyImages. rx/ry are omitted too: they're the persisted relative form of
+// x/y, re-derived by commitRel() before each save, so restoring x/y suffices.
 type NodeSnap = Omit<MindNode, 'id' | 'el' | 'dirty' | 'dirtyLayout' | '_parentPath' | 'rx' | 'ry'>;
 type Images = Map<string, NodeSnap | null>;      // null = the node does not exist
 // A step captures node before/after images and, when a sketch gesture changed the ink layer,
@@ -117,7 +117,7 @@ function applyImages(images: Images): void {
       Object.assign(live, cloneSnap(s), { file: live.file });
       live.dirty = true; live.dirtyLayout = true;
     } else {                                        // resurrect a deleted node
-      // rx/ry are re-canonicalised from the restored x/y by commitRel() (applyLayouts / save).
+      // rx/ry are re-derived from the restored x/y by commitRel() before the next save.
       state.nodes.set(id, { id, ...cloneSnap(s), rx: 0, ry: 0, dirty: true, dirtyLayout: true, el: null });
     }
   }

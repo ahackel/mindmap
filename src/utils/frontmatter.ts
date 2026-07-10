@@ -125,9 +125,8 @@ export function serializeMd(n: MindNode): string {
   const parentNode = n.parent ? state.nodes.get(n.parent) : null;
   if (parentNode) entries.push({ key:'mm_parent', lines:[`mm_parent: ${parentNode.file}`] });
   if (parentNode && n.side) entries.push({ key:'mm_side', lines:[`mm_side: ${n.side}`] });
-  // Position is the parent-relative rx/ry (world origin for a root) — the source of truth, kept
-  // fresh by commitRel() before every save (see data/persistence.ts). data/persistence.ts converts
-  // it back to the absolute x/y cache on load, so moving a parent doesn't rewrite every descendant.
+  // rx/ry is the parent-relative persisted form (see MindNode in core/state.ts); commitRel() has
+  // refreshed it from x/y before we get here (saveAll / exportZip).
   entries.push({ key:'mm_position_x', lines:[`mm_position_x: ${Math.round(n.rx)}`] });
   entries.push({ key:'mm_position_y', lines:[`mm_position_y: ${Math.round(n.ry)}`] });
   if (n.collapsed) entries.push({ key:'mm_collapsed', lines:['mm_collapsed: true'] });

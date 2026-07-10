@@ -27,10 +27,10 @@ export interface FmEntry {
 export interface MindNode {
   id: string;
   file: string | null;             // relative path on disk; null until first save
-  // Position. rx/ry (offset from the parent, world origin for a root) is the SOURCE OF TRUTH;
-  // x/y is the absolute world cache derived from it. view/layout.ts owns the conversion:
-  // syncAbs() refreshes x/y from rx/ry, commitRel() captures live x/y edits back into rx/ry.
-  // The layout/drag engines work in absolute x/y and commitRel() re-canonicalises after.
+  // Position, two forms. x/y is the WORKING form (absolute world coords) — the layout and drag
+  // engines read and mutate this. rx/ry is the PERSISTED form (offset from the parent, world
+  // origin for a root), written as mm_position_x/y. commitRel() (view/layout.ts) derives rx/ry
+  // from x/y just before a save; loadFromDir does the reverse. Between those, rx/ry may be stale.
   x: number;
   y: number;
   rx: number;                      // persisted as mm_position_x/y
