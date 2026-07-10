@@ -4,7 +4,7 @@
 // An open ui.inlineEdit/bodyEdit defers the file rename / disk-reload while typing so the
 // folder isn't littered with half-typed names. nodeEl (main) binds the title handlers; the body
 // editor binds its own. Reflow uses the live DOM height, so n.title/body stay untouched mid-edit.
-import { state, setStatus, type MindNode } from '../core/state.js';
+import { state, setStatus, isAnnotation, type MindNode } from '../core/state.js';
 import { ui } from '../core/ui-state.js';
 import { takenTitles } from '../utils/model.js';
 import { outlineActive, startRowTitleEdit } from './outline.js';
@@ -33,6 +33,8 @@ export function titleProblem(title: string, selfId: string): string {
 // until editing ends (no M.md, Ma.md… litter).
 export function startInlineEdit(n: MindNode | undefined, { isNew = false }: { isNew?: boolean } = {}): void {
   if (state.readOnly || !n) return;
+  // An annotation has no title — its slow-click / F2 / add-child rename all edit the BODY instead.
+  if (isAnnotation(n)) { startBodyEdit(n); return; }
   // In outline mode (which includes every phone-width screen — outline is forced on below
   // that breakpoint) the title is renamed right on its row (features/outline.ts), mirroring the
   // canvas' in-place rename. This is the single choke point, so F2 / slow-click / add child / add

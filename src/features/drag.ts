@@ -6,7 +6,7 @@
 // auto-pan keeps the dragged subtree glued under the cursor while the view scrolls. All transient
 // drag state lives in `ui.drag`. Importing this module registers the global Alt/Shift modifier
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
-import { state, stage, world, setStatus, isImageCard, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, stage, world, setStatus, isLeafType, isAnnotation, type MindNode, type LayoutSide } from '../core/state.js';
 import { isHidden, isAncestor } from '../utils/model.js';
 import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, flowReorderTarget, isFrame, centreInFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget, ancestorDepth } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
@@ -88,18 +88,29 @@ function trueRoots(ids: string[]): string[] {
   return ids.filter(id => { const p = state.nodes.get(id)?.parent; return !p || !idSet.has(p); });
 }
 
-const RIP_THRESHOLD = 200; // screen-space px dragged from THIS gesture's start before edge hides/detaches on drop
+const RIP_THRESHOLD = 200; // screen-space px — the base rip distance (see distanceRip)
+
+// A distance-based rip: a child detaches once its centre is pulled clear of the parent's own
+// footprint by a margin. Measured centre-to-centre, then the parent's bounding DIAGONAL is
+// subtracted (so a child merely sitting beside a large parent — e.g. a big frame — never reads as
+// ripped) and the leftover must exceed HALF the base threshold. Zoom-scaled so it's a screen-space
+// feel. Returns false for a root (nothing to rip from).
+function distanceRip(node: MindNode): boolean {
+  const p = node.parent ? state.nodes.get(node.parent) : null;
+  if (!p) return false;
+  const dist = Math.hypot((node.x + nodeW(node)/2) - (p.x + nodeW(p)/2),
+                          (node.y + nodeH(node)/2) - (p.y + nodeH(p)/2));
+  const diag = Math.hypot(nodeW(p), nodeH(p));
+  return (dist - diag) * state.view.k > RIP_THRESHOLD / 2;
+}
 
 // Is a screen point outside the browser window? True once a drag has left for another app.
 const outsideWindow = (x: number, y: number): boolean =>
   x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight;
 
-// Recompute whether the dragged card has been pulled past the rip threshold DURING THIS DRAG —
-// measured from where the gesture started (drag.start), not from the parent's position. Using the
-// parent as the reference meant a child already sitting far from its parent (a common layout,
-// e.g. after a previous free-form drag) would read as "ripped" the instant you touched it, with
-// no actual pull yet. Must be called before paintEdges() so the hidden-edge rendering reads the
-// latest state.
+// Recompute whether the dragged card is currently ripped off its parent (distanceRip: pulled clear
+// of the parent's footprint by half the base threshold — see that helper). Must be called before
+// paintEdges() so the hidden-edge rendering reads the latest state.
 function updateRip(drag: Drag): void {
   // Runs for a multi-selection too (all roots move by the same delta, so the anchor's rip state is
   // the whole group's) — dragPointerUp detaches every dragged root that this gesture pulls off.
@@ -115,17 +126,14 @@ function updateRip(drag: Drag): void {
   // dragPointerUp commits on. Sharing drag.rip means effectiveColor previews the detach colour the
   // instant it crosses out, exactly as a distance-rip does for a non-frame child.
   const parent = act.parent ? state.nodes.get(act.parent) : null;
-  const inFrame = !!(parent && isFrame(parent));
+  // An annotation is never "in" a frame for rip purposes — it renders on top, not inside the box —
+  // so it detaches ONLY by being dragged past the rip threshold, never by leaving a frame's bounds.
+  const inFrame = !!(parent && isFrame(parent)) && !isAnnotation(act);
   if (act.parent && !reordering) {
     if (inFrame) {
       rip = !centreInFrame(act, parent!);
     } else {
-      const origin = drag.start.get(act.id);
-      if (origin) {
-        const dx = (act.x - origin.x) * state.view.k;
-        const dy = (act.y - origin.y) * state.view.k;
-        rip = Math.hypot(dx, dy) > RIP_THRESHOLD;
-      }
+      rip = distanceRip(act);   // pulled clear of the parent's footprint by half the base threshold
     }
   }
   if (rip === drag.rip) return;
@@ -486,19 +494,16 @@ function dragPointerUp(): void {
           // Resolve each dragged ROOT this gesture pulls off its parent — a whole multi-selection
           // detaches together, not just the anchor. A root inside a frame detaches ONLY by leaving
           // that frame's box (its centre outside the rectangle) — never by distance or Alt while
-          // still inside it. Any other root detaches on Alt or once dragged past the rip threshold;
-          // the whole selection moved by the same delta, so measuring the anchor covers the group.
-          const oAct = drag.start.get(act.id);
-          const pastThreshold = !!oAct &&
-            Math.hypot((act.x - oAct.x) * state.view.k, (act.y - oAct.y) * state.view.k) > RIP_THRESHOLD;
+          // still inside it. Any other root detaches on Alt or once its own distanceRip fires (per
+          // root, since each measures against its own parent — matches the updateRip preview).
           let detached = 0, leftFrame = 0;
           for (const rootId of selRoots){
             const r = state.nodes.get(rootId);
             if (!r?.parent) continue;
             const rp = state.nodes.get(r.parent);
-            const rInFrame = !!(rp && isFrame(rp));
+            const rInFrame = !!(rp && isFrame(rp)) && !isAnnotation(r);   // annotations detach by rip only
             const rOut = rInFrame && !centreInFrame(r, rp!);
-            if (!shift && (rInFrame ? rOut : (alt || pastThreshold))){
+            if (!shift && (rInFrame ? rOut : (alt || distanceRip(r)))){
               r.parent = null; r.side = undefined;   // a root has no side / frame host
               detached++; if (rOut) leftFrame++;
             } else if (rp && isManagedLayout(rp)){
@@ -712,6 +717,14 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   let line: Seg | null = null;   // reorder gap indicator
   if (hovered && sub.has(hovered)){
     setStatus(`Can't parent "${dragged.title}" onto its own child/descendant`);
+  } else if (isAnnotation(dragged)) {
+    // An annotation can't be reordered and never adopts siblings — dragging one only ever RE-PARENTS
+    // it, to any non-annotation node (cards, frames, AND images). No sibling/reorder preview; the
+    // candidate parent is just highlighted (dashed ghost outline) in the preview section below.
+    if (hovered) {
+      const hn = state.nodes.get(hovered)!;
+      if (!isAnnotation(hn)) { target = hovered; mode = 'child'; side = hoveredEdge || 'down'; }
+    }
   } else if (hovered) {
     const hoveredNode = state.nodes.get(hovered)!;
     const pf = hoveredNode.parent ? state.nodes.get(hoveredNode.parent) : null;
@@ -751,9 +764,9 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
         }
       }
       // Edge zone (or no valid sibling target) -> child-of-hovered, attaching on whichever side
-      // the drop point sits near. An image card is a leaf — it never adopts children, so it's
-      // not a valid child-drop target (sibling-mode above still is).
-      if (!target && !isImageCard(hoveredNode)) {
+      // the drop point sits near. Image/annotation are leaves — they never adopt children, so
+      // they're not valid child-drop targets (sibling-mode above still is).
+      if (!target && !isLeafType(hoveredNode)) {
         target = hovered; side = hoveredEdge;
         if (isManagedLayout(hoveredNode) && !frameFlow(hoveredNode))
           ({ afterId: after, line } = reorderTarget(hoveredNode, dragged, side));
@@ -791,7 +804,12 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   const prevLine = drag?.dropLine ?? null;
   if (drag) { drag.dropTarget = target; drag.dropMode = mode; drag.dropSide = side; drag.dropAfter = after; drag.dropLine = line; }
   if (changed) for (const id of sub) { const m = state.nodes.get(id); if (m) paintNode(m); }
-  if (target && side) {
+  if (target && side && isAnnotation(dragged)) {
+    // Annotation reparent: only a dashed ghost-colour outline on the candidate parent — no landing
+    // ghost, no insertion bar, no reparent edge (see edges.ts previewReparent).
+    state.nodes.get(target)!.el?.classList.add('anno-drop-target');
+    hideLandingGhost();
+  } else if (target && side) {
     const targetNode = state.nodes.get(target)!;
     // Highlight the target — EXCEPT a flow frame, which shows the insertion bar (below) instead of
     // the frame-outline highlight (like line-layout reorder).
@@ -822,8 +840,8 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
   }
 }
 function clearDropTarget(): void {
-  document.querySelectorAll('.node.drop-target, .node.drop-sibling')
-    .forEach(el => el.classList.remove('drop-target', 'drop-sibling'));
+  document.querySelectorAll('.node.drop-target, .node.drop-sibling, .node.anno-drop-target')
+    .forEach(el => el.classList.remove('drop-target', 'drop-sibling', 'anno-drop-target'));
 }
 // Mutates `child`'s parent + the new parent's kidOrder only — no layout/paint/status. Callers
 // batch layout/paint once for the whole dragged group (see dragPointerUp) rather than per root.

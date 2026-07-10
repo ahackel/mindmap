@@ -2,7 +2,7 @@
 // Edges are DERIVED from each node's parent (no stored edge list). This module owns the parent→child
 // connector geometry for the three edge styles and paints them into the #edges SVG. It reads the
 // render core's live card heights (nodeH) and branch colour (effectiveColor) from main.
-import { state, backgroundsSvg, edgesSvg, togglesSvg, dragEdgesSvg, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, backgroundsSvg, edgesSvg, togglesSvg, dragEdgesSvg, dragLayerEdges, isAnnotation, type MindNode, type LayoutSide } from '../core/state.js';
 import { isRoot, isHidden } from '../utils/model.js';
 import { dropLanding, sideOf, subtreeBox, isFrame, hostFrame, frameInterior } from './layout.js';
 import { ui, type Pt } from '../core/ui-state.js';
@@ -102,6 +102,8 @@ function edgePath(parent: MindNode, child: MindNode): string {
 function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: number }; side: LayoutSide } | null {
   const drag = ui.drag;
   if (!drag || !drag.dropTarget || !drag.dropSide) return null;
+  // annotations preview as just a dashed outline on the candidate parent (drag.ts) — no would-be edge
+  if (isAnnotation(drag.active)) return null;
   // Whenever the insertion bar is the preview (in-parent reorder — which always resolves a gap
   // segment — or a reparent joining a managed branch's existing children), the dragged card is
   // hidden and the bar alone marks the slot — a dashed edge into empty space would dangle, so
@@ -176,7 +178,7 @@ export function paintEdges(): void {
   paintBackgrounds();
   // While filtering, hide ALL lines — dimmed cards are semi-transparent, so faint lines would
   // show through them and read as clutter. Cleaner to drop the lines entirely until search ends.
-  if (state.searchMatch){ edgesSvg.innerHTML = ''; togglesSvg.innerHTML = ''; dragEdgesSvg.innerHTML = ''; return; }
+  if (state.searchMatch){ edgesSvg.innerHTML = ''; togglesSvg.innerHTML = ''; dragEdgesSvg.innerHTML = ''; dragLayerEdges.innerHTML = ''; return; }
   // Collect edges first so they can be painted furthest-first: softened (faint) long edges go
   // down before crisp short ones, so a close, opaque connector never gets dulled by a faint one
   // crossing over it.
@@ -185,6 +187,11 @@ export function paintEdges(): void {
   // edges converge (see anchorPoint), tinted to match the PARENT card (its own socket).
   const occupiedSides = new Map<string, Set<LayoutSide>>();
   const hosts = new Set<string>();   // frames referenced by a clip-path below — see frameClipDefs
+  let annos = '';   // annotation connectors: always dotted, tinted by the annotation's own colour,
+                    // NEVER clipped, drawn on top (dragEdgesSvg) — see the isAnnotation branch below
+  let dragged = '';   // connectors of the currently-dragged items — routed to #dragLayer's own SVG so
+                      // they dim as part of the same opacity group as the dragged cards (no shine-through)
+  const inDragGroup = (id: string): boolean => !!(ui.drag && ui.drag.moved && ui.drag.targets.has(id));
   // Draw a connector for every parent→child edge where BOTH ends are visible.
   // A collapsed node hides its children, so those edges simply don't appear.
   for (const n of state.nodes.values()) {
@@ -192,21 +199,32 @@ export function paintEdges(): void {
     const parent = n.parent ? state.nodes.get(n.parent) : null;
     if (!parent) continue;
     if (isHidden(parent) || isHidden(n)) continue;
+    // Drag suppressions — apply to EVERY connector incl. annotations, so a card/annotation that's
+    // Alt-detaching, poised over a NEW parent, cloned, or ripped past threshold drops its OLD
+    // connector entirely (the preview/border shows the pending result instead). Checked before the
+    // annotation branch so a ripped annotation hides its edge exactly like a card.
+    if (ui.drag && ui.drag.alt && !ui.drag.shift && ui.drag.n.id === n.id) continue;
+    if (ui.drag && ui.drag.dropTarget && ui.drag.targets.has(n.id) && !ui.drag.targets.has(parent.id)) continue;
+    if (ui.drag && ui.drag.cloned && ui.drag.targets.has(n.id)) continue;
+    if (ui.drag && ui.drag.rip && ui.drag.active.id === n.id) continue;
+    // An annotation is pinned on top of its parent: draw a dotted connector tinted by the
+    // annotation's OWN colour, with a matching anchor dot on the parent — unclipped, drawn even
+    // when the parent is a frame (which otherwise draws no edges). When the annotation is being
+    // dragged it joins the drag opacity group; otherwise it rides the top overlay (dragEdgesSvg).
+    if (isAnnotation(n)) {
+      const tint = SWATCH_BG[effectiveColor(n)] ?? 'var(--edge)';
+      // straight line from the annotation's CENTRE to the CLOSEST point on the parent's bounds
+      // (clamp the centre into the parent rect), with the anchor dot at that closest point.
+      const ax = n.x + nodeW(n)/2, ay = n.y + nodeH(n)/2;
+      const bx = Math.max(parent.x, Math.min(ax, parent.x + nodeW(parent)));
+      const by = Math.max(parent.y, Math.min(ay, parent.y + nodeH(parent)));
+      const els = `<path class="anno-edge" style="stroke:${tint}" stroke-dasharray="2 6" d="M ${ax} ${ay} L ${bx} ${by}"/>`
+        + `<circle class="edge-dot" cx="${bx}" cy="${by}" r="${DOT_R}" fill="${tint}"/>`;
+      if (inDragGroup(n.id)) dragged += els; else annos += els;
+      continue;
+    }
     // A frame IS the container (its own box holds the children), so it draws no child edges.
     if (isFrame(parent)) continue;
-    // While Alt-dragging this node we're previewing detach-to-root, so drop its parent
-    // edge entirely (no line, not even a dotted one).
-    if (ui.drag && ui.drag.alt && !ui.drag.shift && ui.drag.n.id === n.id) continue;
-    // Poised over a valid new parent: hide the edge to the OLD parent of each dragged root
-    // (child in the dragged set, parent outside it) — the dashed preview edge replaces it.
-    // Internal parent→child edges among the dragged cards keep drawing; the cards stay
-    // visible while dragging, so their subtree must not fall apart visually.
-    if (ui.drag && ui.drag.dropTarget && ui.drag.targets.has(n.id) && !ui.drag.targets.has(parent.id)) continue;
-    // While Shift-cloning, the dragged copies aren't placed yet — don't draw their parent edges.
-    if (ui.drag && ui.drag.cloned && ui.drag.targets.has(n.id)) continue;
-    // Rip threshold reached: it's about to detach, so drop its parent edge entirely — same
-    // treatment as the Alt-detach preview above, not a dashed line.
-    if (ui.drag && ui.drag.rip && ui.drag.active.id === n.id) continue;
     // tint by the child's branch colour; soften by how far the child sits from its parent
     const tint = SWATCH_BG[effectiveColor(n)];
     const dist = Math.hypot(n.x - parent.x, n.y - parent.y);
@@ -215,13 +233,17 @@ export function paintEdges(): void {
     // Both ends share the same host frame whenever this edge is drawn at all (parent's never a
     // frame here — see the isFrame(parent) skip above — so walking from either end lands on the
     // same nearest enclosing frame, if any).
-    const host = hostFrame(n);
-    const clip = host ? ` clip-path="url(#${frameClipId(host)})"` : '';
-    if (host) hosts.add(host.id);
-    const path = `<path style="${style}"${clip} d="${edgePathBox(parent, { x:n.x, y:n.y, h:nodeH(n), w:nodeW(n) }, side)}"/>`;
-    // dragged-subtree edges stay in the normal behind-cards layer too — the cards themselves
-    // remain visible while dragging, so nothing should overdraw other cards
-    entries.push({ dist, path });
+    const d = edgePathBox(parent, { x:n.x, y:n.y, h:nodeH(n), w:nodeW(n) }, side);
+    if (inDragGroup(n.id)) {
+      // a dragged item's connector joins its opacity group (unclipped — the dragged cards lift out
+      // of any frame clip while dragging, so their edges must too)
+      dragged += `<path style="${style}" d="${d}"/>`;
+    } else {
+      const host = hostFrame(n);
+      const clip = host ? ` clip-path="url(#${frameClipId(host)})"` : '';
+      if (host) hosts.add(host.id);
+      entries.push({ dist, path: `<path style="${style}"${clip} d="${d}"/>` });
+    }
     let sides = occupiedSides.get(parent.id); if (!sides) occupiedSides.set(parent.id, sides = new Set());
     sides.add(side);
   }
@@ -231,14 +253,16 @@ export function paintEdges(): void {
   for (const [pid, sides] of occupiedSides) {
     const p = state.nodes.get(pid); if (!p) continue;
     const tint = branchTint(p);
-    // Same host as the edges converging here (see the comment above) — the socket dot sits ON
-    // the parent's own border, so it clips right alongside its edges.
-    const host = hostFrame(p);
+    // A dragged parent's socket dot joins the drag opacity group (unclipped); otherwise it sits on
+    // the parent's own border and clips right alongside its edges.
+    const grouped = inDragGroup(pid);
+    const host = grouped ? null : hostFrame(p);
     const clip = host ? ` clip-path="url(#${frameClipId(host)})"` : '';
     if (host) hosts.add(host.id);
     for (const side of sides) {
       const pt = anchorPoint(p, side);
-      svg += `<circle class="edge-dot"${clip} cx="${pt.x}" cy="${pt.y}" r="${DOT_R}" fill="${tint}"/>`;
+      const dot = `<circle class="edge-dot"${clip} cx="${pt.x}" cy="${pt.y}" r="${DOT_R}" fill="${tint}"/>`;
+      if (grouped) dragged += dot; else svg += dot;
     }
   }
   // Dashed preview: while poised over a valid reparent target, draw the would-be new
@@ -256,6 +280,10 @@ export function paintEdges(): void {
     top += `<circle class="edge-dot edge-dot-preview"${clip} cx="${pt.x}" cy="${pt.y}" r="${DOT_R + 1}" fill="white"/>`;
   }
   edgesSvg.innerHTML = frameClipDefs(hosts) + svg;
-  dragEdgesSvg.innerHTML = frameClipDefs(topHosts) + top;
+  // annotation connectors ride the same above-cards layer as the drag preview (unclipped) so they
+  // sit over normal cards/frames but under the annotation card itself (z-index:7 vs dragEdges' 4).
+  dragEdgesSvg.innerHTML = frameClipDefs(topHosts) + annos + top;
+  // the dragged items' connectors live inside #dragLayer so they share the cards' opacity group
+  dragLayerEdges.innerHTML = dragged;
   togglesSvg.innerHTML = '';             // no edge toggles anymore
 }

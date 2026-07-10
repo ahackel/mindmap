@@ -2,7 +2,7 @@
 // Every node is one .md file; ids are ephemeral (minted in mkNode). All create/duplicate paths go
 // through mkNode so the node schema stays in one place. Each mutation schedules a save. Re-parenting
 // by drag lives in features/drag.ts; this is the keyboard/toolbar-driven lifecycle.
-import { state, setStatus, isImageCard, type MindNode, type LayoutType } from '../core/state.js';
+import { state, setStatus, isLeafType, isAnnotation, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
 import { ui, type Pt } from '../core/ui-state.js';
 import { childrenOf, takenTitles } from '../utils/model.js';
 import { applyLayouts, insertedKidOrder, sideOf } from '../view/layout.js';
@@ -22,7 +22,7 @@ export function mkNode(fields: Partial<MindNode> = {}): MindNode {
     id, file:null,
     x:0, y:0, rx:0, ry:0, parent:null, collapsed:false, done:false, checklist:false, bg:false,
     title:'', color:'', keepStatus:'', tags:[], body:'',
-    layoutType:'none',
+    type:'card', layout:'inherit',
     dirty:true, dirtyLayout:true,
     ...fields,
   };
@@ -30,7 +30,7 @@ export function mkNode(fields: Partial<MindNode> = {}): MindNode {
 // Make a new UNCONNECTED node (parent:null) at the viewport centre (or a given spot).
 interface CreateOpts {
   x?: number; y?: number; parent?: string | null; title?: string; color?: string;
-  tags?: string[]; body?: string; layoutType?: LayoutType; isNew?: boolean;
+  tags?: string[]; body?: string; type?: NodeType; layout?: NodeLayout; isNew?: boolean;
   w?: number; h?: number;
   edit?: boolean;   // false = don't open the inline rename (e.g. paste — the content is final)
 }
@@ -40,10 +40,10 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
   const n = mkNode({
     x: opts.x ?? (c.x - 100), y: opts.y ?? (c.y - 40),
     parent: opts.parent ?? null,
-    title: opts.title ?? newCardTitle(),
+    title: opts.title ?? (opts.type === 'annotation' ? uniqueTitle('Annotation') : newCardTitle()),
     color: opts.color ?? '',
     tags: opts.tags ? [...opts.tags] : [], body: opts.body ?? '',
-    layoutType: opts.layoutType ?? 'none',
+    type: opts.type ?? 'card', layout: opts.layout ?? 'inherit',
     w: opts.w, h: opts.h,
   });
   const id = n.id;
@@ -53,6 +53,15 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
   else commitStep();   // no rename session follows, so the create step ends here
   scheduleSave();
   return n;
+}
+// Create an annotation at (x,y). If a card is selected it becomes that card's child (the primary
+// selection anchor — as long as it can hold children); otherwise it's a root. Shared by the 'A'
+// shortcut and the "Create annotation here" context-menu entry.
+export function createAnnotationHere(x: number, y: number): MindNode | undefined {
+  const sel = state.selId ? state.nodes.get(state.selId) : null;
+  // an annotation can pin to anything EXCEPT another annotation (images included — you can annotate them)
+  const parent = sel && !isAnnotation(sel) ? sel.id : null;
+  return createNode({ x, y, type:'annotation', parent });
 }
 // Make a new unconnected node at (x,y) and render it, but DON'T select / rename / save yet — the
 // caller drives it (e.g. the ghost-card drag rides it under the cursor, then renames on drop or
@@ -100,7 +109,7 @@ function cloneNodeAt(s: MindNode, x: number, y: number): MindNode {
     title: copyTitle(s.title),
     color: s.color,
     tags: [...s.tags], body: s.body, done: s.done, checklist: s.checklist, bg: s.bg,
-    layoutType: s.layoutType || 'none', side: s.side,
+    type: s.type, layout: s.layout, side: s.side,
     w: s.w, h: s.h,   // a frame/image card's own box size
   });
   state.nodes.set(copy.id, copy);
@@ -146,7 +155,7 @@ export function leaveClone(s: MindNode, pos: Pt): MindNode {
 export function addChild(parentId: string): void {
   if (state.readOnly) return;
   const parent = state.nodes.get(parentId); if (!parent) return;
-  if (isImageCard(parent)) return;   // an image card is a leaf — it can't have children
+  if (isLeafType(parent)) return;   // image/annotation are leaves — they can't have children
   touch(parentId);   // the reveal below (and a line/fan kidOrder change) belong to the create step
   if (parent.collapsed){ parent.collapsed = false; } // reveal so the new child is visible
   const sibs = childrenOf(parentId);

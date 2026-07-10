@@ -14,7 +14,7 @@
 import './styles.css';   // app styles (Vite bundles + singlefile inlines into dist/index.html)
 import { renderBodyHTML } from './utils/markdown.js';
 import { childrenOf, isHidden, descendantCount } from './utils/model.js';
-import { state, world, stage, setStatus, isImageCard, isFrameLayout } from './core/state.js';
+import { state, world, dragLayer, stage, setStatus, isImageCard, isAnnotation } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { setupGrid } from './view/grid.js';
 import { mountIcons } from './view/icons.js';
@@ -28,7 +28,7 @@ import './features/gestures.js';   // registers the canvas pan/zoom/marquee gest
 import './features/attachments.js';   // registers the OS image drag/drop listeners
 import './features/context-menu.js';   // registers the custom right-click menu on the canvas
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInput, onInlineKeydown } from './features/inline-edit.js';
-import { createNode, createDetachedNode, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
+import { createNode, createDetachedNode, createAnnotationHere, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
 import { openSearch } from './features/search.js';
 import { renderOutline, toggleOutlineView, outlineActive } from './features/outline.js';   // also wires the outline toggle button
@@ -140,6 +140,10 @@ export function foldNodeOrGroup(n: MindNode): void {
 // to grey, so it gets the same neutral card bg as an explicit grey rather than going transparent.
 // Explicit 'none' still short-circuits below (it's truthy), so "no colour" stays transparent.
 export function effectiveColor(n: MindNode): string {
+  // An annotation never inherits a background — only its OWN colour counts (drives its dotted
+  // connector + the anchor dot on its parent); with none ('inherit') it takes the THEME'S CONTRAST
+  // colour — white on the dark canvas, black on the light one — so it always stands out on top.
+  if (isAnnotation(n)) return n.color || (document.body.classList.contains('light') ? 'black' : 'white');
   const drag = ui.drag;
   let previewId: string | null = null;
   let previewParent: MindNode | null | undefined;
@@ -175,6 +179,7 @@ export function paintNode(n: MindNode): void {
   el.className = 'node c-' + effectiveColor(n)
     + (isFrameBox(n) ? ' frame' : '')
     + (isImageBox(n) ? ' image-card' : '')
+    + (isAnnotation(n) ? ' annotation' : '')
     + (state.sel.has(n.id) ? ' sel' : '')
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
     + (collapsed ? ' collapsed' : '')
@@ -209,7 +214,8 @@ export function paintNode(n: MindNode): void {
   if (dragOrig) {
     el.style.left = dragOrig.x + 'px'; el.style.top = dragOrig.y + 'px';
     el.style.transform = `translate(${n.x - dragOrig.x}px,${n.y - dragOrig.y}px)`;
-    if (el.parentElement !== world) world.appendChild(el);
+    const root = dragRoot();
+    if (el.parentElement !== root) root.appendChild(el);
   } else {
     if (el.style.transform) el.style.transform = '';
     // A child card is nested INSIDE its parent card's element, positioned by its offset from the
@@ -218,7 +224,13 @@ export function paintNode(n: MindNode): void {
     // no per-descendant left/top rewrite. Roots stay under #world; a direct frame child stays in the
     // frame's overflow:hidden wrapper (place()). isFrameBox covers frames (image cards are leaves).
     const p = n.parent ? state.nodes.get(n.parent) : null;
-    if (p && !isFrameBox(p)) {
+    if (isAnnotation(n)) {
+      // An annotation always renders directly under #world at absolute coords — never nested in its
+      // parent nor in a frame's overflow:hidden wrapper — so a high z-index (styles.css) floats it on
+      // TOP of everything and no frame mask ever clips it. It still tracks its parent: layout keeps
+      // n.x/n.y = parent + offset, and drag carries it (it's in the parent's subtreeIds → own transform).
+      place(el, n.x, n.y, null);
+    } else if (p && !isFrameBox(p)) {
       const pEl = nodeEl(p);
       el.style.left = (n.x - p.x) + 'px';
       el.style.top  = (n.y - p.y) + 'px';
@@ -265,9 +277,9 @@ export const IMAGE_W = 240, IMAGE_H = 180;   // default image-card size (world p
 export const FRAME_BORDER = 4;   // must match .node.frame's CSS `border` width (styles.css)
 // Whether a node currently renders as a frame BOX. A collapsed frame folds to an ordinary card, so
 // its footprint reverts to a normal card (matching paintNode). Shared by the geometry helpers below.
-function isFrameBox(n: MindNode): boolean { return isFrameLayout(n.layoutType) && !n.collapsed; }
+function isFrameBox(n: MindNode): boolean { return n.type === 'frame' && !n.collapsed; }
 // An image card: a resizable leaf that shows nothing but its one image — no children, no title UI.
-function isImageBox(n: MindNode): boolean { return n.layoutType === 'image' && !n.collapsed; }
+function isImageBox(n: MindNode): boolean { return n.type === 'image' && !n.collapsed; }
 // Either kind of resizable box — shares sizing/resize-handle plumbing below.
 function isBoxNode(n: MindNode): boolean { return isFrameBox(n) || isImageBox(n); }
 function boxDefaultW(n: MindNode): number { return isImageBox(n) ? IMAGE_W : FRAME_W; }
@@ -314,8 +326,13 @@ function settledHost(n: MindNode): MindNode | null {
 // directly under #world, or inside `host`'s content wrapper (offset by the host's own border so
 // content never draws under the frame's border stroke). Shared by every hosted element: a plain
 // card, a frame's own box, and a nested frame's own content wrapper.
+// While a drag is live, dragged items live in #dragLayer (one opacity group) instead of directly
+// under #world — so the whole dragged set composites translucently without shining through itself.
+// Only DRAGGED nodes are painted mid-drag, so this only ever relocates them (and a dragged frame's
+// own content wrapper); resting content is untouched. On drop ui.drag is nulled → back to #world.
+function dragRoot(): HTMLElement { return (ui.drag && ui.drag.moved) ? dragLayer : world; }
 function place(el: HTMLElement, absX: number, absY: number, host: MindNode | null): void {
-  const container = host ? frameContentEl(host) : world;
+  const container = host ? frameContentEl(host) : dragRoot();
   el.style.left = (host ? absX - host.x - FRAME_BORDER : absX) + 'px';
   el.style.top  = (host ? absY - host.y - FRAME_BORDER : absY) + 'px';
   if (el.parentElement !== container) container.appendChild(el);
@@ -683,11 +700,15 @@ function focusOrFit(): void {
 // body.light overrides are picked up; re-read on every theme toggle (see refreshPalette).
 export const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey','white'];
 const pal = (name: string): string => getComputedStyle(document.body).getPropertyValue(`--pal-${name}`).trim();
-export const SWATCH_BG: Record<string, string> = Object.fromEntries(PALETTE.map(c => [c, pal(c)]));
+// `black` is NOT a pickable swatch — it's only the contrast fill for an inherit-bg annotation on the
+// light canvas (see effectiveColor). Tracked in SWATCH_BG (and refreshPalette) so its edge/anchor tint
+// resolves like any other colour key.
+const SWATCH_KEYS = [...PALETTE, 'black'];
+export const SWATCH_BG: Record<string, string> = Object.fromEntries(SWATCH_KEYS.map(c => [c, pal(c)]));
 // re-derive the palette hexes after a theme switch (light/dark have different --pal-* values)
 // and repaint everything that bakes them in as literal hex (edges, group backgrounds, swatches).
 export function refreshPalette(): void {
-  for (const c of PALETTE) SWATCH_BG[c] = pal(c);
+  for (const c of SWATCH_KEYS) SWATCH_BG[c] = pal(c);
   refreshSwatches();
   paintAll();
 }
@@ -807,7 +828,15 @@ window.addEventListener('keydown', (e) => {
   if (e.key === ' '){ e.preventDefault(); if (!e.repeat){ ui.spaceHeld = true; ui.spaceUsedForPan = false; } return; }
   if (e.key === 'f' || e.key === 'F'){ e.preventDefault(); focusOrFit(); return; }
   if ((e.key === 'd' || e.key === 'D') && state.sel.size){ e.preventDefault(); duplicateSelection(); return; }
-  if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && state.sel.size){ e.preventDefault(); autoSizeSelection(); return; }   // auto-size selected frames to fit
+  if ((e.key === 'a' || e.key === 'A') && e.shiftKey && !e.metaKey && !e.ctrlKey && state.sel.size){ e.preventDefault(); autoSizeSelection(); return; }   // ⇧A: auto-size selected frames to fit
+  // A -> create an annotation at the cursor (mirrors Space's new-card tap). If a card is selected
+  // the annotation becomes its child; otherwise it's a root. ⇧A is auto-size (handled just above).
+  if ((e.key === 'a' || e.key === 'A') && !e.shiftKey && !e.metaKey && !e.ctrlKey && !outlineActive()){
+    e.preventDefault();
+    const p = ui.lastMouse ? screenToWorld(ui.lastMouse.x, ui.lastMouse.y) : screenToWorld(window.innerWidth/2, window.innerHeight/2);
+    createAnnotationHere(p.x - 80, p.y - 16);
+    return;
+  }
   // ⌘/Ctrl C / X copy / cut the selected cards (with their subtrees). No ⌘V handler here —
   // the native `paste` event (features/attachments.ts) carries clipboardData permission-free.
   if ((e.key === 'c' || e.key === 'C') && (e.metaKey || e.ctrlKey) && state.sel.size){

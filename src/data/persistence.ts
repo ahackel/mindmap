@@ -4,7 +4,7 @@
 // elsewhere calls scheduleSave(); a burst coalesces into one write ~400ms later.
 // `store` is the active backend (reassigned by useStore); main holds the open() flows.
 // ============================================================
-import { state, world, setStatus, isFrameLayout, type MindNode, type LayoutType, type LayoutSide } from '../core/state.js';
+import { state, world, setStatus, type MindNode, type LayoutSide } from '../core/state.js';
 import { parseMd, serializeMd } from '../utils/frontmatter.js';
 import { zipBlob, unzip } from '../utils/zip.js';
 import { downloadBlob } from '../utils/download.js';
@@ -174,7 +174,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
       done: !!mm.done,
       checklist: !!mm.checklist,
       bg: !!mm.bg,
-      layoutType: (mm.layout || 'none') as LayoutType,
+      type: mm.type, layout: mm.layout,
       w: mm.w ?? undefined,
       h: mm.h ?? undefined,
       side: (mm.side || undefined) as LayoutSide | undefined,
@@ -201,7 +201,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
     const n = stack.pop()!;
     const p = n.parent ? state.nodes.get(n.parent) : null;
     const pax = p ? p.x : 0, pay = p ? p.y : 0;   // final (parents are visited before their children)
-    const alreadyRel = relSeed.has(n.id) || (legacySeed.has(n.id) && !!p && isFrameLayout(p.layoutType));
+    const alreadyRel = relSeed.has(n.id) || (legacySeed.has(n.id) && !!p && p.type === 'frame');
     if (p && !alreadyRel) { n.rx -= pax; n.ry -= pay; }   // absolute seed → parent-relative
     n.x = pax + n.rx; n.y = pay + n.ry;                   // working absolute coords
     for (const k of kidsOf.get(n.id) ?? []) stack.push(k);

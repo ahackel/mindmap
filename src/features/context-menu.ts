@@ -7,7 +7,7 @@
 import { state, stage, setStatus, type MindNode } from '../core/state.js';
 import { ui } from '../core/ui-state.js';
 import { screenToWorld, fit } from '../view/camera.js';
-import { createNode } from './crud.js';
+import { createNode, createAnnotationHere } from './crud.js';
 import { pasteFromClipboard } from './attachments.js';
 import { record } from './history.js';
 import { typedImageBlob } from './images.js';
@@ -153,6 +153,7 @@ function canvasMenuEntries(sx: number, sy: number): MenuEntry[] {
   if (!state.readOnly){
     const p = screenToWorld(sx, sy);
     entries.push({ label:'New card here', shortcut:'Space', run: () => createNode({ x: p.x - 100, y: p.y - 32 }) });
+    entries.push({ label:'Create annotation here', shortcut:'A', run: () => createAnnotationHere(p.x - 80, p.y - 16) });
     entries.push({ label:'Paste', shortcut:'⌘V', run: () => { void pasteFromClipboard(sx, sy, null); } });
     entries.push('sep');
   }

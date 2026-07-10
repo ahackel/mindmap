@@ -123,7 +123,7 @@ async function createImageCards(imgs: File[], sx: number | null, sy: number | nu
     createNode({
       x: p.x - w / 2 + i * 24, y: p.y - h / 2 + i * 24,
       parent, title: uniqueTitle(alt), body: `![${alt}](${path})`,
-      layoutType: 'image', color: 'none', w, h, edit: false,
+      type: 'image', color: 'none', w, h, edit: false,
     });
     i++;
   }

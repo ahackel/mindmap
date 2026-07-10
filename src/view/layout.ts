@@ -1,13 +1,13 @@
 // ---------- node layout: per-node free/line/fan ----------
 // Computes node x/y. applyLayouts re-flows every node per
-// its own layoutType after any change. The node itself stays put — only its children (and
+// its own type/layout after any change. The node itself stays put — only its children (and
 // their subtrees) move. A child's SIDE (left/right/up/down) is STORED (MindNode.side, mm_side
 // in frontmatter) — set explicitly by a drop, or backfilled once from position (see sideOf/
 // deriveSide below) on load or first use, but never re-derived afterward. That avoids a fan's
 // own placement (spreading same-side siblings wide) ever flipping a child's side purely as a
 // side effect of laying it out. layoutH/NODE_W/subtreeIds come from main (render + tree
 // helpers) — a runtime-only cycle.
-import { state, isFrameLayout, type MindNode, type LayoutSide } from '../core/state.js';
+import { state, isAnnotation, type MindNode, type LayoutSide } from '../core/state.js';
 import type { Seg } from '../core/ui-state.js';
 import { childrenOf, isHidden, isRoot } from '../utils/model.js';
 import { subtreeIds, layoutH, nodeH, nodeW, NODE_W, GRID_SNAP, FRAME_BORDER } from '../main.js';
@@ -150,7 +150,9 @@ export function subtreeBox(node: MindNode){
   // Otherwise a fan/line/grid parent would size a frame child by its content and re-space it (and
   // shift the frame's children with it) whenever the frame is expanded or its content changes.
   const walk = (n: MindNode): void => {
-    if (isHidden(n)) return;
+    // annotations don't contribute to layout — they float on top and are sized/placed on their own,
+    // so a fan/line parent or a frame's auto-fit must not count their extent.
+    if (isHidden(n) || isAnnotation(n)) return;
     x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
     x1 = Math.max(x1, n.x + nodeW(n)); y1 = Math.max(y1, n.y + layoutH(n));
     if (isFrame(n)) return;   // frame footprint = its box; its children are contained within it
@@ -164,23 +166,24 @@ export function subtreeBox(node: MindNode){
 // out (see features/drag.ts). Its children aren't repositioned by layout (they stay where placed).
 // A COLLAPSED frame folds to an ordinary card (children hidden), so it isn't a frame while folded —
 // its footprint and behaviour revert to a normal card, matching how it renders.
-export function isFrame(node: MindNode): boolean { return isFrameLayout(node.layoutType) && !node.collapsed; }
+export function isFrame(node: MindNode): boolean { return node.type === 'frame' && !node.collapsed; }
 // Does this node live inside a frame (any frame ancestor)? Such nodes are positioned in the
 // frame's coordinate space, so they must track the frame even while HIDDEN — else a collapsed
 // frame moved by its own parent's layout leaves its (hidden, free) children behind, and they
-// reappear misplaced on expand. Uses layoutType (not isFrame) so a COLLAPSED frame still counts.
+// reappear misplaced on expand. Uses `type` (not isFrame) so a COLLAPSED frame still counts.
 function insideFrame(node: MindNode): boolean {
   for (let p = node.parent ? state.nodes.get(node.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null)
-    if (isFrameLayout(p.layoutType)) return true;
+    if (p.type === 'frame') return true;
   return false;
 }
 // The nearest ANCESTOR frame actually hosting `node` right now — walking PAST non-frame ancestors
 // (a grandchild inherits its parent's host), so it's the frame whose content wrapper `node`'s
 // element lives inside, DOM-wise (main.ts frameContentEl/place). Unlike insideFrame this only
-// counts EXPANDED frames (isFrame, not isFrameLayout), matching what actually renders a wrapper —
+// counts EXPANDED frames (isFrame, not just type==='frame'), matching what actually renders a wrapper —
 // a collapsed frame has no box/wrapper, so it can't host anything. Shared with edges.ts so an edge
 // between two cards inside the same frame clips to it too, not just the cards themselves.
 export function hostFrame(node: MindNode): MindNode | null {
+  if (isAnnotation(node)) return null;   // annotations render on top, under #world — never hosted/clipped by a frame
   for (let p = node.parent ? state.nodes.get(node.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null)
     if (isFrame(p)) return p;
   return null;
@@ -226,17 +229,20 @@ function shiftSubtree(node: MindNode, dx: number, dy: number): void {
     n.x += dx; n.y += dy; n.dirtyLayout = true;
   }
 }
-// A node's EFFECTIVE layout TYPE. `none` (the default) inherits its parent's effective type,
-// walking up until an explicit free/line/fan is found; a root with no explicit layout resolves
-// to free (children stay where dragged).
+// A node's EFFECTIVE child-arrangement — one of free/line/fan. A card's `inherit` (the default)
+// walks up its parents until an explicit free/line/fan is found; a root that never resolves falls
+// back to free (children stay where dragged). A frame/image ancestor resolves to `free`: a frame
+// arranges its children free or by flow (flow is handled separately by frameFlow), and never
+// line/fan — so returning `free` here is behaviourally identical to before (layoutSubtree only
+// acts on line/fan/flow, ignoring free).
 export function effectiveLayout(node: MindNode): { type: string } {
   let n: MindNode | null | undefined = node, guard = 0;
   while (n && guard++ < 4096){
-    const t = n.layoutType || 'none';
-    if (t !== 'none') return { type: t };
+    if (n.type !== 'card') return { type: 'free' };   // frame/image → free child placement
+    if (n.layout !== 'inherit') return { type: n.layout };   // free | line | fan
     n = n.parent ? state.nodes.get(n.parent) : null;
   }
-  return { type: 'free' };   // unset root → free
+  return { type: 'free' };   // unresolved inherit → free
 }
 // How a FRAME arranges its children (flow-h/flow-v), or null when the node isn't an (expanded) frame
 // with a flow arrangement. A flow frame auto-positions its children into a wrapping row/column; a
@@ -244,7 +250,7 @@ export function effectiveLayout(node: MindNode): { type: string } {
 // (which flow frames opt out of, ordering by 2D position rather than a single side axis).
 export function frameFlow(node: MindNode): 'flow-h' | 'flow-v' | null {
   if (!isFrame(node)) return null;
-  return node.layoutType === 'frame-h' ? 'flow-h' : node.layoutType === 'frame-v' ? 'flow-v' : null;
+  return node.layout === 'horizontal' ? 'flow-h' : node.layout === 'vertical' ? 'flow-v' : null;
 }
 // Whether a node's effective layout actively MANAGES its children's positions — line/fan (side-based)
 // or a flow frame (box-flow) — vs free/free-frame, where children stay where dragged. The single
@@ -496,13 +502,15 @@ export function reorderDraggedParents(movedIds: Iterable<string>): void {
       p.kidOrder = kidsByPosition(p, childrenOf(p.id).filter(k => !isHidden(k)));
   }
 }
-// Arrange a node's children per its own layoutType/layoutDir, then recurse into them.
+// Arrange a node's children per its own effective layout (free/line/fan) or frame flow, then recurse.
 // The node itself stays put — only its children (and their whole subtrees) move. A `free`
 // node leaves its children wherever they are. Sibling ORDER is read from the children's
 // CURRENT positions, so dragging a child past a sibling reorders them on the next pass.
 function layoutSubtree(node: MindNode): void {
   if (node.collapsed) return;
-  const kids = childrenOf(node.id).filter(k => !isHidden(k));
+  // annotations opt out of layout: never ordered, spaced, or flowed — they stay where dragged and
+  // float on top (they still ride shiftSubtree when an ancestor moves, so they track their parent).
+  const kids = childrenOf(node.id).filter(k => !isHidden(k) && !isAnnotation(k));
   if (!kids.length) return;
   // lay out each child's own subtree first, so subtreeBox() reflects the grandchildren
   for (const k of kids) layoutSubtree(k);

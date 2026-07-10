@@ -30,6 +30,7 @@
   --pal-pink: #d6368e;
   --pal-grey: #3a4759;
   --pal-white: #f2f4f7;
+  --pal-black: #12161d;   /* not a pickable swatch — the contrast fill for an inherit-bg annotation on the light canvas */
 
   /* shared roundness scale — keep every surface on one of these steps */
   --r-card: 8px;    /* mindmap cards + the ghost/template card */
@@ -85,6 +86,7 @@ body.light {
 .c-pink   { --card:var(--pal-pink); }
 .c-grey   { --card:var(--pal-grey); }
 .c-white  { --card:var(--pal-white); }
+.c-black  { --card:var(--pal-black); }
 /* "none" = no colour at all: truly transparent, not just canvas-bg-coloured (border returns when selected) */
 .c-none   { --card:transparent; }
 
@@ -313,26 +315,46 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
    real containing block, so it needs the same explicit height passed down to it. */
 .node.image-card > .body > p { width:100%; height:100%; margin:0; }
 .node.image-card > .body .md-img { width:100%; height:100%; margin:0; object-fit:cover; display:block; border-radius:inherit; }
+/* ---------- annotation: a title-less note pinned ON TOP of its parent ---------- */
+/* z-index above every other #world child (cards:2, frames:1, edges:1, toggles:3, dragEdges:4,
+   a dragged card:6) so it never sits behind anything and — placed directly under #world, never in
+   a frame's overflow:hidden wrapper (main.ts paintNode) — is never clipped by a frame mask. No
+   title row; just the body. Looks like a card otherwise (its own colour, never inherited). */
+.node.annotation { z-index:7; min-height:32px; min-width:80px; }
+.node.annotation .title-row { display:none; }
+.node.annotation.no-body > .body { min-height:1em; min-width:2em; }   /* stay clickable while empty */
 /* an uncoloured card sits on the page background, so its text follows the theme, not white */
 .node.c-none { color: var(--text); }
 /* white is the one palette colour too light for white text — dark grey instead, both themes */
 .node.c-white { color: #2b3645; }
 /* light theme: coloured cards get black text instead of white, except the dark-grey card
    (still needs white text to stay readable on its dark background) */
-body.light .node:not(.c-none):not(.c-white):not(.c-grey) { color: #000000; }
+body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: #000000; }
 .node.sel { box-shadow:0 0 0 2px var(--node-sel); }
 /* while editing a title/body in place, drop the card's selection ring so only the editor's
    own outline shows */
 .node.sel:has(.title.editing), .node.sel:has(.body.editing) { box-shadow:none; }
 /* the dragged card (and its subtree) floats above every other card — including the
-   landing ghost / insert bar (z-index:5) — and goes translucent while moving */
-.node.dragging { z-index:6; opacity:.75; }
+   landing ghost / insert bar (z-index:5). Translucency is applied to the whole #dragLayer as
+   ONE group (below), not per card, so overlapping dragged items don't shine through each other. */
+.node.dragging { z-index:6; }
+/* the group-opacity layer: while dragging, main.ts moves the dragged cards AND their connectors
+   (dragLayerEdges, kept first so it sits behind the cards) in here. Opacity on the layer composites
+   the whole set once — you see the canvas below, but the items never show through one another. */
+#dragLayer { position:absolute; top:0; left:0; z-index:6; opacity:.75; pointer-events:none; }
+#dragLayer > .node, #dragLayer > .frame-content { pointer-events:auto; }
+#dragLayerEdges { position:absolute; top:0; left:0; overflow:visible; pointer-events:none; }
+#dragLayerEdges path { fill:none; stroke:var(--edge); stroke-width:4; }
 /* while poised over a valid parent the dragged card becomes just a dotted outline,
    so the parent underneath stays visible. Border colour is set inline to match the
    dragged card's branch colour (see features/drag.ts showLandingGhost). */
 .node.reparent-ghost { background:transparent !important; box-shadow:none !important;
   border:2px dashed var(--node-sel); }
 .node.reparent-ghost > * { visibility:hidden; }
+/* dragging an annotation over a candidate parent: highlight it with a dashed ghost-colour outline
+   (outline, not border, so no layout shift). Annotations only ever re-parent — no reorder/landing
+   preview — so this outline is the whole affordance. */
+.node.anno-drop-target { outline:2px dashed var(--node-sel); outline-offset:3px; border-radius:var(--r-card); }
 /* landing-spot preview: where the dragged card will actually land once dropped onto a
    valid reparent target — above resting cards (z-index:5) but below the dragged ones (6) */
 .node.landing-ghost { pointer-events:none; transition:none; z-index:5; }

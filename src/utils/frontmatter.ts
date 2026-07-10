@@ -6,7 +6,7 @@
 // rewrite ONLY the app-owned keys (tags/color/mm_*) while preserving everything else —
 // `date`, `category`, `aliases`, custom fields, and the note body — verbatim.
 // ============================================================
-import { state, isBoxLayoutType, type MindNode, type FmEntry } from '../core/state.js';
+import { state, isBoxType, type MindNode, type NodeType, type NodeLayout, type FmEntry } from '../core/state.js';
 
 // The shape parseMd yields — a node-to-be plus its raw layout (mm_*) values.
 export interface ParsedNote {
@@ -28,7 +28,8 @@ export interface ParsedNote {
     done: boolean;
     checklist: boolean;
     bg: boolean;
-    layout: string;
+    type: NodeType;
+    layout: NodeLayout;
     side: string;
   };
 }
@@ -64,6 +65,34 @@ function fmRemove(entries: FmEntry[], key: string): void {
   if (i >= 0) entries.splice(i, 1);
 }
 
+// Resolve a note's kind + child-arrangement from frontmatter, folding legacy tokens.
+// CURRENT format: `mm_type` (card|frame|image, default card) + `mm_layout` (the arrangement).
+// LEGACY (no mm_type): a single `mm_layout` token conflated both — split it here so old vaults
+// keep working: none/''→card·inherit, free/line/fan→card·*, two-sided/grid→card·fan,
+// frame(+mm_arrange flow-h/flow-v)→frame·free|horizontal|vertical, frame-h/-v→frame·*, image→image.
+function foldTypeLayout(entries: FmEntry[]): { type: NodeType; layout: NodeLayout } {
+  const t = fmValue(entries, 'mm_type');
+  if (t === 'frame' || t === 'image' || t === 'card' || t === 'annotation')
+    return { type: t, layout: (fmValue(entries, 'mm_layout') || (t === 'frame' ? 'free' : 'inherit')) as NodeLayout };
+  // legacy: infer both from the combined mm_layout token
+  const v = fmValue(entries, 'mm_layout');
+  if (v === 'image') return { type: 'image', layout: 'free' };
+  if (v === 'frame' || v === 'frame-h' || v === 'frame-v') {
+    let layout: NodeLayout = 'free';
+    if (v === 'frame-h') layout = 'horizontal';
+    else if (v === 'frame-v') layout = 'vertical';
+    else {
+      const a = fmValue(entries, 'mm_arrange');   // legacy free-frame flow marker
+      if (a === 'flow-h') layout = 'horizontal';
+      else if (a === 'flow-v') layout = 'vertical';
+    }
+    return { type: 'frame', layout };
+  }
+  if (v === 'two-sided' || v === 'grid') return { type: 'card', layout: 'fan' };
+  if (v === 'free' || v === 'line' || v === 'fan') return { type: 'card', layout: v };
+  return { type: 'card', layout: 'inherit' };
+}
+
 export function parseMd(text: string, fileName: string): ParsedNote {
   const m = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   const entries = m ? parseFM(m[1]) : [];
@@ -93,18 +122,7 @@ export function parseMd(text: string, fileName: string): ParsedNote {
       done: fmValue(entries, 'mm_done') === 'true',
       checklist: fmValue(entries, 'mm_checklist') === 'true',
       bg: fmValue(entries, 'mm_bg') === 'true',
-      // none(inherit) | free | line | fan | frame | frame-h | frame-v. Legacy `two-sided`/`grid`
-      // fold to `fan`; a legacy `frame` + `mm_arrange: flow-h/flow-v` folds to `frame-h`/`frame-v`.
-      layout: (() => {
-        const v = fmValue(entries, 'mm_layout');
-        if (v === 'two-sided' || v === 'grid') return 'fan';
-        if (v === 'frame') {
-          const a = fmValue(entries, 'mm_arrange');
-          if (a === 'flow-h') return 'frame-h';
-          if (a === 'flow-v') return 'frame-v';
-        }
-        return v || 'none';
-      })(),
+      ...foldTypeLayout(entries),
       // left | right | up | down | '' (unset — backfilled from position once loaded, see
       // data/persistence.ts). This is the CHILD's own attachment side, not the parent's.
       side: fmValue(entries, 'mm_side'),
@@ -133,9 +151,13 @@ export function serializeMd(n: MindNode): string {
   if (n.done) entries.push({ key:'mm_done', lines:['mm_done: true'] });
   if (n.checklist) entries.push({ key:'mm_checklist', lines:['mm_checklist: true'] });
   if (n.bg) entries.push({ key:'mm_bg', lines:['mm_bg: true'] });
-  if (n.layoutType && n.layoutType !== 'none')   // none (inherit) is the default — omit from file
-    entries.push({ key:'mm_layout', lines:[`mm_layout: ${n.layoutType}`] });
-  if (isBoxLayoutType(n.layoutType)) {   // the resizable box's own size (a frame variant or an image)
+  if (n.type !== 'card') entries.push({ key:'mm_type', lines:[`mm_type: ${n.type}`] });   // card is the default
+  // Only card/frame carry a layout; omit it when it's the type's default (card→inherit, frame→free).
+  // image/annotation are leaves with no layout, so they never write mm_layout.
+  const layoutDefault = n.type === 'frame' ? 'free' : 'inherit';
+  if ((n.type === 'card' || n.type === 'frame') && n.layout !== layoutDefault)
+    entries.push({ key:'mm_layout', lines:[`mm_layout: ${n.layout}`] });
+  if (isBoxType(n.type)) {   // the resizable box's own size (a frame or an image)
     if (n.w != null) entries.push({ key:'mm_w', lines:[`mm_w: ${Math.round(n.w)}`] });
     if (n.h != null) entries.push({ key:'mm_h', lines:[`mm_h: ${Math.round(n.h)}`] });
   }
