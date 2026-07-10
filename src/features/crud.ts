@@ -2,7 +2,7 @@
 // Every node is one .md file; ids are ephemeral (minted in mkNode). All create/duplicate paths go
 // through mkNode so the node schema stays in one place. Each mutation schedules a save. Re-parenting
 // by drag lives in features/drag.ts; this is the keyboard/toolbar-driven lifecycle.
-import { state, setStatus, isLeafType, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
+import { state, setStatus, isLeafType, isAnnotation, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
 import { ui, type Pt } from '../core/ui-state.js';
 import { childrenOf, takenTitles } from '../utils/model.js';
 import { applyLayouts, insertedKidOrder, sideOf } from '../view/layout.js';
@@ -59,7 +59,8 @@ export function createNode(opts: CreateOpts = {}): MindNode | undefined {
 // shortcut and the "Create annotation here" context-menu entry.
 export function createAnnotationHere(x: number, y: number): MindNode | undefined {
   const sel = state.selId ? state.nodes.get(state.selId) : null;
-  const parent = sel && !isLeafType(sel) ? sel.id : null;
+  // an annotation can pin to anything EXCEPT another annotation (images included — you can annotate them)
+  const parent = sel && !isAnnotation(sel) ? sel.id : null;
   return createNode({ x, y, type:'annotation', parent });
 }
 // Make a new unconnected node at (x,y) and render it, but DON'T select / rename / save yet — the

@@ -80,7 +80,7 @@ function connect(a: Pt, b: Pt, horizontal: boolean): string {
     : [a, { x:a.x, y:(a.y+b.y)/2 }, { x:b.x, y:(a.y+b.y)/2 }, b];
   return roundedPath(pts, EDGE_R);
 }
-function edgePathBox(parent: MindNode, box: { x: number; y: number; h: number; w?: number }, side: LayoutSide, straight = false): string {
+function edgePathBox(parent: MindNode, box: { x: number; y: number; h: number; w?: number }, side: LayoutSide): string {
   const cc = boxCenter(box);
   const horizontal = side === 'left' || side === 'right';
   const a = anchorPoint(parent, side);
@@ -89,9 +89,7 @@ function edgePathBox(parent: MindNode, box: { x: number; y: number; h: number; w
   else if (side === 'up')   b = { x:cc.x, y:box.y + box.h };
   else if (side === 'right')b = { x:box.x, y:cc.y };
   else                      b = { x:box.x + (box.w ?? NODE_W), y:cc.y };
-  // `straight` overrides the current edge style with a plain diagonal — annotation connectors are
-  // always a direct line, whatever style the rest of the map uses.
-  return straight ? `M ${a.x} ${a.y} L ${b.x} ${b.y}` : connect(a, b, horizontal);
+  return connect(a, b, horizontal);
 }
 function edgePath(parent: MindNode, child: MindNode): string {
   return edgePathBox(parent, { x: child.x, y: child.y, h: nodeH(child) }, sideOf(parent, child));
@@ -104,6 +102,8 @@ function edgePath(parent: MindNode, child: MindNode): string {
 function previewReparent(): { parent: MindNode; box: { x: number; y: number; h: number }; side: LayoutSide } | null {
   const drag = ui.drag;
   if (!drag || !drag.dropTarget || !drag.dropSide) return null;
+  // annotations preview as just a dashed outline on the candidate parent (drag.ts) — no would-be edge
+  if (isAnnotation(drag.active)) return null;
   // Whenever the insertion bar is the preview (in-parent reorder — which always resolves a gap
   // segment — or a reparent joining a managed branch's existing children), the dragged card is
   // hidden and the bar alone marks the slot — a dashed edge into empty space would dangle, so
@@ -201,10 +201,13 @@ export function paintEdges(): void {
     // (dragEdgesSvg), and drawn even when the parent is a frame (which otherwise draws no edges).
     if (isAnnotation(n)) {
       const tint = SWATCH_BG[effectiveColor(n)] ?? 'var(--edge)';
-      const side = sideOf(parent, n);
-      annos += `<path class="anno-edge" style="stroke:${tint}" stroke-dasharray="2 6" d="${edgePathBox(parent, { x:n.x, y:n.y, h:nodeH(n), w:nodeW(n) }, side, true)}"/>`;
-      const pt = anchorPoint(parent, side);
-      annos += `<circle class="edge-dot" cx="${pt.x}" cy="${pt.y}" r="${DOT_R}" fill="${tint}"/>`;
+      // straight line from the annotation's CENTRE to the CLOSEST point on the parent's bounds
+      // (clamp the centre into the parent rect), with the anchor dot at that closest point.
+      const ax = n.x + nodeW(n)/2, ay = n.y + nodeH(n)/2;
+      const bx = Math.max(parent.x, Math.min(ax, parent.x + nodeW(parent)));
+      const by = Math.max(parent.y, Math.min(ay, parent.y + nodeH(parent)));
+      annos += `<path class="anno-edge" style="stroke:${tint}" stroke-dasharray="2 6" d="M ${ax} ${ay} L ${bx} ${by}"/>`;
+      annos += `<circle class="edge-dot" cx="${bx}" cy="${by}" r="${DOT_R}" fill="${tint}"/>`;
       continue;
     }
     // A frame IS the container (its own box holds the children), so it draws no child edges.

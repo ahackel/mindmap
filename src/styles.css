@@ -343,6 +343,10 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: 
 .node.reparent-ghost { background:transparent !important; box-shadow:none !important;
   border:2px dashed var(--node-sel); }
 .node.reparent-ghost > * { visibility:hidden; }
+/* dragging an annotation over a candidate parent: highlight it with a dashed ghost-colour outline
+   (outline, not border, so no layout shift). Annotations only ever re-parent — no reorder/landing
+   preview — so this outline is the whole affordance. */
+.node.anno-drop-target { outline:2px dashed var(--node-sel); outline-offset:3px; border-radius:var(--r-card); }
 /* landing-spot preview: where the dragged card will actually land once dropped onto a
    valid reparent target — above resting cards (z-index:5) but below the dragged ones (6) */
 .node.landing-ghost { pointer-events:none; transition:none; z-index:5; }
