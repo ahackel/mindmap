@@ -9,7 +9,7 @@ import { parseMd, serializeMd } from '../utils/frontmatter.js';
 import { zipBlob, unzip } from '../utils/zip.js';
 import { downloadBlob } from '../utils/download.js';
 import { childrenOf } from '../utils/model.js';
-import { applyLayouts, collapseAtDepth, deriveSide } from '../view/layout.js';
+import { applyLayouts, collapseAtDepth, deriveSide, absPos, syncAbs, commitRel } from '../view/layout.js';
 import { fit } from '../view/camera.js';
 import { resetImageCache } from '../features/images.js';
 import { clearHistory } from '../features/history.js';
@@ -105,6 +105,7 @@ export async function importFiles(files: File[]): Promise<void> {
 export async function exportZip(): Promise<void> {
   const nodes = [...state.nodes.values()];
   if (!nodes.length){ setStatus('Nothing to export yet.'); return; }
+  commitRel();   // serializeMd persists rx/ry — refresh it from the live x/y first
   const used = new Set<string>();
   const files: { name: string; data?: string; bytes?: Uint8Array }[] = nodes.map(n => {
     let name = n.file || (safeName(n.title) + '.md');
@@ -148,10 +149,12 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
   // parent links are stored/resolved BY PATH, so ids never need to survive a reload.
   let seq = 0;
   let placed = 0;          // count of notes lacking a saved position, for fallback layout
-  // Ids whose seeded x/y are RELATIVE to the parent and need the parent's absolute added (below):
-  //  · relSeed  — the current mm_position_x/y fields (always parent-relative; roots are world-relative)
-  //  · legacySeed — the legacy mm_x/mm_y fields, which were parent-relative ONLY for frame children
-  //    (decided in the top-down pass once parents/layouts are known); otherwise they're absolute.
+  // Seed each node's rx/ry (the source of truth) from disk, then syncAbs() derives the x/y cache.
+  // The raw seed's frame of reference depends on the fields present:
+  //  · relSeed  — the current mm_position_x/y fields: already parent-relative (roots world-relative).
+  //  · legacySeed — the legacy mm_x/mm_y fields: parent-relative ONLY for frame children (the old
+  //    behaviour), otherwise ABSOLUTE — converted to relative in the top-down pass below.
+  //  · neither — a grid fallback (absolute), likewise converted below.
   const relSeed = new Set<string>();
   const legacySeed = new Set<string>();
   for (const { rel, parsed } of entries) {
@@ -160,9 +163,9 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
     const hasLegacy = (mm.x != null && mm.y != null);
     const hasPos = hasRel || hasLegacy;
     const node: MindNode = {
-      id: 'n' + (++seq), file:rel,
-      x: hasRel ? mm.px! : hasLegacy ? mm.x! : (120 + (placed % 4) * 240),
-      y: hasRel ? mm.py! : hasLegacy ? mm.y! : (120 + Math.floor(placed / 4) * 200),
+      id: 'n' + (++seq), file:rel, x: 0, y: 0,   // x/y filled by syncAbs() once rx/ry are settled
+      rx: hasRel ? mm.px! : hasLegacy ? mm.x! : (120 + (placed % 4) * 240),
+      ry: hasRel ? mm.py! : hasLegacy ? mm.y! : (120 + Math.floor(placed / 4) * 200),
       _parentPath: mm.parent || '',                // resolved to an id once all notes are loaded
       parent: null,
       collapsed: !!mm.collapsed,
@@ -186,20 +189,20 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
     n.parent = n._parentPath ? (byPath.get(n._parentPath) || null) : null;
     delete n._parentPath;
   }
-  // Positions were saved RELATIVE to the parent (see utils/frontmatter.ts) — convert back to
-  // absolute in-memory coords. Walk parents-before-children (so nested subtrees cascade) and add
-  // the parent's absolute position to every parent-relative seed. Legacy mm_x/mm_y seeds are only
-  // relative when the parent is a frame (the old behaviour); otherwise they were already absolute.
+  // Make every rx/ry parent-relative. relSeed and legacy frame children already are; the rest hold
+  // an ABSOLUTE seed, so subtract the parent's absolute position. Walk parents-before-children so
+  // absPos(parent) is valid (the parent's rx/ry is final by the time we reach a child).
   const kidsOf = new Map<string | null, MindNode[]>();
   for (const n of state.nodes.values()) { const k = kidsOf.get(n.parent) ?? []; k.push(n); kidsOf.set(n.parent, k); }
   const stack = [...(kidsOf.get(null) ?? [])];
   while (stack.length) {
     const n = stack.pop()!;
     const p = n.parent ? state.nodes.get(n.parent) : null;
-    const relative = relSeed.has(n.id) || (legacySeed.has(n.id) && !!p && isFrameLayout(p.layoutType));
-    if (p && relative) { n.x += p.x; n.y += p.y; }
+    const alreadyRel = relSeed.has(n.id) || (legacySeed.has(n.id) && !!p && isFrameLayout(p.layoutType));
+    if (p && !alreadyRel) { const pa = absPos(p); n.rx -= pa.x; n.ry -= pa.y; }
     for (const k of kidsOf.get(n.id) ?? []) stack.push(k);
   }
+  syncAbs();   // derive the absolute x/y cache from the settled rx/ry
   // A note with no `mm_side` yet (never dropped, or from before this field existed) gets one
   // backfilled from its saved position, once, right here — not re-derived on every relayout.
   for (const n of state.nodes.values()) {
@@ -254,6 +257,7 @@ function desiredFileFor(n: MindNode): string {
 export async function saveAll(): Promise<void> {
   if (state.readOnly) return;        // read-only mode never writes to disk
   if (!store.isOpen) { setStatus('Open a folder first.'); return; }
+  commitRel();   // serializeMd persists rx/ry — refresh it from the live x/y first
   for (const f of state.toDelete) await store.remove(f);
   state.toDelete = [];
 

@@ -125,13 +125,11 @@ export function serializeMd(n: MindNode): string {
   const parentNode = n.parent ? state.nodes.get(n.parent) : null;
   if (parentNode) entries.push({ key:'mm_parent', lines:[`mm_parent: ${parentNode.file}`] });
   if (parentNode && n.side) entries.push({ key:'mm_side', lines:[`mm_side: ${n.side}`] });
-  // Position is stored RELATIVE to the parent (world origin for a root) — data/persistence.ts
-  // converts back to absolute on load. So moving a parent doesn't rewrite every descendant, and a
-  // child's saved offset stays stable. In memory everything stays absolute (n.x/n.y).
-  const relX = parentNode ? n.x - parentNode.x : n.x;
-  const relY = parentNode ? n.y - parentNode.y : n.y;
-  entries.push({ key:'mm_position_x', lines:[`mm_position_x: ${Math.round(relX)}`] });
-  entries.push({ key:'mm_position_y', lines:[`mm_position_y: ${Math.round(relY)}`] });
+  // Position is the parent-relative rx/ry (world origin for a root) — the source of truth, kept
+  // fresh by commitRel() before every save (see data/persistence.ts). data/persistence.ts converts
+  // it back to the absolute x/y cache on load, so moving a parent doesn't rewrite every descendant.
+  entries.push({ key:'mm_position_x', lines:[`mm_position_x: ${Math.round(n.rx)}`] });
+  entries.push({ key:'mm_position_y', lines:[`mm_position_y: ${Math.round(n.ry)}`] });
   if (n.collapsed) entries.push({ key:'mm_collapsed', lines:['mm_collapsed: true'] });
   if (n.done) entries.push({ key:'mm_done', lines:['mm_done: true'] });
   if (n.checklist) entries.push({ key:'mm_checklist', lines:['mm_checklist: true'] });

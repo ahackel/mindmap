@@ -20,7 +20,7 @@ export function mkNode(fields: Partial<MindNode> = {}): MindNode {
   touch(id);   // not in state.nodes yet → before-image is null (undo of a create = remove it)
   return {
     id, file:null,
-    x:0, y:0, parent:null, collapsed:false, done:false, checklist:false, bg:false,
+    x:0, y:0, rx:0, ry:0, parent:null, collapsed:false, done:false, checklist:false, bg:false,
     title:'', color:'', keepStatus:'', tags:[], body:'',
     layoutType:'none',
     dirty:true, dirtyLayout:true,
