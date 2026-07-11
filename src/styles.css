@@ -143,16 +143,18 @@ button:disabled { opacity:.45; cursor:default; }
 }
 .floating-btn:hover { color:var(--text); background:color-mix(in srgb, var(--text) 8%, var(--panel)); }
 .floating-btn svg { width:var(--bar-icon); height:var(--bar-icon); display:block; }
-/* sketch toggle — top-right corner */
-#sketchBtn { top:12px; right:12px; }
-/* reads as "on" with a solid accent fill, like the .primary buttons */
-#sketchBtn.active, #sketchBtn.active:hover { background:var(--accent); color:#fff; }
-/* outline toggle — its own floating button (not part of #toolbar), sitting immediately to the
-   left of the sketch button: two separate circles, not a shared bar. */
+/* canvas kebab — the outermost/rightmost button in the top-right group, in the very corner. Unlike
+   sketch/outline (hidden while the outliner is open, see body.outline rule below) this one stays
+   visible AND above the outliner at every width — z-index above #outline (21), mirroring #homeBar's
+   own exception on the opposite corner. Still below true modals (#ctxMenu/#startScreen/etc: z:40+). */
+#canvasMenuBtn { top:12px; right:12px; z-index:30; }
+/* outline toggle — sits one slot to the left of the kebab: two separate circles, not a shared bar. */
 #outlineBtn { top:12px; right:calc(12px + var(--bar-btn) + 8px); }
 #outlineBtn.active, #outlineBtn.active:hover { background:var(--accent); color:#fff; }
-/* canvas kebab — its own floating button, one slot further left of outline/sketch */
-#canvasMenuBtn { top:12px; right:calc(12px + 2 * (var(--bar-btn) + 8px)); }
+/* sketch toggle — one slot further left again */
+#sketchBtn { top:12px; right:calc(12px + 2 * (var(--bar-btn) + 8px)); }
+/* reads as "on" with a solid accent fill, like the .primary buttons */
+#sketchBtn.active, #sketchBtn.active:hover { background:var(--accent); color:#fff; }
 body.sketching #stage { cursor:crosshair; }
 body.sketching #ghostCard { display:none; }    /* the drag-to-create card would fight the pen */
 body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag / edit while sketching */
@@ -776,19 +778,19 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    app chrome floating over its edge. #homeBar is the one exception (z:30, see its own rule) —
    the home button stays reachable even under the drawer / above scrolling outline rows. */
 #outline { position:fixed; z-index:21; }
-/* the ACTUAL scrolling box, filling #outline — kept separate so #ocBack (a sibling, see index.html)
-   can sit fixed at the panel's own top edge without scrolling away with the list (a position:fixed
-   descendant of a transformed ancestor that's ALSO the scroll container scrolls right along with
-   it — this is what bit #ocBack when it lived inside here; #olAddBtn dodges the same trap by not
-   living in #outline's subtree at all). */
+/* the ACTUAL scrolling box, filling #outline — kept separate so #ocBack/#olCloseBtn/#olAddBtn
+   (siblings, see index.html) can sit put at the panel's own edges without scrolling away with the
+   list (a position:absolute descendant of #outline that's ALSO the scroll container scrolls right
+   along with it — this is what bit #ocBack when it first lived inside here). */
 .ol-scroll { position:absolute; inset:0; overflow:hidden auto; -webkit-overflow-scrolling:touch; }
 /* Sketch + help are canvas tools, so hide them in outline mode at every width. The floating edit
    bar stays canvas-only too, but on a WIDE screen the outliner is a drawer over a still-visible
    canvas, so a card can stay selected there — only hide it once the canvas itself is gone (the
    narrow/phone treatment below), not just because outline is active. #outlineBtn joins them here
-   too: once open, #olCloseBtn (top-right of the drawer) is the way to close it, and on wide
-   screens the drawer sits right over this corner anyway. */
-body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #outlineBtn, body.outline #canvasMenuBtn { display:none !important; }
+   too: once open, #olCloseBtn (now at the drawer's top-LEFT, sharing #ocBack's spot) is the way to
+   close it, and on wide screens the drawer sits right over this corner anyway. #canvasMenuBtn is
+   the deliberate exception (see its own z-index rule) — it must stay reachable from the outliner too. */
+body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #outlineBtn { display:none !important; }
 
 @media (max-width: 700px) {
   body.outline #stage, body.outline #ghostCard, body.outline #ghostHint,
@@ -827,8 +829,8 @@ body.ol-editing .ol-rows { display:none; }
 body.ol-editing .ol-cards { display:flex; flex-direction:column; gap:12px; }
 /* #olScroll's own top padding was moved onto .ol-heading (see its comment) so the row list could
    reuse that reserved band — but .ol-heading hides in THIS view, so the top card needs its own
-   clearance again here, for #ocBack (top-left) and #olClose (top-right), both still floating over
-   this same band. Same numbers .ol-scroll used to carry for both views. */
+   clearance again here, for #ocBack / #olClose (both top-left, mutually exclusive), still floating
+   over this same band. Same numbers .ol-scroll used to carry for both views. */
 @media (max-width: 700px) { .ol-cards { padding-top:calc(58px + env(safe-area-inset-top)); } }
 @media (min-width: 701px) { .ol-cards { padding-top:60px; } }
 /* on a phone the branch editor is full-screen with its own back arrow (top-left) — the home button
@@ -993,30 +995,31 @@ body.readonly .ol-open { display:none; }
   font-size:20px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
 .ol-more:hover { opacity:1; }
 body.readonly .ol-more { display:none; }
-/* create button — a labelled pill, horizontally centred at the BOTTOM of the screen, on every
-   screen size. On wide screens the outline is a transformed drawer, so `position:fixed` resolves
-   against it → the button centres in the drawer's own width. The empty .ol-head just gates
-   visibility (outline & not read-only). */
+/* create button — a labelled pill, horizontally centred at the BOTTOM of the OUTLINER (not the
+   screen): a descendant of #outline (see index.html), so `position:absolute` resolves against the
+   drawer's own width on a wide screen instead of the full viewport — same trick as #ocBack/
+   #olCloseBtn. The empty .ol-head just gates visibility (outline & not read-only). */
 .ol-head { display:none; }
 body.outline:not(.readonly) .ol-head { display:block; }
-#olAddBtn { position:fixed; bottom:12px; left:50%; transform:translateX(-50%); z-index:22;
+#olAddBtn { position:absolute; bottom:12px; left:50%; transform:translateX(-50%); z-index:22;
   height:44px; padding:0 20px; border:none; border-radius:var(--r-full);
   display:inline-flex; align-items:center; justify-content:center; gap:8px;
   background:var(--accent); color:#fff; cursor:pointer; }
 #olAddBtn:hover { filter:brightness(1.08); }
 .ol-add-plus { font-size:20px; font-weight:400; line-height:1; }
 .ol-add-label { font-size:15px; font-weight:600; }
-/* close outline — top-right, the same spot the create button used to sit. Visible in read-only
-   too (unlike .ol-head above), AND while the single-card editor is open (body.ol-editing) — unlike
-   #ocBack (that screen's own top-left "back to list" arrow), this is the one control that always
-   gets you all the way out to the canvas from anywhere in the outliner. Hidden on narrow screens,
-   where outline is forced/non-closable (matches the toolbar's own outline toggle, hidden there via
-   #toolbar's display:none) — there's nothing to close back TO on a phone. */
-.ol-close { display:none; position:fixed; top:10px; right:12px; z-index:22;
+/* close outline — the drawer's top-LEFT corner, the exact same spot/size as #ocBack (so there's
+   one consistent top-left control), and mutually exclusive with it: #ocBack shows while the
+   branch editor is open (body.ol-editing), this shows the rest of the time — visible in read-only
+   too, since closing isn't a mutating action. Hidden on narrow screens, where outline is
+   forced/non-closable (matches the toolbar's own outline toggle, hidden there via #toolbar's
+   display:none) — there's nothing to close back TO on a phone. */
+.ol-close { display:none; position:absolute; top:10px; left:12px; z-index:5;
   width:var(--bar-btn); height:var(--bar-btn); padding:0; border:none; border-radius:var(--r-full);
   align-items:center; justify-content:center;
   background:var(--node); color:var(--muted); font-size:16px; cursor:pointer; }
 body.outline .ol-close { display:flex; }
+body.ol-editing .ol-close { display:none; }
 .ol-close:hover { color:var(--text); }
 @media (max-width: 700px) { .ol-close { display:none !important; } }
 
