@@ -85,28 +85,26 @@
     </div>
   </div>
 
-  <!-- New-card button: fixed bottom-centre. Kept OUTSIDE #outline so its position:fixed resolves
-       against the viewport — inside the drawer (which has a transform) it would scroll with the
-       list instead of staying put. -->
-  <div class="ol-head">
-    <button id="olAddBtn" title="New card — child of the selected card (Tab)" aria-label="New card">
-      <span class="ol-add-plus">+</span><span class="ol-add-label">New card</span></button>
-  </div>
-
   <!-- outline mode: the map as a collapsible tree list (body.outline; features/outline.ts) -->
   <div id="outline">
-    <!-- back arrow (features/branch-editor.ts) and close-outline button: both siblings of the
-         SCROLLING #olScroll below, not children of it — #outline's own transform (desktop drawer)
-         makes it the containing block for a position:absolute descendant, and if that descendant
-         also lived inside the scrolling box, it would scroll away with the list instead of staying
-         put (same reasoning as #olAddBtn above, just one level deeper). They share the same
-         top-left spot and are mutually exclusive (styles.css): the back arrow only while the
-         branch editor is open, the close button otherwise (wide screens only — on a phone the
-         outline is forced full-screen and can't be closed, same as the toolbar's own outline
-         toggle; visible in read-only too, since closing isn't a mutating action). -->
+    <!-- back arrow (features/branch-editor.ts), close-outline button, and new-card button: all
+         siblings of the SCROLLING #olScroll below, not children of it — #outline's own transform
+         (desktop drawer) makes it the containing block for a position:absolute descendant, and if
+         that descendant also lived inside the scrolling box, it would scroll away with the list
+         instead of staying put. Being #outline's own descendants (not fixed to the viewport) also
+         means all three centre/anchor on the DRAWER's own width on a wide screen, not the whole
+         screen. #ocBack / #olCloseBtn share the same top-left spot and are mutually exclusive
+         (styles.css): the back arrow only while the branch editor is open, the close button
+         otherwise (wide screens only — on a phone the outline is forced full-screen and can't be
+         closed, same as the toolbar's own outline toggle; visible in read-only too, since closing
+         isn't a mutating action). -->
     <button id="ocBack" class="oc-back" title="Back to list" aria-label="Back to list">
       <span class="ic" data-icon="back"></span></button>
     <button id="olCloseBtn" class="ol-close" aria-label="Close outline" title="Close outline">✕</button>
+    <div class="ol-head">
+      <button id="olAddBtn" title="New card — child of the selected card (Tab)" aria-label="New card">
+        <span class="ol-add-plus">+</span><span class="ol-add-label">New card</span></button>
+    </div>
     <div class="ol-scroll" id="olScroll">
       <!-- scrolls away with the list (a normal sibling of #olRows inside the scroll box), not a
            sticky header — hidden with the row list while the single-card editor is open. -->
