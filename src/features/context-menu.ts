@@ -162,6 +162,20 @@ function canvasMenuEntries(sx: number, sy: number): MenuEntry[] {
   return entries;
 }
 
+// Permanent top-right kebab (#canvasMenuBtn, index.html): the same canvas menu as a right-click /
+// long-press on empty canvas, for when that gesture isn't reachable (iOS Safari's synthesized
+// contextmenu on the canvas is unreliable). New cards/images land at the current view's centre
+// since there's no click point to anchor them to; the menu itself opens under the button.
+const canvasMenuBtn = document.getElementById('canvasMenuBtn') as HTMLButtonElement;
+canvasMenuBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeMenu();
+  const r = stage.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const br = canvasMenuBtn.getBoundingClientRect();
+  openMenu(canvasMenuEntries(cx, cy), br.left, br.bottom + 4);
+});
+
 document.addEventListener('contextmenu', (e: MouseEvent) => {
   const t = e.target as Element | null;
   closeMenu();
