@@ -474,7 +474,7 @@ body.grabbing .node .addnote,
 /* collapse marker at the card's upper-right corner, clear of the add-child (+) button at the
    lower-centre. A folded branch shows its hidden-descendant COUNT; a folded leaf (no children)
    shows the same bubble empty — a white dot of the same size/position. */
-.node .hidden-count { position:absolute; right:0; top:0; transform:translate(50%,-50%);
+.node .hidden-count { position:absolute; right:-8px; top:-8px;
   box-sizing:border-box; min-width:16px; height:16px; padding:0 5px;
   background:#fff; color:#000; font-size:11px; font-weight:700; border-radius:8px;
   line-height:1; display:none; align-items:center; justify-content:center; }
@@ -979,7 +979,7 @@ body.readonly .ol-open { display:none; }
 /* hidden-descendant count on a folded row — straddles the top-right corner, same position/size as
    the canvas' .node .hidden-count (fold is now double-click/double-tap only, no disc button, so
    this bubble is also the only visual "this row has hidden children" indicator). */
-.ol-count { position:absolute; right:0; top:0; transform:translate(50%,-50%);
+.ol-count { position:absolute; right:-8px; top:-8px;
   box-sizing:border-box; min-width:16px; height:16px; padding:0 5px;
   background:#fff; color:#000; font-size:11px; font-weight:700; border-radius:8px;
   line-height:1; display:inline-flex; align-items:center; justify-content:center; }
