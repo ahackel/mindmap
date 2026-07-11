@@ -85,7 +85,7 @@
     </div>
   </div>
 
-  <!-- New-card button: fixed bottom-right. Kept OUTSIDE #outline so its position:fixed resolves
+  <!-- New-card button: fixed bottom-centre. Kept OUTSIDE #outline so its position:fixed resolves
        against the viewport — inside the drawer (which has a transform) it would scroll with the
        list instead of staying put. -->
   <div class="ol-head">
@@ -178,6 +178,13 @@
     </div>
     <textarea id="shBody" spellcheck="false" placeholder="Add note…" aria-label="Card note"></textarea>
   </div>
+
+  <!-- canvas menu: floating top-right, left of the outline button — a permanent kebab so canvas
+       actions (new card, insert image, paste, fit view) are reachable without a right-click / long-press
+       (iOS Safari's synthesized contextmenu on the empty canvas is unreliable). Shares the same entry
+       list as the right-click menu (features/context-menu.ts canvasMenuEntries). -->
+  <button id="canvasMenuBtn" class="floating-btn" title="Canvas menu — new card, insert image…" aria-label="Canvas menu">
+    <span class="ic" data-icon="kebab"></span></button>
 
   <!-- outline toggle: floating top-right, next to the sketch button — two separate buttons,
        not a shared bar (see their individual positioning in styles.css). -->

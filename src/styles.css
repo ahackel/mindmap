@@ -151,6 +151,8 @@ button:disabled { opacity:.45; cursor:default; }
    left of the sketch button: two separate circles, not a shared bar. */
 #outlineBtn { top:12px; right:calc(12px + var(--bar-btn) + 8px); }
 #outlineBtn.active, #outlineBtn.active:hover { background:var(--accent); color:#fff; }
+/* canvas kebab — its own floating button, one slot further left of outline/sketch */
+#canvasMenuBtn { top:12px; right:calc(12px + 2 * (var(--bar-btn) + 8px)); }
 body.sketching #stage { cursor:crosshair; }
 body.sketching #ghostCard { display:none; }    /* the drag-to-create card would fight the pen */
 body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag / edit while sketching */
@@ -781,7 +783,7 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    narrow/phone treatment below), not just because outline is active. #outlineBtn joins them here
    too: once open, #olCloseBtn (top-right of the drawer) is the way to close it, and on wide
    screens the drawer sits right over this corner anyway. */
-body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #outlineBtn { display:none !important; }
+body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #outlineBtn, body.outline #canvasMenuBtn { display:none !important; }
 
 @media (max-width: 700px) {
   body.outline #stage, body.outline #ghostCard, body.outline #ghostHint,
@@ -986,20 +988,19 @@ body.readonly .ol-open { display:none; }
   font-size:20px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
 .ol-more:hover { opacity:1; }
 body.readonly .ol-more { display:none; }
-/* create button — always an icon-only floating circle pinned to the BOTTOM-RIGHT corner (where
-   the help button sits on the canvas — hidden in outline mode, so no clash), on every screen
-   size. On wide screens the outline is a transformed drawer, so `position:fixed` resolves against
-   it → the button lands in the drawer's own bottom-right corner. The empty .ol-head just gates
+/* create button — a labelled pill, horizontally centred at the BOTTOM of the screen, on every
+   screen size. On wide screens the outline is a transformed drawer, so `position:fixed` resolves
+   against it → the button centres in the drawer's own width. The empty .ol-head just gates
    visibility (outline & not read-only). */
 .ol-head { display:none; }
 body.outline:not(.readonly) .ol-head { display:block; }
-#olAddBtn { position:fixed; bottom:12px; right:12px; z-index:22;
-  width:36px; height:36px; padding:0; border:none; border-radius:var(--r-full);
-  display:inline-flex; align-items:center; justify-content:center;
+#olAddBtn { position:fixed; bottom:12px; left:50%; transform:translateX(-50%); z-index:22;
+  height:44px; padding:0 20px; border:none; border-radius:var(--r-full);
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
   background:var(--accent); color:#fff; cursor:pointer; }
 #olAddBtn:hover { filter:brightness(1.08); }
-.ol-add-plus { font-size:24px; font-weight:400; line-height:1; }
-.ol-add-label { display:none; }   /* icon only — the aria-label / title carry the name */
+.ol-add-plus { font-size:20px; font-weight:400; line-height:1; }
+.ol-add-label { font-size:15px; font-weight:600; }
 /* close outline — top-right, the same spot the create button used to sit. Visible in read-only
    too (unlike .ol-head above), AND while the single-card editor is open (body.ol-editing) — unlike
    #ocBack (that screen's own top-left "back to list" arrow), this is the one control that always
