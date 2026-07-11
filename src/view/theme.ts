@@ -7,10 +7,20 @@ import { refreshPalette } from '../main.js';
 
 const THEME_KEY = 'mindmap.theme';
 let themeBtn: HTMLElement | null = null;   // cached at setupTheme; applyTheme only runs after that
+// iOS Safari colours the status-bar / URL-bar area from <meta name="theme-color">, not from any
+// CSS — without this it stays whatever was in index.html regardless of theme, a visible mismatch
+// with the canvas behind it. Read --bg straight off the (already-toggled) body so this can never
+// drift from the actual canvas colour defined in styles.css.
+function syncThemeColorMeta(): void {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  const bg = getComputedStyle(document.body).getPropertyValue('--bg').trim();
+  if (meta && bg) meta.setAttribute('content', bg);
+}
 function applyTheme(theme: string): void {
   const light = theme === 'light';
   document.body.classList.toggle('light', light);
   if (themeBtn) themeBtn.innerHTML = light ? sunIcon : moonIcon;   // icon = the ACTIVE theme
+  syncThemeColorMeta();
 }
 function initTheme(): void {
   let saved: string | null = null;

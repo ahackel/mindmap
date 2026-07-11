@@ -156,8 +156,12 @@ button:disabled { opacity:.45; cursor:default; }
 body.sketching #stage { cursor:crosshair; }
 body.sketching #ghostCard { display:none; }    /* the drag-to-create card would fight the pen */
 body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag / edit while sketching */
-/* home / storage — floating bar in the top-left; the loaded-folder name sits BESIDE the button */
-#homeBar { position:fixed; top:12px; left:12px; z-index:20; display:flex; align-items:center; gap:8px; max-width:calc(100% - 24px); }
+/* home / storage — floating bar in the top-left; the loaded-folder name sits BESIDE the button.
+   z-index above #outline (21) and everything in its drawer — unlike #toolbar/#searchWrap (which
+   the outline drawer is meant to cover, see #outline's comment), the home button must stay
+   reachable/visible even while outline rows scroll past underneath it. Still below true modals
+   (#ctxMenu/#startScreen/#editorSheet/#movePicker: z:40+). */
+#homeBar { position:fixed; top:12px; left:12px; z-index:30; display:flex; align-items:center; gap:8px; max-width:calc(100% - 24px); }
 #homeBar #homeBtn { position:static; flex:none; }   /* .floating-btn styles the box; the bar owns positioning */
 #folderName { font-size:13px; font-weight:600; color:var(--text);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -768,8 +772,9 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
      · narrow (phone)  → full-screen; the canvas + its chrome hide entirely
      · wide  (desktop) → a drawer sliding in from the right OVER a still-visible canvas,
                          mirroring the storage sidebar's left drawer. */
-/* above #toolbar/#homeBar/#searchWrap (z:20): the drawer covers them where it overlaps, rather
-   than the app chrome floating over its edge. */
+/* above #toolbar/#searchWrap (z:20): the drawer covers them where it overlaps, rather than the
+   app chrome floating over its edge. #homeBar is the one exception (z:30, see its own rule) —
+   the home button stays reachable even under the drawer / above scrolling outline rows. */
 #outline { position:fixed; z-index:21; }
 /* the ACTUAL scrolling box, filling #outline — kept separate so #ocBack (a sibling, see index.html)
    can sit fixed at the panel's own top edge without scrolling away with the list (a position:fixed
