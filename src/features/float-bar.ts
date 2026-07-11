@@ -17,7 +17,7 @@ import { createProperties, type PropertyControls } from './properties.js';
 import { startInlineEdit, startBodyEdit } from './inline-edit.js';
 import { duplicateSelection, deleteSelection, deleteNode, addChild, createSibling } from './crud.js';
 import { exportSelection, shareSelection, canShareFiles, copySelection, cutSelection } from './clipboard.js';
-import { pasteFromClipboard } from './attachments.js';
+import { pasteFromClipboard, pickImagesForNode } from './attachments.js';
 import { openMenu, copyFilePath, type MenuEntry } from './context-menu.js';
 import { childrenOf, isHidden } from '../utils/model.js';
 import { frameBox } from '../view/camera.js';
@@ -304,6 +304,7 @@ export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] 
     if (!multi){
       if (!isLeaf) entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n) });   // has a title
       if (!isImage) entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n) });   // annotation keeps its body
+      if (!isImage) entries.push({ label:'Insert image…', run: () => pickImagesForNode(n.id) });
       if (!isLeaf){
         entries.push('sep');
         entries.push({ label:'Add child', shortcut:'Tab', run: () => addChild(n.id) });
