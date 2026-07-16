@@ -285,7 +285,7 @@ export function bindNodeDrag(n: MindNode): void {
     if (tgt.closest('a.lk, input.taskbox, .img-zoom')) { e.stopPropagation(); return; }  // let links/checkboxes/zoom click, not drag
     // Alt-press over an inline body image (on a plain card) rips THAT image out — extraction rides
     // its own preview (features/image-extract.ts), not the card drag. Image-only cards drag whole.
-    if (e.altKey && e.button === 0 && !state.readOnly && !isImageCard(n) && !isFrame(n)) {
+    if (e.altKey && e.button === 0 && !state.readOnly && !isImageCard(n) && !isFrame(n) && !isLockedEffective(n)) {
       const img = bodyImageAt(el, e.clientX, e.clientY);
       if (img && img.dataset.path) {
         e.stopPropagation();
@@ -774,7 +774,7 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
     // annotation). No target/side/line set → the normal ghost/bar/edge previews all stand down.
     if (hovered) {
       const hn = state.nodes.get(hovered)!;
-      if (!isImageCard(hn) && !isFrame(hn) && !isAnnotation(hn)) mergeTarget = hovered;
+      if (!isImageCard(hn) && !isFrame(hn) && !isAnnotation(hn) && !isLockedEffective(hn)) mergeTarget = hovered;
     }
   } else if (isAnnotation(dragged)) {
     // An annotation can't be reordered and never adopts siblings — dragging one only ever RE-PARENTS
@@ -784,6 +784,11 @@ function updateDropTarget(dragged: MindNode, e: { clientX: number; clientY: numb
       const hn = state.nodes.get(hovered)!;
       if (!isAnnotation(hn)) { target = hovered; mode = 'child'; side = hoveredEdge || 'down'; }
     }
+  } else if (hovered && isLockedEffective(state.nodes.get(hovered)!)) {
+    // A locked card (or a locked descendant) is never a valid drop target — no child, sibling, or
+    // reorder preview. `target` stays null, so the commit falls through to a plain reposition
+    // (dragPointerUp's grid-snap branch) rather than reparenting onto/near it.
+    setStatus('Locked — can’t drop there');
   } else if (hovered) {
     const hoveredNode = state.nodes.get(hovered)!;
     const pf = hoveredNode.parent ? state.nodes.get(hoveredNode.parent) : null;
@@ -917,13 +922,13 @@ function clearDropTarget(): void {
 export function reparentOnly(childId: string, newParentId: string, afterId?: string | null): boolean {
   if (state.readOnly) return false;
   const child = state.nodes.get(childId);
-  if (!child || childId === newParentId) return false;
-  if (isLockedEffective(child)) return false;         // locked cards can't be moved/re-parented
+  const newParent = state.nodes.get(newParentId);
+  if (!child || !newParent || childId === newParentId) return false;
+  if (isLockedEffective(child) || isLockedEffective(newParent)) return false;   // locked: no move in or out
   if (isAncestor(childId, newParentId)) return false; // would create a cycle
   touch(childId, child.parent, newParentId);          // pre-images incl. both parents' kidOrder
   child.parent = newParentId;
   child.dirtyLayout = true;
-  const newParent = state.nodes.get(newParentId)!;
   if (isManagedLayout(newParent))
     newParent.kidOrder = insertedKidOrder(newParent, childId, afterId);
   return true;

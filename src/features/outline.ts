@@ -14,7 +14,7 @@ import { PHONE_MQ, PORTRAIT_MQ } from '../core/ui-state.js';
 import { childrenOf, isRoot, isAncestor, descendantCount, isLockedEffective, subtreeHasLocked } from '../utils/model.js';
 import { orderedKids, sideOf, deriveSide, orderAxisIsX, applyLayouts } from '../view/layout.js';
 import { scheduleSave } from '../data/persistence.js';
-import { paintAll, selectNode, focusNode, effectiveColor, subtreeIds, nodeH, NODE_W, toggleCollapse, toggleDone, setLockedSelection } from '../main.js';
+import { paintAll, selectNode, focusNode, effectiveColor, subtreeIds, nodeH, NODE_W, toggleCollapse, toggleDone, setLockedSelection, LOCK_BADGE_SVG } from '../main.js';
 import { openBranchEditor, closeBranchEditor, branchEditorOpen, addToBranch } from './branch-editor.js';
 import { openEditorSheet } from './editor-sheet.js';
 import { titleProblem } from './inline-edit.js';
@@ -189,9 +189,17 @@ function rowFor(n: MindNode, depth: number, kids: MindNode[]): HTMLElement {
   // rows carry the card's colour as their background via the shared .c-* classes (like .node).
   // Deliberately no selection ring here — clicking in the outliner never selects; rows only ever
   // show colour / fold / done state, nothing selection-shaped.
-  row.className = `ol-row c-${effectiveColor(n)}` + (showDone && n.done ? ' done' : '');
+  row.className = `ol-row c-${effectiveColor(n)}` + (showDone && n.done ? ' done' : '') + (n.locked ? ' locked' : '');
   row.dataset.id = n.id;
   row.style.marginLeft = (depth * 14) + 'px';   // indent the whole card, not just its content
+
+  // locked card: same corner padlock badge the canvas shows (main.ts) — upper-LEFT, mirroring
+  // .ol-count's upper-right fold bubble so the two never collide on a locked+folded row.
+  if (n.locked) {
+    const lock = document.createElement('span');
+    lock.className = 'ol-lock'; lock.title = 'Locked'; lock.innerHTML = LOCK_BADGE_SVG;
+    row.appendChild(lock);
+  }
 
   // checklist item: same donebox the canvas shows on a checklist parent's children (main.ts)
   if (showDone) {
@@ -430,7 +438,11 @@ function startRowDrag(e: PointerEvent, n: MindNode, row: HTMLElement): void {
     const cyL = cy + dy;   // pointer y in the cached rects' (engage-time) coordinates
     const refRow = rows.find(r => cyL <= r.rect.bottom + GAP / 2) ?? rows[rows.length - 1];
     const frac = (cyL - refRow.rect.top) / refRow.rect.height;   // <0 above the row, >1 below it
-    if (frac > EDGE && frac < 1 - EDGE) { drop = { kind: 'child', target: refRow.node }; setHi(refRow.el); return; }
+    // A locked row is never a valid nest-under target — fall through to a before/after sibling
+    // insert instead (that only touches the shared parent's order, not the locked card itself).
+    if (frac > EDGE && frac < 1 - EDGE && !isLockedEffective(refRow.node)) {
+      drop = { kind: 'child', target: refRow.node }; setHi(refRow.el); return;
+    }
     drop = { kind: frac <= EDGE ? 'before' : 'after', ref: refRow.node };
     const indent = parseFloat(refRow.el.style.marginLeft || '0');
     line.style.display = '';
@@ -555,6 +567,7 @@ function makeRoot(n: MindNode, dy = 0): void {
 function commitRowDrop(n: MindNode, drop: RowDrop): boolean {
   if (drop.kind === 'child') {
     if (drop.target.id === n.parent) return false;   // already that card's child
+    if (isLockedEffective(drop.target)) { setStatus('Locked — can’t drop there'); return false; }
     moveTo(n, drop.target, false);   // dropping onto a card shouldn't auto-expand it
     return true;
   }
@@ -562,6 +575,7 @@ function commitRowDrop(n: MindNode, drop: RowDrop): boolean {
   if (!ref.parent) return dropAtRootLevel(n, ref, drop.kind);   // beside a root row → join the top level
   const parent = state.nodes.get(ref.parent);
   if (!parent) return false;
+  if (parent.id !== n.parent && isLockedEffective(parent)) { setStatus('Locked — can’t drop there'); return false; }
   if (parent.id !== n.parent) {
     if (!seedUnderParent(n, parent)) return false;
   } else {
@@ -644,6 +658,7 @@ function renderPicker(): void {
   if (src.parent && !q) item('⌂ Make root', 'detach from its parent', null, () => moveTo(src, null));
   const targets = [...state.nodes.values()]
     .filter(c => c.id !== src.id && c.id !== src.parent && !isAncestor(src.id, c.id) && !isLeafType(c))   // leaves can't be parents
+    .filter(c => !isLockedEffective(c))   // locked cards never adopt new children
     .filter(c => !q || c.title.toLowerCase().includes(q))
     .sort((a, b) => a.title.localeCompare(b.title));
   for (const c of targets) item(c.title, crumbFor(c), effectiveColor(c), () => moveTo(src, c));

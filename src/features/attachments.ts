@@ -3,6 +3,7 @@
 // Added by pasting into the in-card body editor, dropping a file on a card (or the editor), or by
 // typing the markdown. Importing this module registers the document-level drag/drop listeners.
 import { state, setStatus, isImageCard } from '../core/state.js';
+import { isLockedEffective } from '../utils/model.js';
 import { ui, isTypingInField } from '../core/ui-state.js';
 import { store, scheduleSave } from '../data/persistence.js';
 import { applyLayouts } from '../view/layout.js';
@@ -76,6 +77,7 @@ async function appendImagesToNode(id: string, files: FileList | File[]): Promise
   const imgs = imageFiles(files);
   if (!imgs.length || !canAttach()) return;
   const n = state.nodes.get(id); if (!n) return;
+  if (isLockedEffective(n)) { setStatus('Locked — can’t add images'); return; }
   setStatus('Adding image…');
   const md = await markdownForImages(imgs);
   record([id], () => {
@@ -280,7 +282,10 @@ document.addEventListener('dragover', (e) => {
   e.preventDefault();
   if (state.readOnly){ setImgDropTarget(null); return; }
   const t = e.target as HTMLElement;
-  setImgDropTarget(t.closest?.('.body-edit') || t.closest?.('#world [data-id]') || null);
+  const cardEl = t.closest?.('#world [data-id]') as HTMLElement | null;
+  const cardNode = cardEl ? state.nodes.get(cardEl.dataset.id ?? '') : null;
+  if (cardNode && isLockedEffective(cardNode)) { setImgDropTarget(null); return; }   // locked: no drop hint
+  setImgDropTarget(t.closest?.('.body-edit') || cardEl || null);
 });
 document.addEventListener('dragleave', (e) => { if (e.relatedTarget == null) setImgDropTarget(null); });
 document.addEventListener('drop', async (e) => {
@@ -293,17 +298,19 @@ document.addEventListener('drop', async (e) => {
   // an image card is a leaf — it can't adopt children or gain a second image in its body
   const cardNode = cardId ? state.nodes.get(cardId) : null;
   const cardIsImage = !!cardNode && isImageCard(cardNode);
+  const cardIsLocked = !!cardNode && isLockedEffective(cardNode);
   setImgDropTarget(null);
   // dropped .md notes reconstruct as cards (parent links WITHIN the dropped set are kept);
-  // a dropped-on card adopts them as children, the canvas takes them at the drop point
+  // a dropped-on card adopts them as children, the canvas takes them at the drop point — never a
+  // locked one (createNode itself also refuses a locked parent, this just skips the attempt).
   const mds = [...e.dataTransfer!.files].filter(f => /\.md$/i.test(f.name));
   if (mds.length){
     const cards = await Promise.all(mds.map(async f => ({ name: f.name, text: await f.text() })));
-    tryPasteCards(cardsToPayload(cards), { sx: e.clientX, sy: e.clientY, parent: cardIsImage ? null : cardId });
+    tryPasteCards(cardsToPayload(cards), { sx: e.clientX, sy: e.clientY, parent: (cardIsImage || cardIsLocked) ? null : cardId });
   }
   const imgs = imageFiles(e.dataTransfer!.files);
   if (!imgs.length) return;
   if (onEditor && ui.bodyEdit){ await insertImagesAtCursor(imgs); }   // drop on the open editor → at the caret
-  else if (cardEl && !cardIsImage){ selectNode(cardId); await appendImagesToNode(cardId!, imgs); }
-  else await createImageNode(e.clientX, e.clientY, imgs);   // empty canvas (or onto an image card) → new card(s) at the drop point
+  else if (cardEl && !cardIsImage && !cardIsLocked){ selectNode(cardId); await appendImagesToNode(cardId!, imgs); }
+  else if (!cardEl || !cardIsLocked) await createImageNode(e.clientX, e.clientY, imgs);   // empty canvas (or onto an image card) → new card(s) at the drop point
 });

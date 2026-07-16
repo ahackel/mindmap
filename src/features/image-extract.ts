@@ -7,6 +7,7 @@
 // drop point (a canvas drop); pointercancel or a no-move press leaves the card untouched.
 import { state, isImageCard, isAnnotation, type MindNode } from '../core/state.js';
 import { isFrame } from '../view/layout.js';
+import { isLockedEffective } from '../utils/model.js';
 import { screenToWorld } from '../view/camera.js';
 import { extractImage } from './crud.js';
 import { IMAGE_W, IMAGE_H } from '../main.js';
@@ -35,7 +36,7 @@ function moveTargetAt(x: number, y: number, sourceId: string, preview: HTMLEleme
   const id = cardEl?.dataset.id;
   if (!cardEl || !id || id === sourceId) return null;
   const node = state.nodes.get(id);
-  if (!node || isImageCard(node) || isFrame(node) || isAnnotation(node)) return null;
+  if (!node || isImageCard(node) || isFrame(node) || isAnnotation(node) || isLockedEffective(node)) return null;
   return { el: cardEl, id };
 }
 export function startImageExtractDrag(source: MindNode, img: HTMLImageElement, sx: number, sy: number): void {
