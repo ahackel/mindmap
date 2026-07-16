@@ -759,21 +759,19 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
   }
   /* above the corner ghost-card/help buttons (z 20) — they'd float over the bar otherwise */
   #floatBar.open { transform:translateY(0); z-index:25; }
-  /* phone: outline is forced full-screen, so the canvas toolbar has nothing to act on — hide it.
-     The home (top-left) + New-card (top-right) corner buttons are all that's needed here. */
-  #toolbar { display:none; }
   /* the map name sits beside the home button in the top-left — it would overlap other UI on a
-     narrow bar, so hide it here (the home sidebar still shows which map is open).
-     (the New-card button's phone treatment lives after its base rule below, for source order.) */
+     narrow bar, so hide it here (the home sidebar still shows which map is open). */
   #folderName { display:none; }
+  /* portrait phone is canvas-only (features/outline.ts locks outline off below this width) —
+     hide the toggle so there's nothing to tap into a mode that isn't available here. */
+  #outlineBtn { display:none !important; }
 }
 
 /* ---- outline mode: the map as a collapsible tree list (body.outline, toggled in
-   features/outline.ts). Rows render into #outline. Two treatments, split at the same 700px
-   breakpoint as the bottom-sheet panel:
-     · narrow (phone)  → full-screen; the canvas + its chrome hide entirely
-     · wide  (desktop) → a drawer sliding in from the right OVER a still-visible canvas,
-                         mirroring the storage sidebar's left drawer. */
+   features/outline.ts). Rows render into #outline. Wide screens only (desktop, or a phone
+   rotated to landscape) — a drawer sliding in from the right OVER a still-visible canvas,
+   mirroring the storage sidebar's left drawer. Portrait/narrow phone is canvas-only, outline
+   locked off (features/outline.ts's outlineLocked, #outlineBtn hidden above). */
 /* above #toolbar/#searchWrap (z:20): the drawer covers them where it overlaps, rather than the
    app chrome floating over its edge. #homeBar is the one exception (z:30, see its own rule) —
    the home button stays reachable even under the drawer / above scrolling outline rows. */
@@ -783,27 +781,13 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    list (a position:absolute descendant of #outline that's ALSO the scroll container scrolls right
    along with it — this is what bit #ocBack when it first lived inside here). */
 .ol-scroll { position:absolute; inset:0; overflow:hidden auto; -webkit-overflow-scrolling:touch; }
-/* Sketch + help are canvas tools, so hide them in outline mode at every width. The floating edit
-   bar stays canvas-only too, but on a WIDE screen the outliner is a drawer over a still-visible
-   canvas, so a card can stay selected there — only hide it once the canvas itself is gone (the
-   narrow/phone treatment below), not just because outline is active. #outlineBtn joins them here
-   too: once open, #olCloseBtn (now at the drawer's top-LEFT, sharing #ocBack's spot) is the way to
-   close it, and on wide screens the drawer sits right over this corner anyway. #canvasMenuBtn is
-   the deliberate exception (see its own z-index rule) — it must stay reachable from the outliner too. */
-body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #outlineBtn { display:none !important; }
-
-@media (max-width: 700px) {
-  body.outline #stage, body.outline #ghostCard, body.outline #ghostHint,
-  body.outline #fitBtn, body.outline #edgeBtn, body.outline #floatBar { display:none !important; }
-  /* fill the whole screen and inset the content from the top instead of parking the panel below
-     the header — so cards scroll UP UNDER the floating home / + buttons (iOS-style) rather than
-     being clipped at a fixed top edge. */
-  #outline { top:0; left:0; right:0; bottom:0; display:none; }
-  /* top clearance (for the floating home / + buttons) moves onto .ol-heading below instead of
-     living here as blank padding — the heading now occupies that reserved band. */
-  .ol-scroll { padding:0 10px calc(80px + env(safe-area-inset-bottom)); }
-  body.outline #outline { display:block; }
-}
+/* Sketch + help are canvas tools, so hide them in outline mode. The outliner is a drawer over a
+   still-visible canvas, so a card can stay selected there — the floating edit bar stays hidden
+   too since it would float over the drawer. #outlineBtn joins them here: once open, #olCloseBtn
+   (the drawer's top-LEFT, sharing #ocBack's spot) is the way to close it. #canvasMenuBtn is the
+   deliberate exception (see its own z-index rule) — it must stay reachable from the outliner too. */
+body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #outlineBtn,
+body.outline #floatBar { display:none !important; }
 
 @media (min-width: 701px) {
   /* full-height right drawer; parked off-screen (and click-through) until outline is active */

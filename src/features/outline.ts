@@ -110,12 +110,13 @@ function sortedRoots(exclude?: string): MindNode[] {
 // ---- mode toggle (persisted like theme / edge style) ----
 const VIEW_KEY = 'mindmap.viewMode';   // 'canvas' | 'outline'
 export function outlineActive(): boolean { return document.body.classList.contains('outline'); }
-// On narrow screens (phones) the 2D canvas is impractical, so outline is FORCED on and can't be
-// toggled off — the toolbar button is hidden (CSS) and the O shortcut / toggle no-op here.
-function outlineForced(): boolean { return NARROW_MQ.matches; }
-export function toggleOutlineView(): void { if (!outlineForced()) setOutline(!outlineActive()); }
+// On narrow screens (phone portrait width) the canvas is now the ONLY view — outline is locked
+// off and can't be toggled on — the toolbar button is hidden (CSS) and the O shortcut / toggle
+// no-op here. Outline stays available on wide screens (desktop, or a phone rotated to landscape).
+function outlineLocked(): boolean { return NARROW_MQ.matches; }
+export function toggleOutlineView(): void { if (!outlineLocked()) setOutline(!outlineActive()); }
 // `persist` records the choice as the user's WIDE-screen preference; forced/auto switches pass
-// false so visiting on a phone doesn't overwrite what they picked on desktop.
+// false so crossing the breakpoint doesn't overwrite what they picked at the other width.
 function setOutline(on: boolean, persist = true): void {
   if (on === outlineActive()) return;
   if (document.body.classList.contains('sketching')) { setStatus('Leave sketch mode first (S)'); return; }
@@ -128,11 +129,12 @@ function setOutline(on: boolean, persist = true): void {
   else if (state.selId) focusNode(state.nodes.get(state.selId), true);
 }
 outlineBtn.onclick = toggleOutlineView;
-olCloseBtn.onclick = toggleOutlineView;   // a no-op when forced (narrow) — CSS hides the button there too
-// The effective mode for the current width: forced on when narrow, else the saved preference.
+olCloseBtn.onclick = toggleOutlineView;
+// The effective mode for the current width: locked off when narrow, else the saved preference.
 function wantOutline(): boolean {
-  try { return outlineForced() || localStorage.getItem(VIEW_KEY) === 'outline'; }
-  catch { return outlineForced(); }   // no localStorage → only the forced (narrow) case
+  if (outlineLocked()) return false;
+  try { return localStorage.getItem(VIEW_KEY) === 'outline'; }
+  catch { return false; }
 }
 // Runtime switch when the viewport crosses the 700px breakpoint (rotate / resize): a full
 // setOutline, incl. the list re-render / canvas refocus. Safe here — main.ts is fully evaluated.
