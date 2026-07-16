@@ -61,14 +61,16 @@ setupGrid();
 
 
 // ---------- rendering ----------
-// small closed-padlock badge shown on a locked card's title row (shares the glyph the read-only
-// toolbar button uses — see ICON_LOCK_CLOSED further down).
-const LOCK_BADGE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+// small closed-padlock badge shown at a locked card's upper-left corner (shares the glyph the
+// read-only toolbar button uses — see ICON_LOCK_CLOSED further down); exported for the outline
+// row (features/outline.ts), which shows the same badge next to its title.
+export const LOCK_BADGE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
 function nodeEl(n: MindNode): HTMLElement {
   if (n.el) return n.el;
   const el = document.createElement('div');
   el.dataset.id = n.id;
-  el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><span class="lock-badge" title="Locked">${LOCK_BADGE_SVG}</span><div class="title"></div><span class="progress"></span></div><div class="body"></div>
+  el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><div class="title"></div><span class="progress"></span></div><div class="body"></div>
+    <span class="lock-badge" title="Locked">${LOCK_BADGE_SVG}</span>
     <span class="hidden-count"></span>
     <div class="addnote" title="Add note">Add note…</div>`;
   world.appendChild(el);

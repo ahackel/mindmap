@@ -36,6 +36,10 @@ interface CreateOpts {
 }
 export function createNode(opts: CreateOpts = {}): MindNode | undefined {
   if (state.readOnly) return;
+  if (opts.parent) {
+    const p = state.nodes.get(opts.parent);
+    if (p && isLockedEffective(p)) { setStatus('Locked — can’t add a child'); return; }
+  }
   const c = screenToWorld(window.innerWidth/2, window.innerHeight/2);
   const n = mkNode({
     x: opts.x ?? (c.x - 100), y: opts.y ?? (c.y - 40),

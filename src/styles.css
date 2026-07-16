@@ -210,8 +210,9 @@ input::placeholder { color:var(--muted); opacity:1; }
 #ctxMenu .cm-item:hover:not(:disabled) kbd {
   color:#fff; background:rgba(255,255,255,.16); border-color:rgba(255,255,255,.35); }
 #ctxMenu .cm-item:disabled { color:var(--muted); cursor:default; }
-/* destructive entries (delete / remove) read red before hover too */
-#ctxMenu .cm-item.cm-danger { color:#e0564f; }
+/* destructive entries (delete / remove) read red before hover too — unless disabled, which greys
+   out like any other unavailable entry (e.g. a locked card's Delete/Rename/…). */
+#ctxMenu .cm-item.cm-danger:not(:disabled) { color:#e0564f; }
 #ctxMenu .cm-item.cm-danger:hover:not(:disabled) { background:#e0564f; color:#fff; }
 #ctxMenu .cm-item kbd { font-family:inherit; font-size:11px; color:var(--muted); }
 /* negative side margin cancels the menu's own padding + border so the line touches both edges */
@@ -267,11 +268,16 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 .node.done .title { text-decoration:line-through; opacity:.65; }
 /* checklist owner: this card's own "n/m" progress over its direct children */
 .node .progress { flex:none; margin-left:auto; padding-left:.5em; font-size:11px; font-weight:600; opacity:.7; }
-/* locked card: a small padlock badge by the title, and a dashed outline as an at-a-glance cue that
-   it can't be moved, (un)collapsed, or edited — see isLockedEffective (utils/model.ts). */
-.node .lock-badge { display:none; flex:none; width:13px; height:13px; margin-top:.15em; opacity:.6; }
+/* locked card: a small padlock badge at the upper-LEFT corner — the mirror image of
+   .hidden-count's upper-right collapse bubble (same size/style, opposite corner so the two never
+   collide on a card that's both locked and collapsed) — plus a dashed outline as an at-a-glance
+   cue that it can't be moved, (un)collapsed, or edited. See isLockedEffective (utils/model.ts). */
+.node .lock-badge { position:absolute; left:-8px; top:-8px;
+  box-sizing:border-box; width:16px; height:16px; padding:3px;
+  background:#fff; color:#000; border-radius:8px;
+  display:none; align-items:center; justify-content:center; }
 .node .lock-badge svg { width:100%; height:100%; }
-.node.locked .lock-badge { display:block; }
+.node.locked .lock-badge { display:inline-flex; }
 .node.locked { outline:2px dashed var(--edge); outline-offset:2px; }
 /* ---------- frame: a resizable container box whose children live freely inside ---------- */
 /* sits behind normal cards (z-index:2) so the cards it holds render inside it; its own box size
@@ -1007,6 +1013,12 @@ body.readonly .ol-open { display:none; }
   box-sizing:border-box; min-width:16px; height:16px; padding:0 5px;
   background:#fff; color:#000; font-size:11px; font-weight:700; border-radius:8px;
   line-height:1; display:inline-flex; align-items:center; justify-content:center; }
+/* locked row: the same padlock badge as the canvas card, upper-LEFT corner — mirrors .ol-count. */
+.ol-lock { position:absolute; left:-8px; top:-8px;
+  box-sizing:border-box; width:16px; height:16px; padding:3px;
+  background:#fff; color:#000; border-radius:8px;
+  display:inline-flex; align-items:center; justify-content:center; }
+.ol-lock svg { width:100%; height:100%; }
 .ol-more { flex:none; width:26px; height:32px; padding:0; border:0;
   border-radius:var(--r-ctl); background:transparent; color:inherit; opacity:.6;
   font-size:20px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
