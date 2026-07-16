@@ -222,3 +222,20 @@ window.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, 
 // … and as native gesture events on Safari.
 for (const type of ['gesturestart', 'gesturechange', 'gestureend'] as const)
   window.addEventListener(type, (e) => e.preventDefault());
+
+// ---- iOS Safari landscape scroll-vs-fixed desync workaround ----
+// #stage is `position:fixed; inset:0`, which per spec stays viewport-anchored no matter what
+// the document's own scroll position is — but iOS Safari's landscape compact toolbar (which,
+// unlike portrait, floats OVER the page instead of reserving its own space) drives an internal
+// scroll adjustment of its own height when it hides/shows, and WebKit has a long-standing bug
+// where `position:fixed` content visually drifts with that scroll while pointer/touch
+// coordinates stay viewport-true — so a tap lands correctly on-screen but resolves against a
+// canvas that's silently shifted by the toolbar's height. Nothing in this app ever intentionally
+// scrolls the top-level document (html/body are `overflow:hidden`), so any non-zero scroll here
+// is exactly that quirk — snap it back to (0,0) whenever it occurs.
+function resetPageScroll(): void {
+  if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+}
+window.addEventListener('scroll', resetPageScroll, { passive: true });
+window.addEventListener('orientationchange', () => setTimeout(resetPageScroll, 50));
+resetPageScroll();
