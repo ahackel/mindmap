@@ -272,10 +272,11 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
    .hidden-count's upper-right collapse bubble (same footprint, opposite corner so the two never
    collide on a card that's both locked and collapsed) — plus a dashed outline as an at-a-glance
    cue that it can't be moved, (un)collapsed, or edited. See isLockedEffective (utils/model.ts).
-   Filled glyph (no circle backing) in the amber palette colour so it reads as "locked" at a glance. */
+   Filled glyph (no circle backing), colour inherited from the card so it always matches the
+   title text exactly (see .node's color / .c-* overrides above). */
 .node .lock-badge { position:absolute; left:-8px; top:-8px;
   box-sizing:border-box; width:16px; height:16px;
-  color:var(--pal-amber);
+  color:inherit;
   display:none; align-items:center; justify-content:center; }
 .node .lock-badge svg { width:100%; height:100%; }
 .node.locked .lock-badge { display:inline-flex; }
@@ -1017,7 +1018,7 @@ body.readonly .ol-open { display:none; }
 /* locked row: the same padlock badge as the canvas card, upper-LEFT corner — mirrors .ol-count. */
 .ol-lock { position:absolute; left:-8px; top:-8px;
   box-sizing:border-box; width:16px; height:16px;
-  color:var(--pal-amber);
+  color:inherit;
   display:inline-flex; align-items:center; justify-content:center; }
 .ol-lock svg { width:100%; height:100%; }
 .ol-more { flex:none; width:26px; height:32px; padding:0; border:0;
