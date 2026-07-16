@@ -10,7 +10,7 @@
 // edits reuse the existing kernels (crud / drag reparent / history), so undo, autosave and
 // read-only behave the same as on the canvas.
 import { state, setStatus, isAnnotation, isLeafType, type MindNode } from '../core/state.js';
-import { NARROW_MQ } from '../core/ui-state.js';
+import { PHONE_MQ, PORTRAIT_MQ } from '../core/ui-state.js';
 import { childrenOf, isRoot, isAncestor, descendantCount } from '../utils/model.js';
 import { orderedKids, sideOf, deriveSide, orderAxisIsX, applyLayouts } from '../view/layout.js';
 import { scheduleSave } from '../data/persistence.js';
@@ -110,13 +110,16 @@ function sortedRoots(exclude?: string): MindNode[] {
 // ---- mode toggle (persisted like theme / edge style) ----
 const VIEW_KEY = 'mindmap.viewMode';   // 'canvas' | 'outline'
 export function outlineActive(): boolean { return document.body.classList.contains('outline'); }
-// On narrow screens (phone portrait width) the canvas is now the ONLY view — outline is locked
-// off and can't be toggled on — the toolbar button is hidden (CSS) and the O shortcut / toggle
-// no-op here. Outline stays available on wide screens (desktop, or a phone rotated to landscape).
-function outlineLocked(): boolean { return NARROW_MQ.matches; }
+// On a PHONE the mode is dictated by orientation and can't be toggled — portrait is outline
+// (reading/quick capture, no room for the 2D canvas), landscape is canvas (the extra width makes
+// it usable) — the toolbar button is hidden there (CSS, kept in sync with PHONE_MQ) and the O
+// shortcut / toggle no-op here. Everywhere else (desktop, tablet, a resized desktop window)
+// canvas is the default with a free toggle, regardless of orientation.
+function phoneWantsOutline(): boolean | null { return PHONE_MQ.matches ? PORTRAIT_MQ.matches : null; }
+function outlineLocked(): boolean { return phoneWantsOutline() !== null; }
 export function toggleOutlineView(): void { if (!outlineLocked()) setOutline(!outlineActive()); }
-// `persist` records the choice as the user's WIDE-screen preference; forced/auto switches pass
-// false so crossing the breakpoint doesn't overwrite what they picked at the other width.
+// `persist` records the choice as the user's own preference; forced/auto switches pass false so
+// crossing a phone/orientation boundary doesn't overwrite what they picked elsewhere.
 function setOutline(on: boolean, persist = true): void {
   if (on === outlineActive()) return;
   if (document.body.classList.contains('sketching')) { setStatus('Leave sketch mode first (S)'); return; }
@@ -130,15 +133,18 @@ function setOutline(on: boolean, persist = true): void {
 }
 outlineBtn.onclick = toggleOutlineView;
 olCloseBtn.onclick = toggleOutlineView;
-// The effective mode for the current width: locked off when narrow, else the saved preference.
+// The effective mode: dictated by orientation on a phone, else the saved preference.
 function wantOutline(): boolean {
-  if (outlineLocked()) return false;
+  const forced = phoneWantsOutline();
+  if (forced !== null) return forced;
   try { return localStorage.getItem(VIEW_KEY) === 'outline'; }
   catch { return false; }
 }
-// Runtime switch when the viewport crosses the 700px breakpoint (rotate / resize): a full
-// setOutline, incl. the list re-render / canvas refocus. Safe here — main.ts is fully evaluated.
-NARROW_MQ.addEventListener('change', () => setOutline(wantOutline(), false));
+// Runtime switch when the phone/breakpoint state or orientation changes (rotate / resize): a
+// full setOutline, incl. the list re-render / canvas refocus. Safe here — main.ts is fully
+// evaluated by the time either of these can fire.
+PHONE_MQ.addEventListener('change', () => setOutline(wantOutline(), false));
+PORTRAIT_MQ.addEventListener('change', () => setOutline(wantOutline(), false));
 // Initial application at IMPORT time: set the body class ONLY — never setOutline/renderOutline.
 // renderOutline reaches into main.ts (effectiveColor / nodeH / …), which is still mid-evaluation
 // during this circular main↔outline import; calling it here throws. boot()'s first paintAll()

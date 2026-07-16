@@ -127,6 +127,16 @@ const COARSE_MQ = matchMedia('(pointer: coarse)');
 // editors (see features/inline-edit.ts).
 export function phoneMode(): boolean { return COARSE_MQ.matches && NARROW_MQ.matches; }
 
+// "Phone", orientation-independent (features/outline.ts's canvas/outline split): coarse pointer
+// AND a SHORT axis — either dimension at or under the 700px breakpoint, so an iPhone reads as a
+// phone in both portrait AND landscape (it's still short sideways), while a tablet (large in both
+// dimensions) or a narrowed desktop window (fine pointer) stay excluded. The two `max-*` clauses
+// MUST match NARROW_MQ's own 700px breakpoint.
+export const PHONE_MQ = matchMedia(
+  '(pointer: coarse) and (max-width: 700px), (pointer: coarse) and (max-height: 700px)'
+);
+export const PORTRAIT_MQ = matchMedia('(orientation: portrait)');
+
 // True when focus is in a text field (sidebar input/textarea) or a contenteditable (the in-card
 // title rename) — i.e. the user is typing, so card/canvas shortcuts and disk-reload should stand down.
 export function isTypingInField(): boolean {
