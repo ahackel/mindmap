@@ -41,7 +41,7 @@ import { resetImageCache, hydrateImages } from './features/images.js';
 import { openImageViewer } from './features/image-viewer.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
 import { showStart, openHelpTab, boot } from './boot.js';
-import { syncUrl, updateDocumentTitle } from './nav/url-state.js';
+import { syncUrl, scheduleUrlSync, updateDocumentTitle } from './nav/url-state.js';
 import type { MindNode, EdgeStyle } from './core/state.js';
 import { ui, isTypingInField, type Pt, type Drag } from './core/ui-state.js';
 
@@ -792,6 +792,7 @@ export function applyReadOnly(): void {
   updateUndoButtons();
   syncFloatBar();
   setStatus(ro ? 'Read-only — nothing is saved' : 'Editing enabled');
+  scheduleUrlSync();
 }
 applyReadOnly();   // set the initial open-padlock icon
 async function setReadOnly(on: boolean): Promise<void> {

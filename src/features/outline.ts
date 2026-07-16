@@ -20,6 +20,7 @@ import { openEditorSheet } from './editor-sheet.js';
 import { titleProblem } from './inline-edit.js';
 import { createNode, deleteNode, duplicateSelection } from './crud.js';
 import { reparentOnly } from './drag.js';
+import { scheduleUrlSync } from '../nav/url-state.js';
 import { openMenu } from './context-menu.js';
 import { touch, commitStep } from './history.js';
 import TRI from '../assets/icons/chevron.svg?raw';
@@ -120,7 +121,7 @@ function outlineLocked(): boolean { return phoneWantsOutline() !== null; }
 export function toggleOutlineView(): void { if (!outlineLocked()) setOutline(!outlineActive()); }
 // `persist` records the choice as the user's own preference; forced/auto switches pass false so
 // crossing a phone/orientation boundary doesn't overwrite what they picked elsewhere.
-function setOutline(on: boolean, persist = true): void {
+export function setOutline(on: boolean, persist = true): void {
   if (on === outlineActive()) return;
   if (document.body.classList.contains('sketching')) { setStatus('Leave sketch mode first (S)'); return; }
   if (!on) closeBranchEditor();   // leaving outline: drop any open branch editor first
@@ -130,6 +131,7 @@ function setOutline(on: boolean, persist = true): void {
   if (on) renderOutline();
   // back to the canvas: orient at whatever you were just reading in the list
   else if (state.selId) focusNode(state.nodes.get(state.selId), true);
+  scheduleUrlSync();
 }
 outlineBtn.onclick = toggleOutlineView;
 olCloseBtn.onclick = toggleOutlineView;
