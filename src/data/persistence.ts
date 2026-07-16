@@ -171,6 +171,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
       _parentPath: mm.parent || '',                // resolved to an id once all notes are loaded
       parent: null,
       collapsed: !!mm.collapsed,
+      locked: !!mm.locked,
       done: !!mm.done,
       checklist: !!mm.checklist,
       bg: !!mm.bg,

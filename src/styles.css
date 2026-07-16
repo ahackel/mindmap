@@ -267,6 +267,12 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 .node.done .title { text-decoration:line-through; opacity:.65; }
 /* checklist owner: this card's own "n/m" progress over its direct children */
 .node .progress { flex:none; margin-left:auto; padding-left:.5em; font-size:11px; font-weight:600; opacity:.7; }
+/* locked card: a small padlock badge by the title, and a dashed outline as an at-a-glance cue that
+   it can't be moved, (un)collapsed, or edited — see isLockedEffective (utils/model.ts). */
+.node .lock-badge { display:none; flex:none; width:13px; height:13px; margin-top:.15em; opacity:.6; }
+.node .lock-badge svg { width:100%; height:100%; }
+.node.locked .lock-badge { display:block; }
+.node.locked { outline:2px dashed var(--edge); outline-offset:2px; }
 /* ---------- frame: a resizable container box whose children live freely inside ---------- */
 /* sits behind normal cards (z-index:2) so the cards it holds render inside it; its own box size
    is set inline (main.ts paintNode). Border tinted to the card's own colour, like its edges. */

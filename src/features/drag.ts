@@ -7,7 +7,7 @@
 // drag state lives in `ui.drag`. Importing this module registers the global Alt/Shift modifier
 // listeners; bindNodeDrag is called by the render core (nodeEl) for each card.
 import { state, stage, world, setStatus, isLeafType, isAnnotation, isImageCard, type MindNode, type LayoutSide } from '../core/state.js';
-import { isHidden, isAncestor } from '../utils/model.js';
+import { isHidden, isAncestor, hasLockedAncestor, isLockedEffective } from '../utils/model.js';
 import { applyLayouts, reorderDraggedParents, dropLanding, isManagedLayout, frameFlow, flowReorderTarget, isFrame, centreInFrame, insertedKidOrder, sideOf, deriveSide, reorderTarget, ancestorDepth } from '../view/layout.js';
 import { cancelViewAnim, applyView } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
@@ -276,8 +276,12 @@ export function bindNodeDrag(n: MindNode): void {
   }, { passive: false });
   el.addEventListener('pointerdown', (e) => {
     if (e.button === 2) { e.stopPropagation(); return; }   // right-click = context menu only: no drag/select/rename
+    // A descendant of a locked card can't be selected or dragged at all — only the locked card
+    // itself (checked further below) remains reachable this way.
+    if (hasLockedAncestor(n)) { e.stopPropagation(); return; }
     const tgt = e.target as HTMLElement;
     if (tgt.classList.contains('addnote')) return;
+    if (tgt.closest('input.taskbox') && isLockedEffective(n)) { e.stopPropagation(); e.preventDefault(); return; }  // locked: no task toggling
     if (tgt.closest('a.lk, input.taskbox, .img-zoom')) { e.stopPropagation(); return; }  // let links/checkboxes/zoom click, not drag
     // Alt-press over an inline body image (on a plain card) rips THAT image out — extraction rides
     // its own preview (features/image-extract.ts), not the card drag. Image-only cards drag whole.
@@ -326,7 +330,11 @@ export function bindNodeDrag(n: MindNode): void {
     // otherwise just this card's subtree. `active` is the node dragged/dropped; `targets`
     // are the nodes that follow the cursor (or, after a Shift-clone, just the clone).
     const multi = state.sel.has(n.id) && state.sel.size > 1;
-    const rootIds = multi ? [...state.sel] : [n.id];
+    // A locked member of a multi-selection stays put — only its unlocked companions get dragged
+    // (pressing directly ON a locked card is handled separately in dragPointerMove, which pins the
+    // whole gesture since `n` itself owns it).
+    const rootIds = (multi ? [...state.sel] : [n.id])
+      .filter(id => id === n.id || !isLockedEffective(state.nodes.get(id)!));
     const selRoots = trueRoots(rootIds);
     const ids = [...new Set(rootIds.flatMap(id => subtreeIds(id)))];
     const start = new Map(ids.map(id => {
@@ -380,6 +388,9 @@ function dragPointerMove(e: { clientX: number; clientY: number; altKey: boolean;
   const drag = ui.drag;
   if (!drag) return;
   if (state.readOnly) return;        // no moving/reparenting in read-only (click & dbl-click still work)
+  // Pressing directly on a locked card: never treat it as a drag (click/slow-click select/rename
+  // still resolve normally on release since drag.moved stays false) — no move, no reparent.
+  if (isLockedEffective(drag.n)) return;
   drag.alt = e.altKey; drag.shift = e.shiftKey;   // Shift = clone (live — release to cancel), Alt = detach
   drag.cx = e.clientX; drag.cy = e.clientY;   // remembered for edge auto-pan and RAF flush
   const dx = (e.clientX - drag.sx)/state.view.k, dy = (e.clientY - drag.sy)/state.view.k;
@@ -907,6 +918,7 @@ export function reparentOnly(childId: string, newParentId: string, afterId?: str
   if (state.readOnly) return false;
   const child = state.nodes.get(childId);
   if (!child || childId === newParentId) return false;
+  if (isLockedEffective(child)) return false;         // locked cards can't be moved/re-parented
   if (isAncestor(childId, newParentId)) return false; // would create a cycle
   touch(childId, child.parent, newParentId);          // pre-images incl. both parents' kidOrder
   child.parent = newParentId;

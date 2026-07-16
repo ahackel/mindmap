@@ -51,6 +51,11 @@ export interface MindNode {
   parent: string | null;           // parent node id (resolved from mm_parent path at load)
   _parentPath?: string;            // transient: the mm_parent path, resolved to `parent` post-load
   collapsed: boolean;
+  locked: boolean;                 // this card can be selected but not moved, (un)collapsed, or
+                                    // edited (rename/body/color/type/layout/delete/add child); the
+                                    // lock cascades to every descendant, which additionally can't
+                                    // even be selected — see utils/model.ts hasLockedAncestor.
+                                    // Persisted as mm_locked.
   done: boolean;                   // this card is checked off (only meaningful when its parent
                                     // has `checklist` on — that's what shows the checkbox)
   checklist: boolean;              // Trello-style: treat my DIRECT children as a checklist — each

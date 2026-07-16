@@ -18,6 +18,7 @@ import { titleProblem, autosizeBody } from './inline-edit.js';
 import { addChild } from './crud.js';
 import { touch, commitStep } from './history.js';
 import { createProperties, type PropertyControls } from './properties.js';
+import { isLockedEffective } from '../utils/model.js';
 
 const cardsEl = document.getElementById('olCards') as HTMLElement;
 // persistent (index.html), not part of .ol-scroll — see its CSS comment for why. Shown/hidden
@@ -118,16 +119,18 @@ function cardFor(n: MindNode): HTMLElement {
   card.className = `oc-card c-${effectiveColor(n)}`;
   card.dataset.id = n.id;
 
+  const locked = isLockedEffective(n);
   const title = document.createElement('input');
   title.className = 'oc-title'; title.value = n.title;
-  title.autocomplete = 'off'; title.spellcheck = false;
+  title.autocomplete = 'off'; title.spellcheck = false; title.readOnly = locked;
   const note = document.createElement('textarea');
   note.className = 'oc-note'; note.value = n.body;
-  note.spellcheck = false;
+  note.spellcheck = false; note.readOnly = locked;
   // empty note → the same accent "Add note…" bubble the canvas shows (.node .addnote); clicking it
   // (or Enter from the title) swaps in the textarea and focuses it.
   const addNote = document.createElement('button');
   addNote.type = 'button'; addNote.className = 'oc-addnote'; addNote.textContent = 'Add note…';
+  addNote.disabled = locked;
   const revealNote = (): void => { if (!note.isConnected) { addNote.replaceWith(note); autosizeBody(note); } note.focus(); };
   addNote.addEventListener('click', revealNote);
 

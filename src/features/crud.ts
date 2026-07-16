@@ -4,7 +4,7 @@
 // by drag lives in features/drag.ts; this is the keyboard/toolbar-driven lifecycle.
 import { state, setStatus, isLeafType, isAnnotation, isImageCard, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
 import { ui, type Pt } from '../core/ui-state.js';
-import { childrenOf, takenTitles } from '../utils/model.js';
+import { childrenOf, takenTitles, isLockedEffective, subtreeHasLocked } from '../utils/model.js';
 import { applyLayouts, insertedKidOrder, sideOf } from '../view/layout.js';
 import { screenToWorld } from '../view/camera.js';
 import { scheduleSave } from '../data/persistence.js';
@@ -20,7 +20,7 @@ export function mkNode(fields: Partial<MindNode> = {}): MindNode {
   touch(id);   // not in state.nodes yet → before-image is null (undo of a create = remove it)
   return {
     id, file:null,
-    x:0, y:0, rx:0, ry:0, parent:null, collapsed:false, done:false, checklist:false, bg:false,
+    x:0, y:0, rx:0, ry:0, parent:null, collapsed:false, locked:false, done:false, checklist:false, bg:false,
     title:'', color:'', keepStatus:'', tags:[], body:'',
     type:'card', layout:'inherit',
     dirty:true, dirtyLayout:true,
@@ -156,6 +156,7 @@ export function addChild(parentId: string): void {
   if (state.readOnly) return;
   const parent = state.nodes.get(parentId); if (!parent) return;
   if (isLeafType(parent)) return;   // image/annotation are leaves — they can't have children
+  if (isLockedEffective(parent)) { setStatus('Locked — can’t add a child'); return; }
   touch(parentId);   // the reveal below (and a line/fan kidOrder change) belong to the create step
   if (parent.collapsed){ parent.collapsed = false; } // reveal so the new child is visible
   const sibs = childrenOf(parentId);
@@ -181,6 +182,7 @@ export function createSibling(refId: string){
   const ref = state.nodes.get(refId); if (!ref) return;
   if (ref.parent == null) return createNode({ x: ref.x, y: ref.y + nodeH(ref) + 40 });
   const parent = state.nodes.get(ref.parent); if (!parent) return;
+  if (isLockedEffective(parent)) { setStatus('Locked — can’t add a sibling'); return; }
   touch(parent.id);   // the kidOrder change (and a possible reveal) belong to the create step
   if (parent.collapsed) parent.collapsed = false;
   const n = mkNode({
@@ -246,6 +248,7 @@ function deleteNodes(ids: Iterable<string>): void {
 export function deleteNode(id: string): void {
   if (state.readOnly) return;
   if (!state.nodes.has(id)) return;
+  if (subtreeHasLocked(id)) { setStatus('Locked — can’t delete'); return; }
   record([], () => {                 // ids are touched inside deleteNodes
     deleteNodes(subtreeIds(id));
     applyLayouts(); selectNode(null); paintAll();
@@ -255,8 +258,8 @@ export function deleteNode(id: string): void {
 // Delete every selected card and their entire subtrees.
 export function deleteSelection(): void {
   if (state.readOnly) return;
-  const ids = [...state.sel];
-  if (!ids.length) return;
+  const ids = [...state.sel].filter(id => !subtreeHasLocked(id));
+  if (!ids.length) { setStatus('Locked — can’t delete'); return; }
   record([], () => {                 // ids are touched inside deleteNodes
     state.sel.clear(); state.selId = null;
     deleteNodes(new Set(ids.flatMap(id => subtreeIds(id))));   // dedup overlapping subtrees

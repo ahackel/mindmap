@@ -6,6 +6,7 @@
 // deliberately owns only the sidebar-style properties. Layout chips stay in main.ts — they're
 // canvas geometry with no meaning in the outline, so the branch sheet doesn't get them.
 import { state } from '../core/state.js';
+import { isLockedEffective } from '../utils/model.js';
 import { record, touch, commitStep } from './history.js';
 import { scheduleSave } from '../data/persistence.js';
 import { applyLayouts } from '../view/layout.js';
@@ -40,7 +41,7 @@ export function createProperties(els: PropEls, getIds: () => string[]): Property
     els.colors.innerHTML = html;
     els.colors.querySelectorAll<HTMLElement>('.swatch').forEach(sw => {
       sw.addEventListener('click', () => {
-        const ids = getIds(); if (!ids.length) return;
+        const ids = getIds().filter(id => !isLockedEffective(state.nodes.get(id)!)); if (!ids.length) return;
         record(ids, () => {
           for (const id of ids){ const n = state.nodes.get(id); if (n){ n.color = sw.dataset.color ?? ''; n.dirty = true; } }
         });
@@ -59,7 +60,7 @@ export function createProperties(els: PropEls, getIds: () => string[]): Property
 
   // ---- checklist / group-background toggles (set on every target; mixed → indeterminate) ----
   function setBool(key: 'checklist' | 'bg', on: boolean): void {
-    const ids = getIds(); if (!ids.length) return;
+    const ids = getIds().filter(id => !isLockedEffective(state.nodes.get(id)!)); if (!ids.length) return;
     record(ids, () => {
       for (const id of ids){ const n = state.nodes.get(id); if (n){ n[key] = on; n.dirty = true; } }
     });
@@ -80,7 +81,7 @@ export function createProperties(els: PropEls, getIds: () => string[]): Property
   if (els.tags){
     const tagsEl = els.tags;
     tagsEl.addEventListener('input', () => {
-      const id = getIds()[0]; const n = id ? state.nodes.get(id) : undefined; if (!n) return;
+      const id = getIds()[0]; const n = id ? state.nodes.get(id) : undefined; if (!n || isLockedEffective(n)) return;
       n.tags = tagsEl.value.split(',').map(s => s.trim()).filter(Boolean);
       n.dirty = true;
       // paint first so the card's height is current, then reflow (a tag row can change height), then paint.

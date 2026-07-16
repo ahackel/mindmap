@@ -19,9 +19,9 @@ import { duplicateSelection, deleteSelection, deleteNode, addChild, createSiblin
 import { exportSelection, shareSelection, canShareFiles, copySelection, cutSelection } from './clipboard.js';
 import { pasteFromClipboard, pickImagesForNode } from './attachments.js';
 import { openMenu, copyFilePath, type MenuEntry } from './context-menu.js';
-import { childrenOf, isHidden } from '../utils/model.js';
+import { childrenOf, isHidden, isLockedEffective, subtreeHasLocked } from '../utils/model.js';
 import { frameBox } from '../view/camera.js';
-import { paintAll, selectedIds, selectNode, foldNodeOrGroup, GRID_SNAP, FRAME_W, FRAME_H, MIN_FRAME_W, MIN_FRAME_H, IMAGE_W, IMAGE_H } from '../main.js';
+import { paintAll, selectedIds, selectNode, foldNodeOrGroup, setLockedSelection, GRID_SNAP, FRAME_W, FRAME_H, MIN_FRAME_W, MIN_FRAME_H, IMAGE_W, IMAGE_H } from '../main.js';
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T { return document.getElementById(id) as T; }
 
@@ -117,7 +117,7 @@ function fitFrameToContent(n: MindNode, orDefault = false): void {
 }
 // Auto-size every selected frame to fit its content (shortcut / context menu).
 export function autoSizeSelection(): void {
-  const ids = selectedIds().filter(id => state.nodes.get(id)?.type === 'frame');
+  const ids = selectedIds().filter(id => state.nodes.get(id)?.type === 'frame' && !isLockedEffective(state.nodes.get(id)!));
   if (!ids.length) return;
   record(ids, () => { for (const id of ids){ const n = state.nodes.get(id); if (n) { fitFrameToContent(n); n.dirty = true; } } });
   applyLayouts(); paintAll(); scheduleSave();
@@ -141,7 +141,7 @@ function rebuildLayoutChips(type: NodeType): void {
 }
 // Change the KIND of the selection: seed/reset the box, drop a now-invalid layout, reseed order.
 function setType(type: NodeType): void {
-  const ids = selectedIds(); if (!ids.length) return;
+  const ids = selectedIds().filter(id => !isLockedEffective(state.nodes.get(id)!)); if (!ids.length) return;
   // image/annotation are leaves — refuse to flip a card that already has children into one
   if ((type === 'image' || type === 'annotation') && ids.some(id => childrenOf(id).length)) {
     setStatus(`A${type === 'image' ? 'n image card' : 'n annotation'} can’t have children — move or delete them first`);
@@ -165,7 +165,7 @@ function setType(type: NodeType): void {
 }
 // Change the child-ARRANGEMENT of the selection (within its current type).
 function setLayout(layout: NodeLayout): void {
-  const ids = selectedIds(); if (!ids.length) return;
+  const ids = selectedIds().filter(id => !isLockedEffective(state.nodes.get(id)!)); if (!ids.length) return;
   record(ids, () => {
     for (const id of ids){
       const n = state.nodes.get(id); if (!n || n.layout === layout) continue;
@@ -299,38 +299,45 @@ export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] 
   const isImage = isImageCard(n);   // a leaf: no title/body UI, no children
   const isAnno = isAnnotation(n);   // a leaf with a body but no title, no children
   const isLeaf = isImage || isAnno; // neither can hold children
+  const locked = isLockedEffective(n);                 // n itself: locked, or a locked descendant
+  const parentLocked = !!n.parent && isLockedEffective(state.nodes.get(n.parent)!);
+  const anyLocked = targetIds.some(id => isLockedEffective(state.nodes.get(id)!));
+  const anySubtreeLocked = targetIds.some(id => subtreeHasLocked(id));
   const entries: MenuEntry[] = [];
   if (!state.readOnly){
     if (!multi){
-      if (!isLeaf) entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n) });   // has a title
-      if (!isImage) entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n) });   // annotation keeps its body
-      if (!isImage) entries.push({ label:'Insert image…', run: () => pickImagesForNode(n.id) });
+      if (!isLeaf) entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n), disabled: locked });
+      if (!isImage) entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n), disabled: locked });   // annotation keeps its body
+      if (!isImage) entries.push({ label:'Insert image…', run: () => pickImagesForNode(n.id), disabled: locked });
       if (!isLeaf){
         entries.push('sep');
-        entries.push({ label:'Add child', shortcut:'Tab', run: () => addChild(n.id) });
-        entries.push({ label:'Paste as child', shortcut:'⌘V', run: () => { void pasteFromClipboard(sx, sy, n.id); } });
+        entries.push({ label:'Add child', shortcut:'Tab', run: () => addChild(n.id), disabled: locked });
+        entries.push({ label:'Paste as child', shortcut:'⌘V', run: () => { void pasteFromClipboard(sx, sy, n.id); }, disabled: locked });
       }
-      entries.push({ label:'Add sibling', shortcut:'Enter', run: () => createSibling(n.id) });
+      entries.push({ label:'Add sibling', shortcut:'Enter', run: () => createSibling(n.id), disabled: parentLocked });
     }
     entries.push({ label:'Duplicate', shortcut:'D', run: () => { selectTargetFirst(); duplicateSelection(); } });
-    entries.push({ label:'Cut', shortcut:'⌘X', run: () => { selectTargetFirst(); void cutSelection(); } });
+    entries.push({ label:'Cut', shortcut:'⌘X', run: () => { selectTargetFirst(); void cutSelection(); }, disabled: anySubtreeLocked });
+    entries.push('sep');
+    entries.push({ label: (multi ? anyLocked : locked) ? 'Unlock' : 'Lock', shortcut:'L',
+      run: () => { selectTargetFirst(); setLockedSelection(state.sel, !(multi ? anyLocked : locked)); } });
     entries.push('sep');
   }
   // copy/collapse/fit/export never mutate → allowed in read-only mode too
   entries.push({ label:'Copy', shortcut:'⌘C', run: () => { selectTargetFirst(); void copySelection(); } });
   if (!multi)
     entries.push({ label: n.collapsed ? 'Expand' : 'Collapse', shortcut:'X', run: () => foldNodeOrGroup(n),
-      disabled: !childrenOf(n.id).length && !(n.body && n.body.trim()) });
+      disabled: locked || (!childrenOf(n.id).length && !(n.body && n.body.trim())) });
   entries.push({ label:'Fit view', shortcut:'F', run: () => frameBox(targetIds.map(id => state.nodes.get(id))) });
   entries.push({ label:'Copy file path', run: () => copyFilePath(n), disabled: !n.file });
   if (anyFrame && !state.readOnly)
     entries.push({ label: multi ? 'Auto-size frames' : 'Auto-size frame', shortcut:'⇧A',
-      run: () => { selectTargetFirst(); autoSizeSelection(); } });
+      run: () => { selectTargetFirst(); autoSizeSelection(); }, disabled: anyLocked });
   entries.push('sep', { label:'Download selected cards', run: () => { selectTargetFirst(); exportSelection(); } });
   entries.push({ label:'Share…', run: () => { selectTargetFirst(); void shareSelection(); }, disabled: !canShareFiles });
   if (!state.readOnly)
     entries.push('sep', { label: multi ? `Delete ${state.sel.size} cards` : 'Delete', shortcut:'Del',
-      danger: true, run: () => multi ? deleteSelection() : deleteNode(n.id) });
+      danger: true, run: () => multi ? deleteSelection() : deleteNode(n.id), disabled: anySubtreeLocked });
   return entries;
 }
 fbMore.addEventListener('click', (e) => {

@@ -6,7 +6,7 @@
 // editor binds its own. Reflow uses the live DOM height, so n.title/body stay untouched mid-edit.
 import { state, setStatus, isAnnotation, type MindNode } from '../core/state.js';
 import { ui } from '../core/ui-state.js';
-import { takenTitles } from '../utils/model.js';
+import { takenTitles, isLockedEffective } from '../utils/model.js';
 import { outlineActive, startRowTitleEdit } from './outline.js';
 import { applyLayouts } from '../view/layout.js';
 import { scheduleSave } from '../data/persistence.js';
@@ -33,6 +33,7 @@ export function titleProblem(title: string, selfId: string): string {
 // until editing ends (no M.md, Ma.md… litter).
 export function startInlineEdit(n: MindNode | undefined, { isNew = false }: { isNew?: boolean } = {}): void {
   if (state.readOnly || !n) return;
+  if (isLockedEffective(n)) { setStatus('Locked — can’t rename'); return; }
   // An annotation has no title — its slow-click / F2 / add-child rename all edit the BODY instead.
   if (isAnnotation(n)) { startBodyEdit(n); return; }
   // In outline mode (which includes every phone-width screen — outline is forced on below
@@ -112,6 +113,7 @@ export function endInlineEdit({ cancel = false }: { cancel?: boolean } = {}): vo
 export function autosizeBody(ta: HTMLTextAreaElement): void { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
 export function startBodyEdit(n: MindNode, { atStart = false }: { atStart?: boolean } = {}): void {
   if (state.readOnly || !n) return;
+  if (isLockedEffective(n)) { setStatus('Locked — can’t edit'); return; }
   if (outlineActive()) { openBranchEditor(n.id, 'body'); return; }   // see startInlineEdit
   if (!n.el) return;
   if (ui.bodyEdit && ui.bodyEdit.id === n.id) return;          // already editing this body
