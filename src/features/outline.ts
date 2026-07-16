@@ -515,14 +515,18 @@ function startRowDrag(e: PointerEvent, n: MindNode, row: HTMLElement): void {
   window.addEventListener('pointerup', up);
   window.addEventListener('pointercancel', cancel);
 }
-// Reparent `child` under `parent`, seeding its subtree near it (like addChild) and revealing the
-// parent on the canvas + in the outline. Returns false (with a status) if the move is illegal.
-// The caller picks the new side bucket + order afterwards. Shared by the drag drop and the picker.
-function seedUnderParent(child: MindNode, parent: MindNode): boolean {
+// Reparent `child` under `parent`, seeding its subtree near it (like addChild) and — unless
+// `reveal` is false — expanding the parent on the canvas + in the outline. Returns false (with a
+// status) if the move is illegal. The caller picks the new side bucket + order afterwards. Shared
+// by the drag drop (reveal suppressed — dropping onto a card shouldn't spring it open) and the
+// "Move to…" picker (reveal on, since the user explicitly chose that target).
+function seedUnderParent(child: MindNode, parent: MindNode, reveal = true): boolean {
   if (!reparentOnly(child.id, parent.id)) { setStatus('That card can’t be moved there'); return false; }
   shiftWhole(child, parent.x + 40 - child.x, parent.y + nodeH(parent) + 40 - child.y);
-  if (parent.collapsed) parent.collapsed = false;
-  unfold(parent);
+  if (reveal) {
+    if (parent.collapsed) parent.collapsed = false;
+    unfold(parent);
+  }
   return true;
 }
 // Detach `n` to the top level, shifting its whole subtree by `dy` (keeping its formation), then
@@ -540,7 +544,7 @@ function makeRoot(n: MindNode, dy = 0): void {
 function commitRowDrop(n: MindNode, drop: RowDrop): boolean {
   if (drop.kind === 'child') {
     if (drop.target.id === n.parent) return false;   // already that card's child
-    moveTo(n, drop.target);
+    moveTo(n, drop.target, false);   // dropping onto a card shouldn't auto-expand it
     return true;
   }
   const ref = drop.ref;
@@ -633,11 +637,11 @@ function renderPicker(): void {
     .sort((a, b) => a.title.localeCompare(b.title));
   for (const c of targets) item(c.title, crumbFor(c), effectiveColor(c), () => moveTo(src, c));
 }
-function moveTo(src: MindNode, target: MindNode | null): void {
+function moveTo(src: MindNode, target: MindNode | null, reveal = true): void {
   closePicker();
   if (state.readOnly) return;
   if (target) {
-    if (!seedUnderParent(src, target)) return;
+    if (!seedUnderParent(src, target, reveal)) return;
     const side = deriveSide(target, src);
     src.side = side;
     // Slot it LAST in its new side bucket and pack the positions accordingly — the seed spot
