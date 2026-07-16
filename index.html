@@ -260,15 +260,6 @@
     </aside>
   </div>
 
-  <!-- iPhone/iPad have no web-standard "lock to portrait" API (Screen Orientation
-       .lock() needs fullscreen and isn't supported in Safari), so this overlay stands
-       in for a real lock: a phone-sized, coarse-pointer viewport in landscape gets
-       blocked here instead of rendering the canvas sideways (see styles.css). -->
-  <div id="rotateLock">
-    <span class="ic" data-icon="rotate"></span>
-    <p>Please rotate your device to portrait.</p>
-  </div>
-
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
