@@ -762,16 +762,25 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
   /* the map name sits beside the home button in the top-left — it would overlap other UI on a
      narrow bar, so hide it here (the home sidebar still shows which map is open). */
   #folderName { display:none; }
-  /* portrait phone is canvas-only (features/outline.ts locks outline off below this width) —
-     hide the toggle so there's nothing to tap into a mode that isn't available here. */
+}
+
+/* On a PHONE (coarse pointer + a short axis, EITHER orientation — an iPhone in landscape is wide
+   but still short) the outline/canvas mode is dictated by orientation, not user choice
+   (features/outline.ts's phoneWantsOutline) — hide the toggle so there's nothing to tap into a
+   mode the current orientation doesn't allow. MUST mirror PHONE_MQ in core/ui-state.ts. */
+@media (pointer: coarse) and (max-width: 700px), (pointer: coarse) and (max-height: 700px) {
   #outlineBtn { display:none !important; }
 }
 
 /* ---- outline mode: the map as a collapsible tree list (body.outline, toggled in
-   features/outline.ts). Rows render into #outline. Wide screens only (desktop, or a phone
-   rotated to landscape) — a drawer sliding in from the right OVER a still-visible canvas,
-   mirroring the storage sidebar's left drawer. Portrait/narrow phone is canvas-only, outline
-   locked off (features/outline.ts's outlineLocked, #outlineBtn hidden above). */
+   features/outline.ts). Rows render into #outline. Two treatments, split at the same 700px
+   breakpoint as the bottom-sheet panel:
+     · narrow (phone portrait, or any shrunk-narrow session) → full-screen; the canvas + its
+       chrome hide entirely (see the max-width:700px block below)
+     · wide  (desktop/tablet, or a phone rotated to landscape) → a drawer sliding in from the
+       right OVER a still-visible canvas, mirroring the storage sidebar's left drawer.
+   On a phone the mode itself is locked to orientation (features/outline.ts's phoneWantsOutline,
+   #outlineBtn hidden above) rather than user-toggled. */
 /* above #toolbar/#searchWrap (z:20): the drawer covers them where it overlaps, rather than the
    app chrome floating over its edge. #homeBar is the one exception (z:30, see its own rule) —
    the home button stays reachable even under the drawer / above scrolling outline rows. */
@@ -788,6 +797,24 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    deliberate exception (see its own z-index rule) — it must stay reachable from the outliner too. */
 body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #outlineBtn,
 body.outline #floatBar { display:none !important; }
+
+/* Below the 700px breakpoint (MUST match NARROW_MQ), outline goes full-screen instead of a
+   drawer — there's no room to keep the canvas visible alongside it. This is reachable again on a
+   phone in portrait (features/outline.ts forces outline on there) and, as before, on any other
+   narrow-width session (e.g. a shrunk desktop window) that happens to have outline toggled on. */
+@media (max-width: 700px) {
+  /* nothing to act on behind a full-screen outline — hide the canvas toolbar + its chrome too */
+  body.outline #toolbar, body.outline #stage, body.outline #ghostCard, body.outline #ghostHint,
+  body.outline #fitBtn, body.outline #edgeBtn { display:none !important; }
+  /* fill the whole screen and inset the content from the top instead of parking the panel below
+     the header — so cards scroll UP UNDER the floating home / + buttons (iOS-style) rather than
+     being clipped at a fixed top edge. */
+  #outline { top:0; left:0; right:0; bottom:0; display:none; }
+  /* top clearance (for the floating home / + buttons) moves onto .ol-heading below instead of
+     living here as blank padding — the heading now occupies that reserved band. */
+  .ol-scroll { padding:0 10px calc(80px + env(safe-area-inset-bottom)); }
+  body.outline #outline { display:block; }
+}
 
 @media (min-width: 701px) {
   /* full-height right drawer; parked off-screen (and click-through) until outline is active */
