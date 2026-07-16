@@ -41,6 +41,7 @@ import { resetImageCache, hydrateImages } from './features/images.js';
 import { openImageViewer } from './features/image-viewer.js';
 import { store, scheduleSave, flushSave, loadFromDir } from './data/persistence.js';
 import { showStart, openHelpTab, boot } from './boot.js';
+import { syncUrl, updateDocumentTitle } from './nav/url-state.js';
 import type { MindNode, EdgeStyle } from './core/state.js';
 import { ui, isTypingInField, type Pt, type Drag } from './core/ui-state.js';
 
@@ -745,7 +746,7 @@ export function refreshPalette(): void {
 // the ids currently being edited (one or many) — colour/layout/checklist/bg apply to all of them
 export function selectedIds(): string[] { return state.sel.size ? [...state.sel] : (state.selId ? [state.selId] : []); }
 // reflect state.sel in the canvas + the floating edit bar (features/float-bar.ts)
-export function applySelection(): void { paintAll(); syncFloatBar(); }
+export function applySelection(): void { paintAll(); syncFloatBar(); syncUrl(); updateDocumentTitle(); }
 // A descendant of a locked card can't be selected at all — the locked card itself still can be
 // (see utils/model.ts hasLockedAncestor). Shared by every selection entry point below.
 function isSelectable(id: string): boolean {
