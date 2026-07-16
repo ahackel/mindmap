@@ -11,10 +11,10 @@
 // read-only behave the same as on the canvas.
 import { state, setStatus, isAnnotation, isLeafType, type MindNode } from '../core/state.js';
 import { PHONE_MQ, PORTRAIT_MQ } from '../core/ui-state.js';
-import { childrenOf, isRoot, isAncestor, descendantCount } from '../utils/model.js';
+import { childrenOf, isRoot, isAncestor, descendantCount, isLockedEffective, subtreeHasLocked } from '../utils/model.js';
 import { orderedKids, sideOf, deriveSide, orderAxisIsX, applyLayouts } from '../view/layout.js';
 import { scheduleSave } from '../data/persistence.js';
-import { paintAll, selectNode, focusNode, effectiveColor, subtreeIds, nodeH, NODE_W, toggleCollapse, toggleDone } from '../main.js';
+import { paintAll, selectNode, focusNode, effectiveColor, subtreeIds, nodeH, NODE_W, toggleCollapse, toggleDone, setLockedSelection } from '../main.js';
 import { openBranchEditor, closeBranchEditor, branchEditorOpen, addToBranch } from './branch-editor.js';
 import { openEditorSheet } from './editor-sheet.js';
 import { titleProblem } from './inline-edit.js';
@@ -50,7 +50,7 @@ function findRowTitle(id: string): HTMLElement | null {
   return rowsEl.querySelector<HTMLElement>(`.ol-row[data-id="${id}"] .ol-title`);
 }
 export function startRowTitleEdit(n: MindNode, { isNew = false }: { isNew?: boolean } = {}): void {
-  if (state.readOnly) return;
+  if (state.readOnly || isLockedEffective(n)) return;
   const titleEl = findRowTitle(n.id); if (!titleEl) return;
   if (rowEditId && rowEditId !== n.id) endRowTitleEdit();
   touch(n.id);   // the whole edit session becomes ONE undo step (incl. a fresh card's creation)
@@ -301,10 +301,12 @@ export function revealInOutline(id: string): void {
 // left free to double as "start typing". Add/move still have their own direct affordances (the +
 // button, drag-to-reorder-or-reparent).
 function openRowMenu(n: MindNode, x: number, y: number): void {
+  const locked = isLockedEffective(n);
   openMenu([
-    { label: 'Rename', run: () => startRowTitleEdit(n) },
+    { label: 'Rename', run: () => startRowTitleEdit(n), disabled: locked },
     { label: 'Duplicate', shortcut: 'D', run: () => { selectNode(n.id); duplicateSelection({ edit: false }); } },
-    { label: 'Delete', shortcut: 'Del', run: () => deleteNode(n.id), danger: true },
+    { label: locked ? 'Unlock' : 'Lock', shortcut: 'L', run: () => setLockedSelection([n.id], !locked) },
+    { label: 'Delete', shortcut: 'Del', run: () => deleteNode(n.id), danger: true, disabled: subtreeHasLocked(n.id) },
   ], x, y);
 }
 
@@ -357,6 +359,7 @@ function reorderBucket(parent: MindNode, sibs: MindNode[], newOrder: MindNode[],
 export function reorderSibling(id: string, dir: -1 | 1): void {
   if (state.readOnly) return;
   const n = state.nodes.get(id);
+  if (n && isLockedEffective(n)) { setStatus('Locked — can’t move'); return; }
   const parent = n?.parent ? state.nodes.get(n.parent) : undefined;
   if (!n || !parent) return;
   const side = sideOf(parent, n);
@@ -392,7 +395,7 @@ const ROW_LONGPRESS_MS = 350;  // touch: hold time before a press becomes a drag
 const ROW_LONGPRESS_SLOP = 10; // touch: movement past this before the hold fires = a scroll, not a drag
 type RowDrop = { kind: 'child'; target: MindNode } | { kind: 'before' | 'after'; ref: MindNode };
 function startRowDrag(e: PointerEvent, n: MindNode, row: HTMLElement): void {
-  if (state.readOnly || rowDragActive) return;
+  if (state.readOnly || rowDragActive || isLockedEffective(n)) return;
   if (e.button !== 0) return;                    // primary button / touch only
   const touchInput = e.pointerType === 'touch';
   const startX = e.clientX, startY = e.clientY;

@@ -25,6 +25,7 @@ export interface ParsedNote {
     w: number | null;
     h: number | null;
     collapsed: boolean;
+    locked: boolean;
     done: boolean;
     checklist: boolean;
     bg: boolean;
@@ -119,6 +120,7 @@ export function parseMd(text: string, fileName: string): ParsedNote {
       w: num(fmValue(entries, 'mm_w')),
       h: num(fmValue(entries, 'mm_h')),
       collapsed: fmValue(entries, 'mm_collapsed') === 'true',
+      locked: fmValue(entries, 'mm_locked') === 'true',
       done: fmValue(entries, 'mm_done') === 'true',
       checklist: fmValue(entries, 'mm_checklist') === 'true',
       bg: fmValue(entries, 'mm_bg') === 'true',
@@ -148,6 +150,7 @@ export function serializeMd(n: MindNode): string {
   entries.push({ key:'mm_position_x', lines:[`mm_position_x: ${Math.round(n.rx)}`] });
   entries.push({ key:'mm_position_y', lines:[`mm_position_y: ${Math.round(n.ry)}`] });
   if (n.collapsed) entries.push({ key:'mm_collapsed', lines:['mm_collapsed: true'] });
+  if (n.locked) entries.push({ key:'mm_locked', lines:['mm_locked: true'] });
   if (n.done) entries.push({ key:'mm_done', lines:['mm_done: true'] });
   if (n.checklist) entries.push({ key:'mm_checklist', lines:['mm_checklist: true'] });
   if (n.bg) entries.push({ key:'mm_bg', lines:['mm_bg: true'] });

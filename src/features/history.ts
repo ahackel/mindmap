@@ -37,7 +37,7 @@ const sameStrokes = (a: Stroke[], b: Stroke[]): boolean => JSON.stringify(a) ===
 function snap(n: MindNode): NodeSnap {
   return {
     file: n.file, x: n.x, y: n.y, parent: n.parent,
-    collapsed: n.collapsed, done: n.done, checklist: n.checklist, bg: n.bg,
+    collapsed: n.collapsed, locked: n.locked, done: n.done, checklist: n.checklist, bg: n.bg,
     type: n.type, layout: n.layout, side: n.side,
     title: n.title, color: n.color, keepStatus: n.keepStatus,
     tags: [...n.tags], body: n.body,

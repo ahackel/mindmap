@@ -13,7 +13,7 @@
 
 import './styles.css';   // app styles (Vite bundles + singlefile inlines into dist/index.html)
 import { renderBodyHTML } from './utils/markdown.js';
-import { childrenOf, isHidden, descendantCount } from './utils/model.js';
+import { childrenOf, isHidden, descendantCount, hasLockedAncestor, isLockedEffective } from './utils/model.js';
 import { state, world, dragLayer, stage, setStatus, isImageCard, isAnnotation } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { setupGrid } from './view/grid.js';
@@ -61,11 +61,14 @@ setupGrid();
 
 
 // ---------- rendering ----------
+// small closed-padlock badge shown on a locked card's title row (shares the glyph the read-only
+// toolbar button uses — see ICON_LOCK_CLOSED further down).
+const LOCK_BADGE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
 function nodeEl(n: MindNode): HTMLElement {
   if (n.el) return n.el;
   const el = document.createElement('div');
   el.dataset.id = n.id;
-  el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><div class="title"></div><span class="progress"></span></div><div class="body"></div>
+  el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><span class="lock-badge" title="Locked">${LOCK_BADGE_SVG}</span><div class="title"></div><span class="progress"></span></div><div class="body"></div>
     <span class="hidden-count"></span>
     <div class="addnote" title="Add note">Add note…</div>`;
   world.appendChild(el);
@@ -101,7 +104,7 @@ function nodeEl(n: MindNode): HTMLElement {
   });
   // done checkbox (title-only cards): toggle the card-level done mark, independent of drag/select
   const doneEl = el.querySelector('.donebox') as HTMLInputElement;
-  doneEl.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); });
+  doneEl.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); if (isLockedEffective(n)) e.preventDefault(); });
   doneEl.addEventListener('click', (e)=>{ e.stopPropagation(); });
   doneEl.addEventListener('change', (e)=>{ e.stopPropagation(); toggleDone(n); });
   // inline title rename: typing reflows + validates; Enter/Tab commit, Escape cancels, blur commits
@@ -191,6 +194,7 @@ export function paintNode(n: MindNode): void {
     + (state.sel.has(n.id) ? ' sel' : '')
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
     + (collapsed ? ' collapsed' : '')
+    + (n.locked ? ' locked' : '')
     + (hasBody ? '' : ' no-body')
     + (showDone ? ' show-done' : '')
     + (showDone && n.done ? ' done' : '')
@@ -392,7 +396,7 @@ function imageAspect(n: MindNode): number {
   return w / (h || 1);
 }
 function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
-  if (state.readOnly) return;
+  if (state.readOnly || isLockedEffective(n)) return;
   e.stopPropagation(); e.preventDefault();
   const minW = boxMinW(n), minH = boxMinH(n);
   const aspect = isImageBox(n) ? imageAspect(n) : null;   // width/height — locked while dragging an image card
@@ -603,6 +607,7 @@ initEdgeStyle();
 // children, folds them (and everything below) too. A leaf with a body can fold its body alone.
 export function toggleCollapse(id: string): void {
   const n = state.nodes.get(id); if (!n) return;
+  if (isLockedEffective(n)) { setStatus('Locked — can’t collapse/expand'); return; }
   const hasKids = childrenOf(n.id).length > 0;
   const hasBody = !!(n.body && n.body.trim());
   if (!hasKids && !hasBody) return;   // nothing to fold: no children and no body
@@ -616,6 +621,7 @@ export function toggleCollapse(id: string): void {
 // if they're all collapsed already, otherwise collapse them all.
 export function toggleCollapseSelection(ids: Iterable<string>): void {
   const cards = [...ids].map(id => state.nodes.get(id)).filter((n): n is MindNode => !!n)
+    .filter(n => !isLockedEffective(n))
     .filter(n => childrenOf(n.id).length > 0 || !!(n.body && n.body.trim()));
   if (!cards.length) return;
   const target = !cards.every(n => n.collapsed);   // all collapsed → expand; otherwise collapse all
@@ -628,15 +634,29 @@ export function toggleCollapseSelection(ids: Iterable<string>): void {
 // Also repaints the parent so its "n/m" checklist progress readout stays in sync.
 // Exported: the outline row list shows the same donebox/progress readout (features/outline.ts).
 export function toggleDone(n: MindNode): void {
-  if (state.readOnly) return;
+  if (state.readOnly || isLockedEffective(n)) return;
   record([n.id], () => { n.done = !n.done; n.dirty = true; });
   paintNode(n);
   if (n.parent){ const p = state.nodes.get(n.parent); if (p) paintNode(p); }
   scheduleSave();
 }
+// Lock/unlock every selected card (context menu). Locking freezes that card in place — no move,
+// (un)collapse, rename/body/color/type/layout edit, add-child, or delete — and cascades so its
+// whole subtree becomes unselectable too (see utils/model.ts). Unlocking never touches descendants
+// (lock is per-card, not stored on them). A descendant of a locked ancestor can't be selected, so
+// it never reaches this function as a target; only cards actually selectable can be (un)locked.
+export function setLockedSelection(ids: Iterable<string>, locked: boolean): void {
+  if (state.readOnly) return;
+  const cards = [...ids].map(id => state.nodes.get(id)).filter((n): n is MindNode => !!n && n.locked !== locked);
+  if (!cards.length) return;
+  record(cards.map(n => n.id), () => { for (const n of cards){ n.locked = locked; n.dirty = true; } });
+  paintAll();
+  scheduleSave();
+  setStatus(`${locked ? 'Locked' : 'Unlocked'} ${cards.length} card${cards.length===1?'':'s'}`);
+}
 // Flip the idx-th task checkbox in a node's body and write the change back to disk.
 function toggleTask(n: MindNode, idx: number): void {
-  if (state.readOnly) return;
+  if (state.readOnly || isLockedEffective(n)) return;
   let i = 0;
   record([n.id], () => {
     n.body = n.body.replace(/^(\s*[-*+]\s+)\[([ xX])\]/gm, (m, pre, mark) =>
@@ -724,9 +744,14 @@ export function refreshPalette(): void {
 export function selectedIds(): string[] { return state.sel.size ? [...state.sel] : (state.selId ? [state.selId] : []); }
 // reflect state.sel in the canvas + the floating edit bar (features/float-bar.ts)
 export function applySelection(): void { paintAll(); syncFloatBar(); }
+// A descendant of a locked card can't be selected at all — the locked card itself still can be
+// (see utils/model.ts hasLockedAncestor). Shared by every selection entry point below.
+function isSelectable(id: string): boolean {
+  const n = state.nodes.get(id); return !n || !hasLockedAncestor(n);
+}
 // Replace the whole selection with `ids` (a Set or array), recomputing the primary.
 export function setSelectionSet(ids: Iterable<string>): void {
-  state.sel = new Set(ids);
+  state.sel = new Set([...ids].filter(isSelectable));
   if (state.sel.size === 0) state.selId = null;
   else if (state.sel.size === 1) state.selId = [...state.sel][0];
   else if (!state.selId || !state.sel.has(state.selId)) state.selId = [...state.sel].pop() ?? null;
@@ -738,6 +763,7 @@ export function toggleSel(id: string): void {
     state.sel.delete(id);
     if (state.selId === id) state.selId = state.sel.size ? ([...state.sel].pop() ?? null) : null;
   } else {
+    if (!isSelectable(id)) return;
     state.sel.add(id); state.selId = id;
   }
   applySelection();
@@ -784,7 +810,7 @@ roBtn.onclick = () => setReadOnly(!state.readOnly);
 // Select exactly one node (or clear with null), replacing any multi-selection.
 export function selectNode(id: string | null): void {
   if (id == null){ state.sel.clear(); state.selId = null; }
-  else { state.sel = new Set([id]); state.selId = id; }
+  else { if (!isSelectable(id)) return; state.sel = new Set([id]); state.selId = id; }
   applySelection();
 }
 // Colour / checklist / group-background / layout all apply live via the floating bar
@@ -855,6 +881,12 @@ window.addEventListener('keydown', (e) => {
   }
   if ((e.key === 'x' || e.key === 'X') && state.sel.size && !e.metaKey && !e.ctrlKey){   // don't shadow cut
     e.preventDefault(); toggleCollapseSelection(state.sel); return;
+  }
+  if ((e.key === 'l' || e.key === 'L') && state.sel.size && !e.metaKey && !e.ctrlKey && !state.readOnly){
+    e.preventDefault();
+    const anyLocked = [...state.sel].some(id => isLockedEffective(state.nodes.get(id)!));
+    setLockedSelection(state.sel, !anyLocked);
+    return;
   }
   // image cards have no title/body UI to rename or edit — they're a leaf that shows only the image
   if (e.key === 'F2' && state.selId && !isImageCard(state.nodes.get(state.selId))){
