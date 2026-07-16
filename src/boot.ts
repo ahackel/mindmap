@@ -17,6 +17,7 @@ import {
 } from './store/index.js';
 import { esc } from './utils/markdown.js';
 import { applyReadOnly, subtreeIds } from './main.js';
+import { applyUrlFromHash } from './nav/url-state.js';
 import { openMenu } from './features/context-menu.js';
 import folderIcon from './assets/icons/folder-open.svg?raw';
 
@@ -268,7 +269,7 @@ function orientForPhone(): void {
 export async function boot(): Promise<void> {
   applyView();
   hideStart();
-  if (new URLSearchParams(location.search).has('help')){ await openHelp(); orientForPhone(); return; }
+  if (new URLSearchParams(location.search).has('help')){ await openHelp(); orientForPhone(); applyUrlFromHash(); return; }
   // one-time legacy migration / rebuild — the store probe is skipped once the registry exists
   if (!readMaps().length) await ensureMapRegistry(await resolveOnDeviceStore());
   // resume a local folder only if we can do it silently (permission still granted); else on-device
@@ -278,9 +279,11 @@ export async function boot(): Promise<void> {
       useStore(fsaStore, { kind: 'folder', id: last.id });
       await loadFromDir();
       orientForPhone();
+      applyUrlFromHash();
       return;
     }
   }
   await commitDevice();   // the last / most recent on-device map (fresh "My map" on first run)
   orientForPhone();
+  applyUrlFromHash();
 }

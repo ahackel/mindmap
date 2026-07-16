@@ -15,6 +15,7 @@ import { resetImageCache } from '../features/images.js';
 import { clearHistory } from '../features/history.js';
 import { opfsStore, fsaStore, resolveOnDeviceStore, seenFolders, markFolderSeen, setLastMap, touchMap, createDeviceMap, type Store, type MapKind, type MapRef } from '../store/index.js';
 import { paintAll, selectNode } from '../main.js';
+import { updateDocumentTitle } from '../nav/url-state.js';
 import { paintStrokes } from '../features/sketch.js';
 import { refreshGrid } from '../view/grid.js';
 import { ui, isTypingInField, editSessionActive, frozenFileNodeId } from '../core/ui-state.js';
@@ -240,7 +241,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
 // Show the open map's name in the home button (:empty hides it until loaded) + the tab title.
 export function updateMapTitle(): void {
   document.getElementById('folderName')!.textContent = store.name;
-  document.title = 'Mindmap - ' + store.name;
+  updateDocumentTitle();
 }
 // title -> safe filename component (no path separators or illegal chars)
 function safeName(title: string): string {

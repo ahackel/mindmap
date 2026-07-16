@@ -5,9 +5,11 @@ import { state, world, stage, type MindNode } from '../core/state.js';
 import { isHidden } from '../utils/model.js';
 import { NARROW_MQ } from '../core/ui-state.js';
 import { NODE_W, nodeH } from '../main.js';
+import { scheduleUrlSync } from '../nav/url-state.js';
 
 export function applyView(): void {
   world.style.transform = `translate(${state.view.x}px,${state.view.y}px) scale(${state.view.k})`;
+  scheduleUrlSync();
 }
 // Smoothly glide the view to (tx,ty) instead of snapping. Any direct pan/zoom cancels it
 // (cancelViewAnim) so the animation never fights the user's own input.

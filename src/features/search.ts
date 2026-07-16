@@ -9,6 +9,7 @@ import { esc } from '../utils/markdown.js';
 import { firstVisible } from '../utils/model.js';
 import { paintAll, focusNode } from '../main.js';
 import { outlineActive, revealInOutline } from './outline.js';
+import { scheduleUrlSync } from '../nav/url-state.js';
 
 export const searchBox = document.getElementById('searchBox') as HTMLInputElement;
 const searchWrap = document.getElementById('searchWrap') as HTMLElement;
@@ -24,11 +25,11 @@ export function openSearch(): void {
 }
 // Close the bar and drop any active highlight.
 function closeSearch(): void {
-  searchBox.value = ''; clearSearch();
+  searchBox.value = ''; clearSearch();   // clearSearch() also drops q from the hash
   searchWrap.classList.remove('open');
   searchBtn.classList.remove('active');
 }
-function runSearch(): void {
+export function runSearch(): void {
   const q = searchBox.value.trim().toLowerCase();
   searchBox.classList.toggle('has-value', !!searchBox.value);
   if (!q){ clearSearch(); return; }
@@ -49,6 +50,7 @@ function runSearch(): void {
   searchResults.classList.add('open');
   markActive();   // white outline on the active option's (visible) card
   paintAll();
+  scheduleUrlSync();
 }
 // Point state.searchActiveId at the active dropdown option's card (or the first visible
 // parent containing it when it's collapsed away) so paintNode gives it a white outline.
@@ -61,6 +63,7 @@ function clearSearch(): void {
   searchHits = [];
   searchBox.classList.toggle('has-value', !!searchBox.value);
   if (state.searchMatch){ state.searchMatch = null; state.searchActiveId = null; paintAll(); }   // un-dim
+  scheduleUrlSync();   // drop q from the hash now that there's no active query
 }
 function gotoHit(id: string): void {
   const n = state.nodes.get(id); if (!n) return;
