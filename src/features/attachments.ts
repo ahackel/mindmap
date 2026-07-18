@@ -13,6 +13,7 @@ import { createNode, uniqueTitle, newCardTitle } from './crud.js';
 import { autosizeBody } from './inline-edit.js';
 import { touch, record } from './history.js';
 import { tryPasteCards, cardsToPayload } from './clipboard.js';
+import { isFrame } from '../view/layout.js';
 
 const IMG_EXT: Record<string, string> = { 'image/png':'.png', 'image/jpeg':'.jpg', 'image/gif':'.gif', 'image/webp':'.webp',
                   'image/svg+xml':'.svg', 'image/avif':'.avif', 'image/bmp':'.bmp' };
@@ -298,6 +299,7 @@ document.addEventListener('drop', async (e) => {
   // an image card is a leaf — it can't adopt children or gain a second image in its body
   const cardNode = cardId ? state.nodes.get(cardId) : null;
   const cardIsImage = !!cardNode && isImageCard(cardNode);
+  const cardIsFrame = !!cardNode && isFrame(cardNode);
   const cardIsLocked = !!cardNode && isLockedEffective(cardNode);
   setImgDropTarget(null);
   // dropped .md notes reconstruct as cards (parent links WITHIN the dropped set are kept);
@@ -311,6 +313,9 @@ document.addEventListener('drop', async (e) => {
   const imgs = imageFiles(e.dataTransfer!.files);
   if (!imgs.length) return;
   if (onEditor && ui.bodyEdit){ await insertImagesAtCursor(imgs); }   // drop on the open editor → at the caret
+  // a frame is a container, not a text card — its body never renders, so dropped images become
+  // new image-card CHILDREN of the frame instead of (invisibly) appending to its hidden body
+  else if (cardEl && cardIsFrame && !cardIsLocked){ selectNode(cardId); await createImageCards(imgs, e.clientX, e.clientY, cardId); }
   else if (cardEl && !cardIsImage && !cardIsLocked){ selectNode(cardId); await appendImagesToNode(cardId!, imgs); }
   else if (!cardEl || !cardIsLocked) await createImageNode(e.clientX, e.clientY, imgs);   // empty canvas (or onto an image card) → new card(s) at the drop point
 });
