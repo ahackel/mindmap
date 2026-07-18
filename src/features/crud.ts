@@ -271,6 +271,45 @@ export function deleteSelection(): void {
   });
   setStatus(`Deleted ${ids.length} card${ids.length===1?'':'s'}`);
 }
+// A node is safe to delete-and-promote when it's unlocked, its own parent isn't locked (the
+// promoted children need to land there), and none of its direct children are locked (a locked
+// child can't be reparented — see drag.ts's own isLockedEffective guard on move).
+function canPromoteDelete(id: string): boolean {
+  const n = state.nodes.get(id); if (!n) return false;
+  if (isLockedEffective(n)) return false;
+  const parent = n.parent ? state.nodes.get(n.parent) : null;
+  if (parent && isLockedEffective(parent)) return false;
+  return childrenOf(id).every(k => !isLockedEffective(k));
+}
+// Delete every selected card WITHOUT touching its subtree: each one's direct children move up to
+// become children of ITS OWN parent, right where it sat — the node disappears, its branch survives
+// one level shallower. Cascades correctly when a selected node's parent is ALSO selected: children
+// are read live (childrenOf), so a child already promoted by an earlier pass in this loop is what a
+// later pass (deleting that now-former parent) sees and promotes again — any chain length just
+// works, in any processing order. New parents get no explicit kidOrder splice; orderedKids
+// (view/layout.ts) already treats a reparented-but-unlisted child as "fresh" and slots it in by
+// position, so nothing needs doing here. Shared by ⌥Delete/⌥Backspace and its context-menu twin.
+export function deleteSelectionKeepChildren(): void {
+  if (state.readOnly) return;
+  const ids = selectedIds().filter(canPromoteDelete);
+  if (!ids.length) { setStatus('Locked — can’t delete'); return; }
+  const promoted = new Set<string>();
+  record([], () => {
+    for (const id of ids) {
+      const n = state.nodes.get(id); if (!n) continue;
+      const kids = childrenOf(id);
+      touch(id, ...kids.map(k => k.id));
+      for (const k of kids) { k.parent = n.parent; k.dirty = true; promoted.add(k.id); }
+      state.nodes.delete(id); n.el?.remove();
+      if (n.file) state.toDelete.push(n.file);
+    }
+  });
+  for (const id of ids) promoted.delete(id);   // a node promoted-then-itself-deleted (chain) isn't a survivor
+  applyLayouts(); paintAll();
+  setSelectionSet(promoted);
+  scheduleSave();
+  setStatus(`Deleted ${ids.length} card${ids.length===1?'':'s'}, kept children`);
+}
 // Alt-drop an image CARD onto a regular card (features/drag.ts): fold each image card's markdown
 // (its `![alt](path)` body) onto the end of the target card's body as an inline image, then delete
 // the now-redundant image card(s). The referenced attachment file stays on disk — the target body

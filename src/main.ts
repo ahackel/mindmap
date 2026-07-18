@@ -28,12 +28,12 @@ import './features/gestures.js';   // registers the canvas pan/zoom/marquee gest
 import './features/attachments.js';   // registers the OS image drag/drop listeners
 import './features/context-menu.js';   // registers the custom right-click menu on the canvas
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit, onInlineInput, onInlineKeydown } from './features/inline-edit.js';
-import { createNode, createDetachedNode, createAnnotationHere, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode } from './features/crud.js';
+import { createNode, createDetachedNode, createAnnotationHere, createSibling, addChild, duplicateSelection, deleteSelection, deleteNode, deleteSelectionKeepChildren } from './features/crud.js';
 import { bindNodeDrag, startNodeDrag, feedDragMove, commitDrag, abortDrag } from './features/drag.js';   // also registers the Alt/Shift drag-modifier listeners
 import { openSearch } from './features/search.js';
 import { renderOutline, toggleOutlineView, outlineActive } from './features/outline.js';   // also wires the outline toggle button
 import { refreshSwatches } from './features/properties.js';
-import { syncFloatBar, autoSizeSelection } from './features/float-bar.js';   // also registers the float bar's own listeners
+import { syncFloatBar, autoSizeSelection, groupSelectionIntoFrame } from './features/float-bar.js';   // also registers the float bar's own listeners
 import { copySelection, cutSelection, bindCardFileDrag } from './features/clipboard.js';
 import { toggleSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
 import { commitStep, record, touch, undo, redo, updateUndoButtons } from './features/history.js';
@@ -867,6 +867,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'f' || e.key === 'F'){ e.preventDefault(); focusOrFit(); return; }
   if ((e.key === 'd' || e.key === 'D') && state.sel.size){ e.preventDefault(); duplicateSelection(); return; }
   if ((e.key === 'a' || e.key === 'A') && e.shiftKey && !e.metaKey && !e.ctrlKey && state.sel.size){ e.preventDefault(); autoSizeSelection(); return; }   // ⇧A: auto-size selected frames to fit
+  if ((e.key === 'g' || e.key === 'G') && !e.metaKey && !e.ctrlKey && state.sel.size){ e.preventDefault(); groupSelectionIntoFrame(); return; }   // G: group selection into a frame
   // A -> create an annotation at the cursor (mirrors Space's new-card tap). If a card is selected
   // the annotation becomes its child; otherwise it's a root. ⇧A is auto-size (handled just above).
   if ((e.key === 'a' || e.key === 'A') && !e.shiftKey && !e.metaKey && !e.ctrlKey && !outlineActive()){
@@ -901,6 +902,9 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Enter' && state.selId){ e.preventDefault(); createSibling(state.selId); return; }
   if (e.key === 'Tab' && state.selId){ e.preventDefault(); addChild(state.selId); return; }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && e.altKey && state.sel.size){
+    e.preventDefault(); deleteSelectionKeepChildren(); return;
+  }
   if ((e.key === 'Delete' || e.key === 'Backspace') && state.sel.size){
     e.preventDefault(); deleteSelection();
   }

@@ -9,13 +9,13 @@
 // this module skips the floating position math there and lets CSS own it.
 import { state, stage, setStatus, isImageCard, isAnnotation, type MindNode, type NodeType, type NodeLayout } from '../core/state.js';
 import { NARROW_MQ, ui } from '../core/ui-state.js';
-import { record } from './history.js';
+import { record, touch } from './history.js';
 import { scheduleSave } from '../data/persistence.js';
 import { applyLayouts, subtreeBox } from '../view/layout.js';
 import { outlineActive } from './outline.js';
 import { createProperties, type PropertyControls } from './properties.js';
 import { startInlineEdit, startBodyEdit } from './inline-edit.js';
-import { duplicateSelection, deleteSelection, deleteNode, addChild, createSibling } from './crud.js';
+import { duplicateSelection, deleteSelection, deleteNode, deleteSelectionKeepChildren, addChild, createSibling, mkNode, uniqueTitle } from './crud.js';
 import { exportSelection, shareSelection, canShareFiles, copySelection, cutSelection } from './clipboard.js';
 import { pasteFromClipboard, pickImagesForNode } from './attachments.js';
 import { openMenu, copyFilePath, type MenuEntry } from './context-menu.js';
@@ -121,6 +121,46 @@ export function autoSizeSelection(): void {
   if (!ids.length) return;
   record(ids, () => { for (const id of ids){ const n = state.nodes.get(id); if (n) { fitFrameToContent(n); n.dirty = true; } } });
   applyLayouts(); paintAll(); scheduleSave();
+}
+// Wrap the selected cards in a fresh frame: the frame lands as a child of the nearest
+// NON-selected ancestor of the first selected card (walking up past any selected ancestor —
+// grouping a parent together with its own child would otherwise reparent the parent under the
+// frame while the frame sits under that same parent, a cycle), sized to enclose the selection's
+// current positions (same fit math as fitFrameToContent). Every selected card is reparented
+// under the new frame, which ends up selected. Shared by the 'G' shortcut and the context menu.
+export function groupSelectionIntoFrame(): void {
+  if (state.readOnly) return;
+  const ids = selectedIds().filter(id => !isLockedEffective(state.nodes.get(id)!));
+  const nodes = ids.map(id => state.nodes.get(id)).filter((n): n is MindNode => !!n);
+  if (!nodes.length) { setStatus('Locked — can’t group'); return; }
+  const selectedSet = new Set(ids);
+  let parentId: string | null = nodes[0].parent;
+  while (parentId && selectedSet.has(parentId)) parentId = state.nodes.get(parentId)?.parent ?? null;
+  const parent = parentId ? state.nodes.get(parentId) : null;
+  if (parent && isLockedEffective(parent)) { setStatus('Locked — can’t group here'); return; }
+
+  let frameId = '';
+  record([], () => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of nodes) {
+      const b = subtreeBox(n); if (!isFinite(b.x0)) continue;
+      x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x1); y1 = Math.max(y1, b.y1);
+    }
+    const snap = (v: number): number => Math.round(v / GRID_SNAP) * GRID_SNAP;
+    const fx = isFinite(x0) ? snap(x0 - FRAME_FIT_PAD) : 0;
+    const fy = isFinite(y0) ? snap(y0 - FRAME_FIT_TITLE) : 0;
+    const fw = isFinite(x1) ? Math.max(MIN_FRAME_W, snap(x1 + FRAME_FIT_PAD - fx)) : FRAME_W;
+    const fh = isFinite(y1) ? Math.max(MIN_FRAME_H, snap(y1 + FRAME_FIT_PAD - fy)) : FRAME_H;
+    const frame = mkNode({
+      x: fx, y: fy, w: fw, h: fh, parent: parentId,
+      title: uniqueTitle('Frame'), type: 'frame', layout: 'free',
+    });
+    frameId = frame.id;
+    state.nodes.set(frameId, frame);
+    for (const n of nodes) { touch(n.id); n.parent = frameId; n.dirty = true; }
+  });
+  applyLayouts(); paintAll(); selectNode(frameId); scheduleSave();
+  setStatus(`Grouped ${nodes.length} card${nodes.length === 1 ? '' : 's'} into a frame`);
 }
 (function buildTypeChips(){
   edTypes.innerHTML = NODE_TYPES.map(t =>
@@ -318,6 +358,7 @@ export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] 
     }
     entries.push({ label:'Duplicate', shortcut:'D', run: () => { selectTargetFirst(); duplicateSelection(); } });
     entries.push({ label:'Cut', shortcut:'⌘X', run: () => { selectTargetFirst(); void cutSelection(); }, disabled: anySubtreeLocked });
+    entries.push({ label:'Group into frame', shortcut:'G', run: () => { selectTargetFirst(); groupSelectionIntoFrame(); }, disabled: anyLocked });
     entries.push('sep');
     entries.push({ label: (multi ? anyLocked : locked) ? 'Unlock' : 'Lock', shortcut:'L',
       run: () => { selectTargetFirst(); setLockedSelection(state.sel, !(multi ? anyLocked : locked)); } });
@@ -335,9 +376,12 @@ export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] 
       run: () => { selectTargetFirst(); autoSizeSelection(); }, disabled: anyLocked });
   entries.push('sep', { label:'Download selected cards', run: () => { selectTargetFirst(); exportSelection(); } });
   entries.push({ label:'Share…', run: () => { selectTargetFirst(); void shareSelection(); }, disabled: !canShareFiles });
-  if (!state.readOnly)
+  if (!state.readOnly){
     entries.push('sep', { label: multi ? `Delete ${state.sel.size} cards` : 'Delete', shortcut:'Del',
       danger: true, run: () => multi ? deleteSelection() : deleteNode(n.id), disabled: anySubtreeLocked });
+    entries.push({ label: multi ? `Delete ${state.sel.size} cards, keep children` : 'Delete, keep children', shortcut:'⌥Del',
+      danger: true, run: () => { selectTargetFirst(); deleteSelectionKeepChildren(); }, disabled: anyLocked });
+  }
   return entries;
 }
 fbMore.addEventListener('click', (e) => {
