@@ -116,6 +116,10 @@ input, textarea, [contenteditable] { user-select:text; -webkit-user-select:text;
   width:max-content; max-width:calc(100% - 20px);
   display:flex; align-items:center; gap:7px; padding:4px 8px;
   background: var(--panel); border-radius:var(--r-full);
+  /* touch-action isn't inherited from body, so floating chrome sitting on top of the canvas
+     needs its own pan-x pan-y — otherwise old iOS Safari (still ignoring user-scalable=no)
+     treats a pinch that starts on the toolbar as native page-zoom instead of canvas zoom. */
+  touch-action:pan-x pan-y;
 }
 #toolbar h1 { font-size:12px; font-weight:600; margin:0 6px 0 0; letter-spacing:.2px; }
 #toolbar .sep { flex:1; }
@@ -148,6 +152,7 @@ button:disabled { opacity:.45; cursor:default; }
   position:fixed; z-index:20;
   width:var(--bar-btn); height:var(--bar-btn); display:inline-flex; align-items:center; justify-content:center;
   padding:0; border:none; border-radius:var(--r-full); background:var(--panel); color:var(--muted); cursor:pointer;
+  touch-action:pan-x pan-y;   /* same reasoning as #toolbar: touch-action isn't inherited from body */
 }
 .floating-btn:hover { color:var(--text); background:color-mix(in srgb, var(--text) 8%, var(--panel)); }
 .floating-btn svg { width:var(--bar-icon); height:var(--bar-icon); display:block; }
@@ -171,7 +176,7 @@ body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag 
    the outline drawer is meant to cover, see #outline's comment), the home button must stay
    reachable/visible even while outline rows scroll past underneath it. Still below true modals
    (#ctxMenu/#startScreen/#editorSheet/#movePicker: z:40+). */
-#homeBar { position:fixed; top:12px; left:12px; z-index:30; display:flex; align-items:center; gap:8px; max-width:calc(100% - 24px); }
+#homeBar { position:fixed; top:12px; left:12px; z-index:30; display:flex; align-items:center; gap:8px; max-width:calc(100% - 24px); touch-action:pan-x pan-y; }
 #homeBar #homeBtn { position:static; flex:none; }   /* .floating-btn styles the box; the bar owns positioning */
 #folderName { font-size:13px; font-weight:600; color:var(--text);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -180,7 +185,7 @@ body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag 
 /* find / jump-to-card — a floating bar dropped below the toolbar, opened by #searchBtn */
 #searchWrap { position:fixed; top:52px; left:50%; transform:translateX(-50%); z-index:20;
   display:none; align-items:center; width:260px; max-width:calc(100% - 20px);
-  padding:4px 6px; background:var(--panel); border-radius:var(--r-full); }
+  padding:4px 6px; background:var(--panel); border-radius:var(--r-full); touch-action:pan-x pan-y; }
 #searchWrap.open { display:flex; }
 #searchWrap > .ic svg, #searchWrap > [data-icon] svg { position:absolute; left:14px; width:14px; height:14px;
   display:block; color:var(--muted); pointer-events:none; flex:none; }
@@ -614,6 +619,7 @@ body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit 
   display:flex; align-items:center; gap:2px; padding:4px;
   background:var(--panel); border-radius:var(--r-full);
   opacity:0; pointer-events:none; transition:opacity .15s ease;
+  touch-action:pan-x pan-y;
 }
 #floatBar.open { opacity:1; pointer-events:auto; }
 /* hides instantly the moment a drag/pan/zoom starts (features/float-bar.ts's follow loop),
