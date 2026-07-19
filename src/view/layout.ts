@@ -10,7 +10,7 @@
 import { state, isAnnotation, type MindNode, type LayoutSide } from '../core/state.js';
 import type { Seg } from '../core/ui-state.js';
 import { childrenOf, isHidden, isRoot } from '../utils/model.js';
-import { subtreeIds, layoutH, nodeH, nodeW, NODE_W, GRID_SNAP, FRAME_BORDER } from '../main.js';
+import { subtreeIds, layoutH, nodeH, nodeW, NODE_W, gridSnap, FRAME_BORDER } from '../main.js';
 
 // ---------- absolute <-> relative position ----------
 // Two forms of a node's position: the WORKING form x/y (absolute world coords, what the layout
@@ -57,7 +57,8 @@ export function dropLanding(dragged: MindNode, target: MindNode, mode: 'child' |
   // A frame adopts the card where it's released, snapped to the grid RELATIVE to the frame's
   // origin (its children live in the frame's coordinate space).
   if (isFrame(governor)) {
-    const rel = (v: number, o: number): number => Math.round((v - o) / GRID_SNAP) * GRID_SNAP + o;
+    const g = gridSnap();
+    const rel = (v: number, o: number): number => Math.round((v - o) / g) * g + o;
     return { x: rel(dragged.x, governor.x), y: rel(dragged.y, governor.y) };
   }
   if (!isManagedLayout(governor)) {

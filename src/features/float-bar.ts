@@ -21,7 +21,7 @@ import { pasteFromClipboard, pickImagesForNode } from './attachments.js';
 import { openMenu, copyFilePath, type MenuEntry } from './context-menu.js';
 import { childrenOf, isHidden, isLockedEffective, subtreeHasLocked } from '../utils/model.js';
 import { frameBox } from '../view/camera.js';
-import { paintAll, selectedIds, selectNode, foldNodeOrGroup, setLockedSelection, GRID_SNAP, FRAME_W, FRAME_H, MIN_FRAME_W, MIN_FRAME_H, IMAGE_W, IMAGE_H } from '../main.js';
+import { paintAll, selectedIds, selectNode, foldNodeOrGroup, setLockedSelection, gridSnap, FRAME_W, FRAME_H, MIN_FRAME_W, MIN_FRAME_H, IMAGE_W, IMAGE_H } from '../main.js';
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T { return document.getElementById(id) as T; }
 
@@ -103,7 +103,8 @@ const DEFAULT_LAYOUT: Record<NodeType, NodeLayout> = { card: 'inherit', frame: '
 const FRAME_FIT_PAD = 16, FRAME_FIT_TITLE = 36;   // side/bottom margin; top strip for the title
 function fitFrameToContent(n: MindNode, orDefault = false): void {
   const kids = childrenOf(n.id).filter(k => !isHidden(k) && !isAnnotation(k));   // annotations don't size the frame
-  const snap = (v: number): number => Math.round(v / GRID_SNAP) * GRID_SNAP;
+  const snapStep = gridSnap();
+  const snap = (v: number): number => Math.round(v / snapStep) * snapStep;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const k of kids) {
     const b = subtreeBox(k); if (!isFinite(b.x0)) continue;
@@ -146,7 +147,8 @@ export function groupSelectionIntoFrame(): void {
       const b = subtreeBox(n); if (!isFinite(b.x0)) continue;
       x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x1); y1 = Math.max(y1, b.y1);
     }
-    const snap = (v: number): number => Math.round(v / GRID_SNAP) * GRID_SNAP;
+    const snapStep = gridSnap();
+  const snap = (v: number): number => Math.round(v / snapStep) * snapStep;
     const fx = isFinite(x0) ? snap(x0 - FRAME_FIT_PAD) : 0;
     const fy = isFinite(y0) ? snap(y0 - FRAME_FIT_TITLE) : 0;
     const fw = isFinite(x1) ? Math.max(MIN_FRAME_W, snap(x1 + FRAME_FIT_PAD - fx)) : FRAME_W;

@@ -286,7 +286,10 @@ export function paintNode(n: MindNode): void {
   if (collapsed) el.querySelector('.hidden-count')!.textContent = collapsedKids ? String(descendantCount(n.id)) : '';
 }
 export const NODE_W = 200;
-export const GRID_SNAP = 20;   // world-px grid dragged positions AND frame/image-card sizes snap to
+// world-px grid dragged positions AND frame/image-card sizes snap to — tracks the visible grid's
+// own cell size (state.gridSize, view/grid.ts); 0 (grid off) disables snapping rather than
+// collapsing every position to the origin.
+export function gridSnap(): number { return state.gridSize || 1; }
 export const FRAME_W = 360, FRAME_H = 260;   // default frame container size (world px)
 export const IMAGE_W = 240, IMAGE_H = 180;   // default image-card size (world px)
 export const FRAME_BORDER = 4;   // must match .node.frame's CSS `border` width (styles.css)
@@ -356,9 +359,21 @@ function place(el: HTMLElement, absX: number, absY: number, host: MindNode | nul
 // its INTERIOR (inside the border), holding every card/frame it hosts as flat DOM children. Created
 // once and kept live (idempotent — safe to call from a child's paint before the frame's own paint
 // runs in the same pass, since Map iteration order isn't parent-before-child).
+// Every frame box shares the same z-index:1 (styles.css), so a nested frame's own box only ends up
+// visually on top of its ancestor's fill because it sits LATER in DOM/tree order (equal-z-index
+// stacking falls back to document order) — the two share one flattened stacking context since
+// .frame-content sets no z-index of its own. That invariant breaks if THIS wrapper gets appended to
+// its container before the frame's own box does, which happens whenever a child paints (and so
+// calls this) before the frame itself gets its first paintNode pass (Map iteration order isn't
+// parent-before-child). Guard it here: force the frame's own box to exist and be placed in the
+// container FIRST, so it always precedes this wrapper as a sibling — paintNode's later place(el,…)
+// on the same box is then a same-parent no-op that doesn't reorder anything.
 function frameContentEl(f: MindNode): HTMLElement {
   let w = f.frameContentEl;
-  if (!w) { w = document.createElement('div'); w.className = 'frame-content'; f.frameContentEl = w; }
+  if (!w) {
+    place(nodeEl(f), f.x, f.y, settledHost(f));
+    w = document.createElement('div'); w.className = 'frame-content'; f.frameContentEl = w;
+  }
   const box = frameInterior(f);
   place(w, box.x, box.y, settledHost(f));
   w.style.width  = box.w + 'px';
@@ -411,7 +426,8 @@ function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
   let lastDx = 0, lastDy = 0;
   let subtreeRAF: number | null = null;
   const identity = (v: number): number => v;
-  const snap = (v: number): number => Math.round(v / GRID_SNAP) * GRID_SNAP;
+  const g = gridSnap();
+  const snap = (v: number): number => Math.round(v / g) * g;
   // Apply the current drag delta, keeping the non-dragged edges fixed. We snap the SIZE (not the
   // edges) to the grid so a box's w/h are always multiples of the snap — the moving edge derives
   // from the fixed opposite edge minus the snapped size. Free (unsnapped) while dragging; snapped
@@ -491,7 +507,8 @@ function snapCardHeights(): void {
   const cards: MindNode[] = [];
   for (const n of state.nodes.values()) if (n.el && !isHidden(n) && !isBoxNode(n)) cards.push(n);
   for (const n of cards) n.el!.style.minHeight = '';
-  const hs = cards.map(n => Math.ceil(n.el!.offsetHeight / GRID_SNAP) * GRID_SNAP);
+  const g = gridSnap();
+  const hs = cards.map(n => Math.ceil(n.el!.offsetHeight / g) * g);
   cards.forEach((n, i) => { n.el!.style.minHeight = hs[i] + 'px'; });
 }
 export function paintAll(): void {
@@ -729,12 +746,9 @@ function focusOrFit(): void {
 // :root/body.light — so CSS (.c-*, #ghostCard) and JS (edges/backgrounds fills, swatch dots
 // below) can never drift apart. Read from document.body (not documentElement) so the
 // body.light overrides are picked up; re-read on every theme toggle (see refreshPalette).
-export const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey','white'];
+export const PALETTE = ['slate','red','amber','green','teal','blue','violet','pink','grey','white','black'];
 const pal = (name: string): string => getComputedStyle(document.body).getPropertyValue(`--pal-${name}`).trim();
-// `black` is NOT a pickable swatch — it's only the contrast fill for an inherit-bg annotation on the
-// light canvas (see effectiveColor). Tracked in SWATCH_BG (and refreshPalette) so its edge/anchor tint
-// resolves like any other colour key.
-const SWATCH_KEYS = [...PALETTE, 'black'];
+const SWATCH_KEYS = PALETTE;
 export const SWATCH_BG: Record<string, string> = Object.fromEntries(SWATCH_KEYS.map(c => [c, pal(c)]));
 // re-derive the palette hexes after a theme switch (light/dark have different --pal-* values)
 // and repaint everything that bakes them in as literal hex (edges, group backgrounds, swatches).

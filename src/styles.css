@@ -7,6 +7,10 @@
   color-scheme: dark;
   --bg: #11151c;
   --grid: #1b212c;
+  /* the visible canvas grid pattern (index.html gridDotPat/gridLinePat) wants more contrast than
+     --grid's subtle border/divider use elsewhere, so blend it toward --text instead of a second
+     hardcoded hex per theme — stays correct in both themes for free. */
+  --grid-pat: color-mix(in srgb, var(--grid) 55%, var(--text) 45%);
   --node: #1e2733;
   --node-border: #34465c;
   --node-sel: #5aa9ff;
@@ -30,7 +34,7 @@
   --pal-pink: #d6368e;
   --pal-grey: #3a4759;
   --pal-white: #f2f4f7;
-  --pal-black: #12161d;   /* not a pickable swatch — the contrast fill for an inherit-bg annotation on the light canvas */
+  --pal-black: #000000;
 
   /* shared roundness scale — keep every surface on one of these steps */
   --r-card: 8px;    /* mindmap cards + the ghost/template card */
@@ -55,6 +59,10 @@ body.light {
   color-scheme: light;
   --bg: #d7dbe2;
   --grid: #c3c9d4;
+  /* redeclared (not just inherited) so its nested var(--grid)/var(--text) re-resolve against this
+     theme's own values — a custom property's var() substitution freezes at its declaring element,
+     so leaving this to inherit from :root would keep baking in the dark-theme colours. */
+  --grid-pat: color-mix(in srgb, var(--grid) 55%, var(--text) 45%);
   --node: #ffffff;
   --node-border: #cfd6e0;
   --node-sel: #2f6fe0;
@@ -226,7 +234,10 @@ body.grabbing, body.grabbing * { cursor:grabbing !important; }
 #world { position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; touch-action:none; }
 
 svg#grid, svg#backgrounds, svg#sketch, svg#edges, svg#toggles, svg#dragEdges { position:absolute; top:0; left:0; overflow:visible; }
-svg#grid { z-index:-1; pointer-events:none; }       /* background grid behind everything, incl. group backgrounds */
+/* will-change:opacity keeps view/grid.ts's per-frame zoom fade (updateGridZoom) a compositor-only
+   op — without it the JS opacity write can force a repaint that bleeds into the cards painted
+   alongside it during a zoom gesture, seen as flicker. */
+svg#grid { z-index:-1; pointer-events:none; will-change:opacity; }       /* background grid behind everything, incl. group backgrounds */
 svg#backgrounds { z-index:0; pointer-events:none; } /* group backgrounds behind everything */
 svg#sketch { z-index:0; pointer-events:none; }      /* freehand ink behind cards + edges (drawing is handled on #stage) */
 svg#edges { z-index:1; pointer-events:none; }      /* curves behind nodes */
@@ -544,6 +555,8 @@ body.empty-canvas:not(.readonly) .emptyhint { opacity:1; }
 #helpBtn { right:12px; bottom:12px; overflow:visible; }
 /* grid toggle — its own floating button, sitting immediately to the left of help */
 #gridBtn { right:calc(12px + var(--bar-btn) + 8px); bottom:12px; }
+/* grid size picker — one slot further left again, showing the current cell size as a number */
+#gridSizeBtn { right:calc(12px + 2 * (var(--bar-btn) + 8px)); bottom:12px; font-size:11px; font-weight:600; }
 /* help hint lives INSIDE the help button, so it tracks it with no JS — sits ABOVE the
    bottom-right button and points down at it */
 #helpHint {
@@ -812,7 +825,7 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    too since it would float over the drawer. #outlineBtn joins them here: once open, #olCloseBtn
    (the drawer's top-LEFT, sharing #ocBack's spot) is the way to close it. #canvasMenuBtn is the
    deliberate exception (see its own z-index rule) — it must stay reachable from the outliner too. */
-body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #outlineBtn,
+body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #gridSizeBtn, body.outline #outlineBtn,
 body.outline #floatBar { display:none !important; }
 
 /* Below the 700px breakpoint (MUST match NARROW_MQ), outline goes full-screen instead of a
@@ -881,7 +894,7 @@ body.ol-editing .oc-back { display:inline-flex; }
   border-radius:var(--r-card); background:var(--card, var(--node)); color:#fff; }
 .oc-card.c-none { background:var(--node); color:var(--text); }
 .oc-card.c-white { color:#2b3645; }
-body.light .oc-card:not(.c-none):not(.c-white):not(.c-grey) { color:#000; }
+body.light .oc-card:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color:#000; }
 /* title + note edit in place; transparent fields so the card's own tint shows through */
 .oc-title, .oc-note { width:100%; background:transparent; border:none; color:inherit;
   font-family:inherit; padding:2px 4px; border-radius:4px; }
@@ -970,7 +983,7 @@ body.ol-editing .ol-heading { display:none; }
 body.readonly .ol-row { cursor:default; }   /* no drag-to-reorder in read-only */
 .ol-row.c-none { color:var(--text); }
 .ol-row.c-white { color:#2b3645; }
-body.light .ol-row:not(.c-none):not(.c-white):not(.c-grey) { color:#000; }
+body.light .ol-row:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color:#000; }
 .ol-row.done .ol-title { text-decoration:line-through; opacity:.65; }
 .ol-row.flash { animation:ol-flash 1.2s ease-out; }
 @keyframes ol-flash {

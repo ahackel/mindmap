@@ -27,6 +27,7 @@ export const isBoxType = (t: NodeType): boolean => t === 'frame' || t === 'image
 export type LayoutSide = 'left' | 'right' | 'up' | 'down';
 export type EdgeStyle = 'straight' | 'orthogonal' | 'bezier';
 export type GridStyle = 'none' | 'dot' | 'line';
+export type GridSize = 0 | 20 | 40 | 80 | 160 | 320;
 
 // One ordered frontmatter entry: a top-level `key:` line plus its continuation lines.
 // `key` is null for leading content with no key (preserved verbatim on save).
@@ -119,6 +120,7 @@ export interface AppState {
   sel: Set<string>;                // full selection set (⌘-click / marquee)
   edgeStyle: EdgeStyle;            // restored from localStorage
   gridStyle: GridStyle;            // restored per-map from settings.json — see data/persistence.ts
+  gridSize: GridSize;               // pattern cell size in world px — restored per-map from settings.json
   strokes: Stroke[];               // freehand sketch layer (loaded from / saved to sketch.json)
   searchMatch: Set<string> | null; // ids to highlight for the find query (matches' visible reps), or null when not searching
   searchActiveId: string | null;   // visible rep of the active dropdown option → gets a white outline
@@ -136,6 +138,7 @@ export const state: AppState = {
   sel: new Set<string>(),
   edgeStyle: 'orthogonal',
   gridStyle: 'none',
+  gridSize: 20,
   strokes: [],
   searchMatch: null,
   searchActiveId: null,

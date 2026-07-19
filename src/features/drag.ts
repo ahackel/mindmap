@@ -15,7 +15,7 @@ import { ui, NARROW_MQ, type Pt, type Seg, type Drag } from '../core/ui-state.js
 import { paintEdges } from '../view/edges.js';
 import { outlineActive } from './outline.js';
 import { beginMarqueeFromNode } from './gestures.js';
-import { NODE_W, nodeW, nodeH, GRID_SNAP, paintAll, paintNode, selectNode, setSelectionSet, toggleSel,
+import { NODE_W, nodeW, nodeH, gridSnap, paintAll, paintNode, selectNode, setSelectionSet, toggleSel,
          subtreeIds, foldNodeOrGroup } from '../main.js';
 import { startInlineEdit, startBodyEdit, endInlineEdit, endBodyEdit } from './inline-edit.js';
 import { leaveClone, foldImageCardsIntoBody } from './crud.js';
@@ -533,8 +533,9 @@ function dragPointerUp(): void {
           const fp = act.parent ? state.nodes.get(act.parent) : null;
           const inFrame = !!(fp && isFrame(fp));
           const ax = inFrame ? fp!.x : 0, ay = inFrame ? fp!.y : 0;
-          const ddx = (Math.round((act.x - ax) / GRID_SNAP) * GRID_SNAP + ax) - act.x;
-          const ddy = (Math.round((act.y - ay) / GRID_SNAP) * GRID_SNAP + ay) - act.y;
+          const g = gridSnap();
+          const ddx = (Math.round((act.x - ax) / g) * g + ax) - act.x;
+          const ddy = (Math.round((act.y - ay) / g) * g + ay) - act.y;
           for (const id of targets.keys()){
             const m = state.nodes.get(id); if (!m) continue;
             m.x += ddx; m.y += ddy; m.dirtyLayout = true;
