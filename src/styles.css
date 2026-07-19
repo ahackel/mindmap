@@ -244,7 +244,7 @@ svg#grid, svg#backgrounds, svg#sketch, svg#edges, svg#toggles, svg#dragEdges { p
    alongside it during a zoom gesture, seen as flicker. */
 svg#grid { z-index:-1; pointer-events:none; will-change:opacity; }       /* background grid behind everything, incl. group backgrounds */
 svg#backgrounds { z-index:0; pointer-events:none; } /* group backgrounds behind everything */
-svg#sketch { z-index:0; pointer-events:none; }      /* freehand ink behind cards + edges (drawing is handled on #stage) */
+svg#sketch { z-index:8; pointer-events:none; }      /* freehand ink ABOVE every card (incl. dragging:6, annotation:7) so ink is never occluded (drawing is handled on #stage) */
 svg#edges { z-index:1; pointer-events:none; }      /* curves behind nodes */
 .node { z-index:2; }                               /* nodes in the middle */
 svg#toggles { z-index:3; pointer-events:none; }    /* toggles on top; group re-enables events */
