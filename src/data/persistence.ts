@@ -179,6 +179,7 @@ export async function loadFromDir({ keepView = false }: { keepView?: boolean } =
       type: mm.type, layout: mm.layout,
       w: mm.w ?? undefined,
       h: mm.h ?? undefined,
+      query: mm.query || undefined,
       side: (mm.side || undefined) as LayoutSide | undefined,
       ...rest, dirty:false, dirtyLayout: !hasPos,   // notes lacking a position get one persisted
     };

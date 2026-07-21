@@ -12,9 +12,9 @@
    ============================================================ */
 
 import './styles.css';   // app styles (Vite bundles + singlefile inlines into dist/index.html)
-import { renderBodyHTML } from './utils/markdown.js';
+import { renderBodyHTML, esc } from './utils/markdown.js';
 import { childrenOf, isHidden, descendantCount, hasLockedAncestor, isLockedEffective } from './utils/model.js';
-import { state, world, dragLayer, stage, setStatus, isImageCard, isAnnotation } from './core/state.js';
+import { state, world, dragLayer, stage, setStatus, isImageCard, isAnnotation, isQueryCard } from './core/state.js';
 import { setupTheme } from './view/theme.js';
 import { setupGrid } from './view/grid.js';
 import { mountIcons } from './view/icons.js';
@@ -71,6 +71,10 @@ function nodeEl(n: MindNode): HTMLElement {
   const el = document.createElement('div');
   el.dataset.id = n.id;
   el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><div class="title"></div><span class="progress"></span></div><div class="body"></div>
+    <div class="query-box">
+      <input type="text" class="query-input" placeholder="Search…" autocomplete="off">
+      <div class="query-results"></div>
+    </div>
     <span class="lock-badge" title="Locked">${LOCK_BADGE_SVG}</span>
     <span class="hidden-count"></span>
     <div class="addnote" title="Add note">Add note…</div>`;
@@ -104,6 +108,29 @@ function nodeEl(n: MindNode): HTMLElement {
     const cb = (e.target as HTMLElement).closest('input.taskbox') as HTMLInputElement | null; if (!cb) return;
     e.stopPropagation();
     toggleTask(n, +(cb.dataset.ti ?? 0));
+  });
+  // query card: its own search field + results list (see queryMatches/renderQueryResults below).
+  // pointerdown/click are stopped so typing/clicking never starts a card drag or selects-through.
+  const queryInput = el.querySelector('.query-input') as HTMLInputElement;
+  queryInput.addEventListener('pointerdown', (e) => e.stopPropagation());
+  queryInput.addEventListener('click', (e) => e.stopPropagation());
+  queryInput.addEventListener('focus', () => {
+    if (!ui.queryEdit || ui.queryEdit.id !== n.id) { touch(n.id); ui.queryEdit = { id: n.id, orig: n.query ?? '' }; }
+  });
+  queryInput.addEventListener('input', () => onQueryInput(n, queryInput.value));
+  queryInput.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') queryInput.blur(); });
+  queryInput.addEventListener('blur', () => endQueryEdit(n));
+  const queryResultsEl = el.querySelector('.query-results')!;
+  queryResultsEl.addEventListener('pointerdown', (e) => e.stopPropagation());
+  queryResultsEl.addEventListener('click', (e) => {
+    const item = (e.target as HTMLElement).closest('.query-item') as HTMLElement | null; if (!item) return;
+    e.stopPropagation();
+    selectNode(item.dataset.id!);
+  });
+  queryResultsEl.addEventListener('dblclick', (e) => {
+    const item = (e.target as HTMLElement).closest('.query-item') as HTMLElement | null; if (!item) return;
+    e.stopPropagation(); e.preventDefault();
+    focusNode(state.nodes.get(item.dataset.id!), true);
   });
   // done checkbox (title-only cards): toggle the card-level done mark, independent of drag/select
   const doneEl = el.querySelector('.donebox') as HTMLInputElement;
@@ -179,6 +206,53 @@ function showsDoneCheckbox(n: MindNode): boolean {
   const p = n.parent ? state.nodes.get(n.parent) : undefined;
   return !!(p && p.checklist);
 }
+// ---------- query card: search field + scrollable results list ----------
+// Matches every OTHER node's title OR body against the query card's own search text — the same
+// substring rule the toolbar find box uses (features/search.ts runSearch), but uncapped (the
+// results list scrolls) and scoped to this one card's #query-results element, not the whole canvas.
+function queryMatches(n: MindNode): MindNode[] {
+  const q = (n.query ?? '').trim().toLowerCase();
+  if (!q) return [];
+  const hits = [...state.nodes.values()].filter(m => m.id !== n.id &&
+    (m.title.toLowerCase().includes(q) || (m.body && m.body.toLowerCase().includes(q))));
+  return hits.sort((a, b) => {
+    const at = a.title.toLowerCase().includes(q), bt = b.title.toLowerCase().includes(q);
+    return at !== bt ? (at ? -1 : 1) : a.title.localeCompare(b.title);
+  });
+}
+function renderQueryResults(n: MindNode): void {
+  const el = n.el?.querySelector('.query-results') as HTMLElement | null; if (!el) return;
+  const hits = queryMatches(n);
+  // Rebuilding on every repaint (paintAll runs on every selection change, incl. clicking a result)
+  // would replace the .query-item elements mid-click — a real mouse's SECOND click of a double-click
+  // then lands on a freshly-minted element, and the browser never recognises it as the same target,
+  // so dblclick silently stops firing. Key the cache on the ids actually shown (not the raw query
+  // text) so a result set that hasn't changed keeps its DOM identity across an unrelated repaint.
+  const hasQuery = !!(n.query ?? '').trim();
+  const key = !hasQuery ? '' : hits.length ? hits.map(m => m.id).join(',') : ' none';
+  if (el.dataset.queryKey === key) return;
+  el.dataset.queryKey = key;
+  el.innerHTML = !hasQuery
+    ? ''
+    : hits.length
+      ? hits.map(m => `<button class="query-item" data-id="${m.id}">${esc(m.title)}</button>`).join('')
+      : '<div class="query-empty">No matches</div>';
+}
+// Debounced per-card: recomputing the results list on every keystroke is cheap here (no dropdown/
+// highlight side effects like the toolbar search), but still worth coalescing on a fast typist.
+const queryDebounce = new Map<string, number>();
+function onQueryInput(n: MindNode, value: string): void {
+  n.query = value; n.dirty = true;
+  const pending = queryDebounce.get(n.id); if (pending != null) clearTimeout(pending);
+  queryDebounce.set(n.id, window.setTimeout(() => { queryDebounce.delete(n.id); renderQueryResults(n); }, 150));
+}
+function endQueryEdit(n: MindNode): void {
+  if (!ui.queryEdit || ui.queryEdit.id !== n.id) return;
+  ui.queryEdit = null;
+  const pending = queryDebounce.get(n.id); if (pending != null) { clearTimeout(pending); queryDebounce.delete(n.id); renderQueryResults(n); }
+  scheduleSave();
+  commitStep();
+}
 export function paintNode(n: MindNode): void {
   const el = nodeEl(n);
   if (isHidden(n)) { el.style.display = 'none'; return; }
@@ -193,6 +267,7 @@ export function paintNode(n: MindNode): void {
   el.className = 'node c-' + effectiveColor(n)
     + (isFrameBox(n) ? ' frame' : '')
     + (isImageBox(n) ? ' image-card' : '')
+    + (isQueryBox(n) ? ' query-card' : '')
     + (isAnnotation(n) ? ' annotation' : '')
     + (state.sel.has(n.id) ? ' sel' : '')
     + (state.sel.size === 1 && state.sel.has(n.id) ? ' solo' : '')   // lone selection → show +
@@ -282,6 +357,12 @@ export function paintNode(n: MindNode): void {
     bodyEl.innerHTML = renderBodyHTML(n.body);
     hydrateImages(bodyEl);   // swap inline-image placeholders for resolved (blob/remote) URLs
   }
+  if (isQueryBox(n)) {
+    const qInput = el.querySelector('.query-input') as HTMLInputElement;
+    // don't clobber the field while the user is actively typing into it
+    if (!(ui.queryEdit && ui.queryEdit.id === n.id)) qInput.value = n.query ?? '';
+    renderQueryResults(n);
+  }
   // folded branch → hidden-descendant count; folded leaf → empty bubble (a white dot)
   if (collapsed) el.querySelector('.hidden-count')!.textContent = collapsedKids ? String(descendantCount(n.id)) : '';
 }
@@ -292,16 +373,19 @@ export const NODE_W = 200;
 export function gridSnap(): number { return state.gridSize || 1; }
 export const FRAME_W = 360, FRAME_H = 260;   // default frame container size (world px)
 export const IMAGE_W = 240, IMAGE_H = 180;   // default image-card size (world px)
+export const QUERY_W = 280, QUERY_H = 320;   // default query-card size (world px)
 export const FRAME_BORDER = 4;   // must match .node.frame's CSS `border` width (styles.css)
 // Whether a node currently renders as a frame BOX. A collapsed frame folds to an ordinary card, so
 // its footprint reverts to a normal card (matching paintNode). Shared by the geometry helpers below.
 function isFrameBox(n: MindNode): boolean { return n.type === 'frame' && !n.collapsed; }
 // An image card: a resizable leaf that shows nothing but its one image — no children, no title UI.
 function isImageBox(n: MindNode): boolean { return n.type === 'image' && !n.collapsed; }
-// Either kind of resizable box — shares sizing/resize-handle plumbing below.
-function isBoxNode(n: MindNode): boolean { return isFrameBox(n) || isImageBox(n); }
-function boxDefaultW(n: MindNode): number { return isImageBox(n) ? IMAGE_W : FRAME_W; }
-function boxDefaultH(n: MindNode): number { return isImageBox(n) ? IMAGE_H : FRAME_H; }
+// A query card: a resizable leaf with a search field + scrollable results list — no children.
+function isQueryBox(n: MindNode): boolean { return n.type === 'query' && !n.collapsed; }
+// Any resizable box — shares sizing/resize-handle plumbing below.
+function isBoxNode(n: MindNode): boolean { return isFrameBox(n) || isImageBox(n) || isQueryBox(n); }
+function boxDefaultW(n: MindNode): number { return isImageBox(n) ? IMAGE_W : isQueryBox(n) ? QUERY_W : FRAME_W; }
+function boxDefaultH(n: MindNode): number { return isImageBox(n) ? IMAGE_H : isQueryBox(n) ? QUERY_H : FRAME_H; }
 // A node's footprint WIDTH: an (expanded) frame/image card is its own resizable box; everything
 // else is NODE_W.
 export function nodeW(n: MindNode): number { return isBoxNode(n) ? (n.w ?? boxDefaultW(n)) : NODE_W; }
@@ -383,8 +467,9 @@ function frameContentEl(f: MindNode): HTMLElement {
 // ---------- frame / image-card resize ----------
 export const MIN_FRAME_W = NODE_W, MIN_FRAME_H = 120;   // a frame is never narrower than a normal card
 export const MIN_IMAGE_W = 60, MIN_IMAGE_H = 60;        // an image card can shrink to a small thumbnail
-function boxMinW(n: MindNode): number { return isImageBox(n) ? MIN_IMAGE_W : MIN_FRAME_W; }
-function boxMinH(n: MindNode): number { return isImageBox(n) ? MIN_IMAGE_H : MIN_FRAME_H; }
+export const MIN_QUERY_W = 200, MIN_QUERY_H = 160;      // a query card keeps room for the search field + a couple of rows
+function boxMinW(n: MindNode): number { return isImageBox(n) ? MIN_IMAGE_W : isQueryBox(n) ? MIN_QUERY_W : MIN_FRAME_W; }
+function boxMinH(n: MindNode): number { return isImageBox(n) ? MIN_IMAGE_H : isQueryBox(n) ? MIN_QUERY_H : MIN_FRAME_H; }
 // 8 resize handles: 4 edges (one axis) + 4 corners (two axes). A `w`/`n` component moves that edge,
 // which shifts the frame's x/y (the opposite edge stays put); `e`/`s` just grow width/height.
 const FRAME_DIRS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const;
@@ -912,7 +997,7 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault(); startInlineEdit(state.nodes.get(state.selId)); return;   // selId guards non-null
   }
   if ((e.key === 'e' || e.key === 'E') && state.selId && !e.metaKey && !e.ctrlKey){
-    e.preventDefault(); const n = state.nodes.get(state.selId); if (n && !isImageCard(n)) startBodyEdit(n); return;
+    e.preventDefault(); const n = state.nodes.get(state.selId); if (n && !isImageCard(n) && !isQueryCard(n)) startBodyEdit(n); return;
   }
   if (e.key === 'Enter' && state.selId){ e.preventDefault(); createSibling(state.selId); return; }
   if (e.key === 'Tab' && state.selId){ e.preventDefault(); addChild(state.selId); return; }

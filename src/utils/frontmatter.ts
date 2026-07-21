@@ -24,6 +24,7 @@ export interface ParsedNote {
     y: number | null;
     w: number | null;
     h: number | null;
+    query: string;
     collapsed: boolean;
     locked: boolean;
     done: boolean;
@@ -73,7 +74,7 @@ function fmRemove(entries: FmEntry[], key: string): void {
 // frame(+mm_arrange flow-h/flow-v)→frame·free|horizontal|vertical, frame-h/-v→frame·*, image→image.
 function foldTypeLayout(entries: FmEntry[]): { type: NodeType; layout: NodeLayout } {
   const t = fmValue(entries, 'mm_type');
-  if (t === 'frame' || t === 'image' || t === 'card' || t === 'annotation')
+  if (t === 'frame' || t === 'image' || t === 'card' || t === 'annotation' || t === 'query')
     return { type: t, layout: (fmValue(entries, 'mm_layout') || (t === 'frame' ? 'free' : 'inherit')) as NodeLayout };
   // legacy: infer both from the combined mm_layout token
   const v = fmValue(entries, 'mm_layout');
@@ -119,6 +120,7 @@ export function parseMd(text: string, fileName: string): ParsedNote {
       y: num(fmValue(entries, 'mm_y')),
       w: num(fmValue(entries, 'mm_w')),
       h: num(fmValue(entries, 'mm_h')),
+      query: fmValue(entries, 'mm_query'),
       collapsed: fmValue(entries, 'mm_collapsed') === 'true',
       locked: fmValue(entries, 'mm_locked') === 'true',
       done: fmValue(entries, 'mm_done') === 'true',
@@ -160,10 +162,11 @@ export function serializeMd(n: MindNode): string {
   const layoutDefault = n.type === 'frame' ? 'free' : 'inherit';
   if ((n.type === 'card' || n.type === 'frame') && n.layout !== layoutDefault)
     entries.push({ key:'mm_layout', lines:[`mm_layout: ${n.layout}`] });
-  if (isBoxType(n.type)) {   // the resizable box's own size (a frame or an image)
+  if (isBoxType(n.type)) {   // the resizable box's own size (a frame, an image, or a query card)
     if (n.w != null) entries.push({ key:'mm_w', lines:[`mm_w: ${Math.round(n.w)}`] });
     if (n.h != null) entries.push({ key:'mm_h', lines:[`mm_h: ${Math.round(n.h)}`] });
   }
+  if (n.type === 'query' && n.query) entries.push({ key:'mm_query', lines:[`mm_query: ${n.query}`] });
   const fm = entries.flatMap(e => e.lines).join('\n');
   const body = n.body.trim();
   return `---\n${fm}\n---\n` + (body ? '\n' + body + '\n' : '\n');
