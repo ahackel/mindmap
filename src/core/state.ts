@@ -12,8 +12,11 @@
 //   · annotation — a leaf note pinned to its parent: no title, no children, doesn't take part in
 //                  layout, and renders ON TOP of everything (never clipped by a frame's mask). Its
 //                  own colour drives its always-dotted connector; it never inherits a background.
+//   · query      — a resizable box (mm_w/mm_h) with a search field over a scrollable list of
+//                  title/body matches across the whole map; no children, keeps its title UI.
+//                  Search text persisted as mm_query.
 // Extensible: new kinds slot in here. Persisted as `mm_type` (omitted for the `card` default).
-export type NodeType = 'card' | 'frame' | 'image' | 'annotation';
+export type NodeType = 'card' | 'frame' | 'image' | 'annotation' | 'query';
 // How a node ARRANGES its children. The valid set depends on the node's `type`:
 //   · card  → inherit (take the parent's), free (stay where dragged), line (chained), fan (spread).
 //   · frame → free (children placed freely inside), horizontal (auto-flow rows: left→right, wrap
@@ -22,8 +25,8 @@ export type NodeType = 'card' | 'frame' | 'image' | 'annotation';
 // Persisted as `mm_layout` (only for card/frame, omitted when it equals the type's default).
 export type NodeLayout = 'inherit' | 'free' | 'line' | 'fan' | 'horizontal' | 'vertical';
 // Node kinds that carry their own resizable box size (w/h persisted as mm_w/mm_h) rather than
-// sizing from title/body content — a frame or an image.
-export const isBoxType = (t: NodeType): boolean => t === 'frame' || t === 'image';
+// sizing from title/body content — a frame, an image, or a query card.
+export const isBoxType = (t: NodeType): boolean => t === 'frame' || t === 'image' || t === 'query';
 export type LayoutSide = 'left' | 'right' | 'up' | 'down';
 export type EdgeStyle = 'straight' | 'orthogonal' | 'bezier';
 export type GridStyle = 'none' | 'dot' | 'line';
@@ -64,13 +67,17 @@ export interface MindNode {
                                     // cascade further down; a child can run its own checklist too.
   bg: boolean;                     // draw a translucent background enclosing me + all my visible
                                     // descendants (see view/edges.ts paintBackgrounds)
-  type: NodeType;                  // card | frame | image — the node's kind (persisted as mm_type)
+  type: NodeType;                  // card | frame | image | query — the node's kind (persisted as mm_type)
   layout: NodeLayout;              // how it arranges its children — valid set depends on `type`
   // Resizable box size (world px). Meaningful for a frame (the box whose interior adopts cards
-  // dropped in) and for type === 'image' (an image-only leaf card — no children, no title UI;
-  // its body is a single `![alt](path)` filling the box). Persisted as mm_w/mm_h.
+  // dropped in), for type === 'image' (an image-only leaf card — no children, no title UI;
+  // its body is a single `![alt](path)` filling the box), and for type === 'query' (a leaf card
+  // with a search field over a scrollable results list). Persisted as mm_w/mm_h.
   w?: number;
   h?: number;
+  // type === 'query' only: the search text typed into the card's own search field, matched
+  // against every OTHER node's title/body across the whole map. Persisted as mm_query.
+  query?: string;
   // Which of the PARENT's 4 sides this node attaches on. Stored, not derived — set explicitly
   // by a drop (or copied onto a clone), and backfilled once from position on load/creation if
   // absent (see view/layout.ts sideOf/deriveSide). Meaningless (and omitted) for a root.
@@ -97,8 +104,12 @@ export interface MindNode {
 export function isImageCard(n: MindNode | null | undefined): boolean { return n?.type === 'image'; }
 // An annotation: a title-less leaf note pinned on top of its parent (see NodeType above).
 export function isAnnotation(n: MindNode | null | undefined): boolean { return n?.type === 'annotation'; }
-// Leaf kinds that cannot hold children (image + annotation). Card/frame can.
-export function isLeafType(n: MindNode | null | undefined): boolean { return n?.type === 'image' || n?.type === 'annotation'; }
+// A query card: a resizable leaf with a search field over a scrollable results list (see NodeType above).
+export function isQueryCard(n: MindNode | null | undefined): boolean { return n?.type === 'query'; }
+// Leaf kinds that cannot hold children (image + annotation + query). Card/frame can.
+export function isLeafType(n: MindNode | null | undefined): boolean {
+  return n?.type === 'image' || n?.type === 'annotation' || n?.type === 'query';
+}
 
 export interface View { x: number; y: number; k: number; }
 
