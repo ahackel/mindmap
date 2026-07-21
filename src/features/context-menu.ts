@@ -131,10 +131,18 @@ function showImageInTab(img: HTMLImageElement): void {
 }
 function openMenuAt(sx: number, sy: number): void {
   menu.classList.add('open');
-  // clamp inside the viewport (measure only after .open makes it displayable)
+  // Reposition (flip) inside the viewport — the standard fix every app (VS Code, Figma, native OS
+  // menus) uses first: slide the menu back on-screen rather than letting it spill past an edge.
+  // The OLD clamp only capped the far edge (never past the right/bottom), so a menu taller than
+  // the space below the click point (e.g. many entries on a short landscape phone) still opened
+  // with its TOP miles above the viewport — Math.min(sy, negative-number) picks the negative
+  // number, and there was nothing pulling it back down. Clamping BOTH edges keeps the whole box
+  // on-screen; #ctxMenu's own max-height + overflow-y:auto (styles.css) is the last-resort
+  // fallback for the rare case where even the full viewport height can't fit every entry.
   const mw = menu.offsetWidth, mh = menu.offsetHeight;
-  menu.style.left = Math.min(sx, window.innerWidth - mw - 4) + 'px';
-  menu.style.top  = Math.min(sy, window.innerHeight - mh - 4) + 'px';
+  const margin = 4;
+  menu.style.left = Math.min(Math.max(sx, margin), window.innerWidth - mw - margin) + 'px';
+  menu.style.top  = Math.min(Math.max(sy, margin), window.innerHeight - mh - margin) + 'px';
 }
 
 function imageMenuEntries(n: MindNode, img: HTMLImageElement): MenuEntry[] {
