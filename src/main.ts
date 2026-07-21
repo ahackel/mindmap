@@ -66,13 +66,15 @@ setupGrid();
 // read-only toolbar button uses — see ICON_LOCK_CLOSED further down); exported for the outline
 // row (features/outline.ts), which shows the same badge next to its title.
 export const LOCK_BADGE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+// magnifier glyph shown in front of a query card's title; tapping it reveals the query-input in
+// the title's place (see the query-icon click handler + endQueryEdit below).
+const QUERY_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6"/><path d="M20 20l-5-5"/></svg>`;
 function nodeEl(n: MindNode): HTMLElement {
   if (n.el) return n.el;
   const el = document.createElement('div');
   el.dataset.id = n.id;
-  el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><div class="title"></div><span class="progress"></span></div><div class="body"></div>
+  el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><span class="query-icon" title="Search">${QUERY_ICON_SVG}</span><div class="title"></div><input type="text" class="query-input" placeholder="Search…" autocomplete="off"><span class="progress"></span></div><div class="body"></div>
     <div class="query-box">
-      <input type="text" class="query-input" placeholder="Search…" autocomplete="off">
       <div class="query-results"></div>
     </div>
     <span class="lock-badge" title="Locked">${LOCK_BADGE_SVG}</span>
@@ -109,16 +111,31 @@ function nodeEl(n: MindNode): HTMLElement {
     e.stopPropagation();
     toggleTask(n, +(cb.dataset.ti ?? 0));
   });
-  // query card: its own search field + results list (see queryMatches/renderQueryResults below).
-  // pointerdown/click are stopped so typing/clicking never starts a card drag or selects-through.
+  // query card: a magnifier icon in front of the title toggles the query-input in the title's
+  // place (see queryMatches/renderQueryResults below); confirming (Enter/blur) or Escape hides it
+  // again and shows the title. pointerdown/click are stopped so typing/clicking never starts a
+  // card drag or selects-through.
+  const titleRow = el.querySelector('.title-row') as HTMLElement;
+  const queryIcon = el.querySelector('.query-icon')!;
+  queryIcon.addEventListener('pointerdown', (e) => e.stopPropagation());
+  queryIcon.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (titleRow.classList.contains('query-editing')) { queryInput.blur(); }
+    else {
+      touch(n.id); ui.queryEdit = { id: n.id, orig: n.query ?? '' };
+      titleRow.classList.add('query-editing');
+      queryInput.focus(); queryInput.select();
+    }
+  });
   const queryInput = el.querySelector('.query-input') as HTMLInputElement;
   queryInput.addEventListener('pointerdown', (e) => e.stopPropagation());
   queryInput.addEventListener('click', (e) => e.stopPropagation());
   queryInput.addEventListener('focus', () => {
     if (!ui.queryEdit || ui.queryEdit.id !== n.id) { touch(n.id); ui.queryEdit = { id: n.id, orig: n.query ?? '' }; }
+    titleRow.classList.add('query-editing');
   });
   queryInput.addEventListener('input', () => onQueryInput(n, queryInput.value));
-  queryInput.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') queryInput.blur(); });
+  queryInput.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape' || e.key === 'Enter') queryInput.blur(); });
   queryInput.addEventListener('blur', () => endQueryEdit(n));
   const queryResultsEl = el.querySelector('.query-results')!;
   queryResultsEl.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -206,17 +223,36 @@ function showsDoneCheckbox(n: MindNode): boolean {
   const p = n.parent ? state.nodes.get(n.parent) : undefined;
   return !!(p && p.checklist);
 }
+// true if ANY ancestor (at any depth, not just the direct parent) has a title containing `needle`
+// (already lowercased) — backs the "p:<parent>" query token below.
+function hasAncestorTitleContaining(n: MindNode, needle: string): boolean {
+  for (let p = n.parent ? state.nodes.get(n.parent) : null; p; p = p.parent ? state.nodes.get(p.parent) : null)
+    if (p.title.toLowerCase().includes(needle)) return true;
+  return false;
+}
 // ---------- query card: search field + scrollable results list ----------
 // Matches every OTHER node's title OR body against the query card's own search text — the same
 // substring rule the toolbar find box uses (features/search.ts runSearch), but uncapped (the
 // results list scrolls) and scoped to this one card's #query-results element, not the whole canvas.
+// A "p:<parent>" token (whitespace-delimited, repeatable) filters to nodes with an ancestor whose
+// title contains <parent>; it's ANDed with any remaining plain search text and with any other
+// p: tokens, all case-insensitive substring matches.
 function queryMatches(n: MindNode): MindNode[] {
-  const q = (n.query ?? '').trim().toLowerCase();
-  if (!q) return [];
+  const raw = (n.query ?? '').trim();
+  if (!raw) return [];
+  const parentTerms: string[] = [];
+  const textTerms: string[] = [];
+  for (const tok of raw.split(/\s+/)) {
+    const m = /^p:(.+)$/i.exec(tok);
+    if (m) parentTerms.push(m[1].toLowerCase());
+    else textTerms.push(tok.toLowerCase());
+  }
+  const text = textTerms.join(' ');
   const hits = [...state.nodes.values()].filter(m => m.id !== n.id &&
-    (m.title.toLowerCase().includes(q) || (m.body && m.body.toLowerCase().includes(q))));
+    parentTerms.every(pt => hasAncestorTitleContaining(m, pt)) &&
+    (!text || m.title.toLowerCase().includes(text) || (m.body && m.body.toLowerCase().includes(text))));
   return hits.sort((a, b) => {
-    const at = a.title.toLowerCase().includes(q), bt = b.title.toLowerCase().includes(q);
+    const at = a.title.toLowerCase().includes(text), bt = b.title.toLowerCase().includes(text);
     return at !== bt ? (at ? -1 : 1) : a.title.localeCompare(b.title);
   });
 }
@@ -249,6 +285,7 @@ function onQueryInput(n: MindNode, value: string): void {
 function endQueryEdit(n: MindNode): void {
   if (!ui.queryEdit || ui.queryEdit.id !== n.id) return;
   ui.queryEdit = null;
+  n.el?.querySelector('.title-row')?.classList.remove('query-editing');
   const pending = queryDebounce.get(n.id); if (pending != null) { clearTimeout(pending); queryDebounce.delete(n.id); renderQueryResults(n); }
   scheduleSave();
   commitStep();
