@@ -19,7 +19,6 @@ import { duplicateSelection, deleteSelection, deleteNode, deleteSelectionKeepChi
 import { exportSelection, shareSelection, canShareFiles, copySelection, cutSelection } from './clipboard.js';
 import { pasteFromClipboard, pickImagesForNode } from './attachments.js';
 import { openMenu, copyFilePath, type MenuEntry } from './context-menu.js';
-import { openEmojiPicker } from './emoji-picker.js';
 import { childrenOf, isHidden, isLockedEffective, subtreeHasLocked } from '../utils/model.js';
 import { frameBox } from '../view/camera.js';
 import { paintAll, selectedIds, selectNode, foldNodeOrGroup, setLockedSelection, gridSnap, FRAME_W, FRAME_H, MIN_FRAME_W, MIN_FRAME_H, IMAGE_W, IMAGE_H, QUERY_W, QUERY_H } from '../main.js';
@@ -32,7 +31,6 @@ const fbType = byId<HTMLButtonElement>('fbType');
 const fbLayout = byId<HTMLButtonElement>('fbLayout');
 const fbChecklist = byId<HTMLInputElement>('fbChecklist');
 const fbBg = byId<HTMLInputElement>('fbBg');
-const fbTag = byId<HTMLButtonElement>('fbTag');
 // the <label> wrapping each toggle (markup: <label class="fb-toggle"><input id="fb...">...) —
 // hidden entirely for an annotation selection, see markChips below.
 const fbChecklistLabel = fbChecklist.parentElement!;
@@ -326,7 +324,6 @@ function togglePopover(pop: HTMLElement, anchor: HTMLElement): void {
 fbColor.addEventListener('click', (e) => { e.stopPropagation(); togglePopover(colorPop, fbColor); });
 fbType.addEventListener('click', (e) => { e.stopPropagation(); togglePopover(typePop, fbType); });
 fbLayout.addEventListener('click', (e) => { e.stopPropagation(); togglePopover(layoutPop, fbLayout); });
-fbTag.addEventListener('click', (e) => { e.stopPropagation(); closePopovers(); openEmojiPicker(fbTag, selectedIds()); });
 // a colour pick updates the trigger's own swatch look and closes the popover (the layout popover
 // already closes itself in setLayout above). Runs after properties.ts's own listener has already
 // set the new .active swatch (bubble phase fires the target's listener before this ancestor one).

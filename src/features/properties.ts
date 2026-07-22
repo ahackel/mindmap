@@ -15,7 +15,7 @@ import { openEmojiPicker } from './emoji-picker.js';
 
 export interface PropEls {
   colors: HTMLElement;
-  tagRow?: HTMLElement;   // omitted where the bar has no room (canvas float bar has its own #fbTag button instead)
+  tagRow?: HTMLElement;   // omitted where there's no tags UI at all (this factory has no canvas caller — the canvas card renders its own tag row directly, see main.ts)
   checklist: HTMLInputElement;
   bg: HTMLInputElement;
 }
@@ -77,8 +77,9 @@ export function createProperties(els: PropEls, getIds: () => string[]): Property
   els.bg.addEventListener('change', () => setBool('bg', els.bg.checked));
 
   // ---- tags: emoji pills + a trailing "+" that opens the shared MRU picker (features/emoji-picker.ts).
-  // Tags are per-card, so they only apply to a single target. Optional: the canvas float bar has its
-  // own dedicated #fbTag button instead of routing through this shared row.
+  // Tags are per-card, so they only apply to a single target. Optional: this factory is only used
+  // by the outline properties sheet — the canvas card renders its own tag row directly (main.ts),
+  // matching how the card's own pill click removes a tag instead of going through a shared control.
   function renderTagRow(): void {
     if (!els.tagRow) return;
     const ids = getIds();
