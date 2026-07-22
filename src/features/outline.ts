@@ -188,14 +188,19 @@ olSearchInput.addEventListener('keydown', (e) => {
 // bar with `top` (not `bottom`) at its bottom edge; blur restores the normal docked position. A
 // no-op on desktop (no keyboard → visualViewport tracks the window almost exactly, threshold below
 // never trips) and wherever visualViewport isn't supported.
-const KEYBOARD_GAP = 8;
+// Docked flush against the keyboard (no gap, edge-to-edge, flatter bar) — visually reads as one
+// continuous strip with iOS's own Prev/Next/Done accessory bar right below it (which a web page
+// can't draw into or remove — see the arm/disarm comment above), instead of a second floating
+// pill hovering with a gap over it. The idle (undocked) look keeps the original floating pill.
 function repositionOlHead(): void {
   const vv = window.visualViewport;
   if (!vv) return;
   const bottomInset = window.innerHeight - (vv.height + vv.offsetTop);
-  if (bottomInset > 40) {   // keyboard (or some other viewport-shrinking overlay) is showing
+  const docked = bottomInset > 40;   // keyboard (or some other viewport-shrinking overlay) is showing
+  olHeadEl.classList.toggle('kb-docked', docked);
+  if (docked) {
     olHeadEl.style.bottom = 'auto';
-    olHeadEl.style.top = `${vv.offsetTop + vv.height - olHeadEl.offsetHeight - KEYBOARD_GAP}px`;
+    olHeadEl.style.top = `${vv.offsetTop + vv.height - olHeadEl.offsetHeight}px`;
   } else {
     olHeadEl.style.top = ''; olHeadEl.style.bottom = '';
   }
@@ -206,7 +211,17 @@ function armKeyboardTracking(): void {
   vvTracking = true;
   window.visualViewport.addEventListener('resize', repositionOlHead);
   window.visualViewport.addEventListener('scroll', repositionOlHead);
-  repositionOlHead();
+  // iOS doesn't reliably fire visualViewport's resize/scroll the instant the keyboard starts
+  // animating in (observed: the bar only snapped into place once some OTHER scroll happened) —
+  // so poll every frame for the ~300ms the keyboard takes to slide up, instead of trusting the
+  // events to land promptly. The events stay bound afterwards for orientation changes etc.
+  let ticks = 0;
+  const poll = (): void => {
+    if (!vvTracking) return;
+    repositionOlHead();
+    if (++ticks < 20) requestAnimationFrame(poll);
+  };
+  requestAnimationFrame(poll);
 }
 function disarmKeyboardTracking(): void {
   if (vvTracking && window.visualViewport) {
@@ -214,6 +229,7 @@ function disarmKeyboardTracking(): void {
     window.visualViewport.removeEventListener('scroll', repositionOlHead);
   }
   vvTracking = false;
+  olHeadEl.classList.remove('kb-docked');
   olHeadEl.style.top = ''; olHeadEl.style.bottom = '';
 }
 olSearchInput.addEventListener('focus', () => { armKeyboardTracking(); updateAddBtnMode(); });
