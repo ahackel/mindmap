@@ -110,8 +110,12 @@
       <span class="ic" data-icon="back"></span></button>
     <button id="olCloseBtn" class="ol-close" aria-label="Close outline" title="Close outline">✕</button>
     <div class="ol-head">
+      <div class="ol-search">
+        <span class="ic" data-icon="search"></span>
+        <input id="olSearch" type="text" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search cards">
+      </div>
       <button id="olAddBtn" title="New card — child of the selected card (Tab)" aria-label="New card">
-        <span class="ol-add-plus">+</span><span class="ol-add-label">New card</span></button>
+        <span class="ol-add-plus">+</span></button>
     </div>
     <div class="ol-scroll" id="olScroll">
       <!-- scrolls away with the list (a normal sibling of #olRows inside the scroll box), not a
