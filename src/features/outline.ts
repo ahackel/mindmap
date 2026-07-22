@@ -124,7 +124,7 @@ export function toggleOutlineView(): void { if (!outlineLocked()) setOutline(!ou
 export function setOutline(on: boolean, persist = true): void {
   if (on === outlineActive()) return;
   if (document.body.classList.contains('sketching')) { setStatus('Leave sketch mode first (S)'); return; }
-  if (!on) closeBranchEditor();   // leaving outline: drop any open branch editor first
+  if (!on) { closeBranchEditor(); olSearchInput.value = ''; outlineQuery = ''; }   // leaving outline: drop any open branch editor + search filter
   document.body.classList.toggle('outline', on);
   outlineBtn.classList.toggle('active', on);
   if (persist) { try { localStorage.setItem(VIEW_KEY, on ? 'outline' : 'canvas'); } catch {} }
@@ -153,6 +153,31 @@ PORTRAIT_MQ.addEventListener('change', () => setOutline(wantOutline(), false));
 // renders the list (paintAll → renderOutline), so setting the class alone is enough + flash-free.
 if (wantOutline()) { document.body.classList.add('outline'); outlineBtn.classList.add('active'); }
 
+// ---- search (bottom bar, next to the + button) ----
+// Filters the row list to matches (title OR body) plus their ancestors, so a hit stays reachable
+// in its tree position; matched branches force-unfold regardless of mm_collapsed/outlineFold
+// (restored automatically once the query is cleared, since neither is touched here).
+const olSearchInput = document.getElementById('olSearch') as HTMLInputElement;
+let outlineQuery = '';
+function matchesOutlineQuery(n: MindNode, q: string): boolean {
+  return n.title.toLowerCase().includes(q) || (!!n.body && n.body.toLowerCase().includes(q));
+}
+// Every match plus its ancestor chain, so filtered rows still read as a tree.
+function outlineSearchVisible(q: string): Set<string> {
+  const visible = new Set<string>();
+  for (const n of state.nodes.values()) {
+    if (isAnnotation(n) || !matchesOutlineQuery(n, q)) continue;
+    visible.add(n.id);
+    for (const p of ancestors(n)) visible.add(p.id);
+  }
+  return visible;
+}
+olSearchInput.addEventListener('input', () => { outlineQuery = olSearchInput.value; renderOutline(); });
+olSearchInput.addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key === 'Escape') { e.preventDefault(); olSearchInput.value = ''; outlineQuery = ''; renderOutline(); olSearchInput.blur(); }
+});
+
 // ---- rendering ----
 // Full rebuild — called from paintAll() so every mutation path (crud, undo, reload, selection)
 // keeps the list in sync for free; a no-op while the canvas view is active. Cheap at this
@@ -166,14 +191,22 @@ export function renderOutline(): void {
   if (branchEditorOpen()) return;
   const scroll = outlineScrollEl.scrollTop;
   rowsEl.textContent = '';
-  for (const r of sortedRoots()) walk(r, 0);
+  const q = outlineQuery.trim().toLowerCase();
+  const visible = q ? outlineSearchVisible(q) : null;
+  for (const r of sortedRoots()) walk(r, 0, visible);
+  if (visible && !visible.size) {
+    const none = document.createElement('div');
+    none.className = 'ol-none'; none.textContent = 'No card matches';
+    rowsEl.appendChild(none);
+  }
   outlineScrollEl.scrollTop = scroll;
 }
-function walk(n: MindNode, depth: number): void {
+function walk(n: MindNode, depth: number, visible: Set<string> | null): void {
+  if (visible && !visible.has(n.id)) return;
   const kids = childrenOf(n.id).filter(k => !isAnnotation(k));   // annotations aren't listed in the outliner
-  rowsEl.appendChild(rowFor(n, depth, kids));
-  if (isFolded(n)) return;
-  for (const k of orderedKids(n, kids)) walk(k, depth + 1);
+  rowsEl.appendChild(rowFor(n, depth, kids, !!visible));
+  if (visible ? false : isFolded(n)) return;
+  for (const k of orderedKids(n, kids)) walk(k, depth + 1, visible);
 }
 // A row shows a done checkbox only if its PARENT has `checklist` on — same Trello-style rule as
 // the canvas (main.ts's showsDoneCheckbox): the setting lives on the parent, not the item.
@@ -184,8 +217,8 @@ function showsDoneCheckbox(n: MindNode): boolean {
 // Elements inside a row with their own click behaviour — a pointerdown/dblclick/touchstart on
 // one of these must NOT also be read as "press the card" (drag-start / fold-on-double-tap).
 const ROW_CONTROLS = '.ol-done, .ol-open, .ol-more';
-function rowFor(n: MindNode, depth: number, kids: MindNode[]): HTMLElement {
-  const folded = isFolded(n);
+function rowFor(n: MindNode, depth: number, kids: MindNode[], searching = false): HTMLElement {
+  const folded = searching ? false : isFolded(n);   // search results force-unfold, see outlineSearchVisible
   const showDone = showsDoneCheckbox(n);
   const row = document.createElement('div');
   // rows carry the card's colour as their background via the shared .c-* classes (like .node).
