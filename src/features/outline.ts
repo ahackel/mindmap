@@ -391,6 +391,16 @@ function updateAddBtnMode(): void {
   olAddBtn.setAttribute('aria-label', active ? 'Clear search' : 'New card');
   olAddPlus.textContent = active ? '×' : '+';
 }
+// A plain tap on this button while #olSearch is focused would otherwise blur the input FIRST
+// (a button's default pointerdown behaviour steals focus) — which fires our own blur handler,
+// snapping the bar back to its docked position and shifting the button out from under the
+// finger before the click lands. The result: the first tap only dismissed the keyboard, and
+// clearing took a second tap. Suppress that default focus-steal in clear-mode so the input
+// stays focused (and the bar stays put) until the click itself has been delivered — the click
+// handler below still blurs explicitly, once the clear has actually happened.
+olAddBtn.addEventListener('pointerdown', (e) => {
+  if (olAddBtn.classList.contains('ol-clear-mode')) e.preventDefault();
+});
 olAddBtn.onclick = () => {
   if (olAddBtn.classList.contains('ol-clear-mode')) { clearOutlineSearch(); olSearchInput.blur(); return; }
   if (state.readOnly) return;
