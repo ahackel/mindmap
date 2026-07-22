@@ -4,14 +4,14 @@
 // An open ui.inlineEdit/bodyEdit defers the file rename / disk-reload while typing so the
 // folder isn't littered with half-typed names. nodeEl (main) binds the title handlers; the body
 // editor binds its own. Reflow uses the live DOM height, so n.title/body stay untouched mid-edit.
-import { state, setStatus, isAnnotation, type MindNode } from '../core/state.js';
+import { state, setStatus, isAnnotation, isQueryCard, type MindNode } from '../core/state.js';
 import { ui } from '../core/ui-state.js';
 import { takenTitles, isLockedEffective } from '../utils/model.js';
 import { outlineActive, startRowTitleEdit } from './outline.js';
 import { applyLayouts } from '../view/layout.js';
 import { scheduleSave } from '../data/persistence.js';
 import { onBodyPaste } from './attachments.js';
-import { paintAll, selectNode } from '../main.js';
+import { paintAll, selectNode, startQueryEdit } from '../main.js';
 import { openBranchEditor, branchEditorOpen } from './branch-editor.js';
 import { extractToChild, deleteNode } from './crud.js';
 import { touch, commitStep } from './history.js';
@@ -36,6 +36,8 @@ export function startInlineEdit(n: MindNode | undefined, { isNew = false }: { is
   if (isLockedEffective(n)) { setStatus('Locked — can’t rename'); return; }
   // An annotation has no title — its slow-click / F2 / add-child rename all edit the BODY instead.
   if (isAnnotation(n)) { startBodyEdit(n); return; }
+  // A query card's title isn't renamable — its slow-click / F2 / "Rename" all edit the query instead.
+  if (isQueryCard(n)) { startQueryEdit(n); return; }
   // In outline mode (which includes every phone-width screen — outline is forced on below
   // that breakpoint) the title is renamed right on its row (features/outline.ts), mirroring the
   // canvas' in-place rename. This is the single choke point, so F2 / slow-click / add child / add

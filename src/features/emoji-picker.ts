@@ -12,7 +12,7 @@
 // input is the fallback for anything outside that set (there's no embeddable browser emoji-picker
 // API, so it leans on the OS picker — Cmd+Ctrl+Space / Win+. — or paste) and takes its first
 // grapheme cluster as the tag.
-import { state } from '../core/state.js';
+import { state, isAnnotation } from '../core/state.js';
 import { setTagOnNodes, tagPillHTML } from './tags.js';
 
 const MRU_KEY = 'mindmap.tagMru';
@@ -85,15 +85,22 @@ export function openEmojiPicker(anchor: HTMLElement, targetIds: string[], onChan
   const wasOpenForSameAnchor = pop.classList.contains('open') && openAnchor === anchor;
   close();
   if (wasOpenForSameAnchor) return;
-  const ids = targetIds.filter(id => state.nodes.has(id));
+  // annotations can never carry emoji (no tag row, see main.ts's noTagRow) — drop them here too, so
+  // a multi-selection "current" check isn't thrown off by one that'll silently be skipped anyway
+  // (tags.ts's setTagOnNodes filters them out of the actual mutation).
+  const ids = targetIds.filter(id => { const n = state.nodes.get(id); return !!n && !isAnnotation(n); });
   if (!ids.length) return;
   const current = (tag: string): boolean => ids.every(id => state.nodes.get(id)!.tags.includes(tag));
   const mru = loadMru();
   const suggested: string[] = [];
   for (const t of [...CURATED, ...vaultTags()]) { if (suggested.length >= GRID_MAX) break; if (!mru.includes(t) && !suggested.includes(t)) suggested.push(t); }
 
+  // Picker only ever ADDS a tag — clicking one already on every target is a no-op (removal is only
+  // via clicking the tag's own pill on the card, see tags.ts's bindCardTagPills), so a card's emoji
+  // set can't be cleared by fat-fingering the same reaction twice.
   const pick = (tag: string): void => {
-    setTagOnNodes(ids, tag, !current(tag));
+    if (current(tag)) return;
+    setTagOnNodes(ids, tag, true);
     pushMru(tag);
     close();
     onChange?.();

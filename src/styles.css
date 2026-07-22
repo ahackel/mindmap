@@ -354,14 +354,18 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 /* z-index:2 (same as any card) — NOT the frame's 1: an image card inside a frame must sit ABOVE
    the frame's own element so clicks land on the image, not the frame beneath (which would tie at 1
    and win the hit-test, making the image unselectable — regular cards avoid this by being 2). */
+/* overflow:hidden lives on .body (below), NOT on the node itself — the tag row and add-emoji/
+   add-note buttons float outside the card's own border (see .node .tag-row / .addnote above) and
+   would otherwise get clipped along with the image. The image's own rounding comes from
+   `border-radius:inherit` on .md-img itself, so nothing relies on the node clipping its content. */
 .node.image-card { z-index:2; background:var(--card, var(--bg)); min-height:0; border-radius:10px;
-  border:none; padding:0; overflow:hidden; }
+  border:none; padding:0; }
 .node.image-card .title-row, .node.image-card .progress, .node.image-card .hidden-count { display:none; }
 .node.image-card .addnote { display:none !important; }
 /* explicit width/height (not just inset:0) — a percentage height on the .md-img descendant only
    resolves against a containing block whose OWN height is set via the `height` property itself,
    not one merely implied by top+bottom insets (CSS2.1 10.5) */
-.node.image-card > .body { position:absolute; inset:0; width:100%; height:100%; margin:0; }
+.node.image-card > .body { position:absolute; inset:0; width:100%; height:100%; margin:0; overflow:hidden; }
 /* renderBodyHTML wraps a standalone image in a <p>, and imgTag wraps the <img> in .img-wrap —
    both, not .body, are the img's real containing blocks, so the explicit height passes down. */
 .node.image-card > .body > p, .node.image-card > .body > p > .img-wrap { width:100%; height:100%; margin:0; }
@@ -391,34 +395,75 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 /* z-index:2, same as an image card (not the frame's 1): a query card is a self-contained leaf
    widget you interact with directly, not a container other cards render inside — see isQueryBox
    in main.ts. Border tinted to the card's own colour via --frame-stroke, same as a frame/image box
-   (set generically for any box node in paintNode). Keeps its title row (unlike image/annotation) —
-   the card can still be named/renamed; only its (unused) body is hidden. */
-.node.query-card { z-index:2; min-height:0; border-radius:14px;
+   (set generically for any box node in paintNode); background always stays empty regardless of the
+   card's own colour — same "outline only" look an uncoloured (c-none) frame has — so the box never
+   competes visually with the coloured result cards it contains. Keeps its title row (unlike
+   image/annotation), but the title itself isn't renamable — it always shows the live query text
+   (see paintNode); only its (unused) body is hidden. */
+.node.query-card { z-index:2; min-height:0; border-radius:14px; background:transparent;
   border:4px solid var(--frame-stroke, var(--edge)); padding:8px 10px;
   display:flex; flex-direction:column; }
 .node.query-card > .body, .node.query-card .progress, .node.query-card .hidden-count { display:none; }
-.node.query-card .addnote { display:none !important; }
-.node.query-card .title-row { flex:none; }
-/* magnifier glyph in front of the title; click toggles .query-editing on the title row, which
-   swaps the title for the query-input in place (see the query-icon click handler in main.ts). */
+.node.query-card .addnote, .node.query-card .tag-row { display:none !important; }
+.node.query-card .title-row { flex:none; position:relative; }
+/* magnifier glyph folded INTO the field (like the toolbar's #searchWrap icon-in-input), not a
+   separate button beside it: pulled out of the title-row's flex flow and absolutely positioned in
+   its own left gutter, so it never moves when .query-editing swaps the title for the query-input —
+   both reserve the same padding-left below. Click toggles .query-editing on the title row (see the
+   query-icon click handler in main.ts, and startQueryEdit for the shared open path). */
 .query-icon, .query-input { display:none; }
 .node.query-card .query-icon { display:inline-flex; align-items:center; justify-content:center;
-  width:16px; height:16px; flex:none; cursor:pointer; opacity:.7; }
+  position:absolute; left:0; top:50%; transform:translateY(-50%); z-index:1;
+  width:16px; height:16px; cursor:pointer; opacity:.7; }
 .node.query-card .query-icon:hover { opacity:1; }
 .node.query-card .query-icon svg { width:100%; height:100%; }
+/* Fixed height/line-height on BOTH the title and the input (below) — a plain <div> and an <input>
+   don't necessarily agree on line box metrics for the same font, and any difference there would
+   resize the title-row (and, with it, the icon's top:50% anchor and everything below in this
+   column-flex card) the instant .query-editing toggles. Reserving the exact same box up front,
+   for both states, is what actually keeps everything still — nothing here is animated away, the
+   space is just never different to begin with. Single line + ellipsis, like the toolbar's own
+   search box, rather than the multi-line wrap a normal card title allows. */
+.node.query-card .title { padding-left:22px; height:20px; line-height:20px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .node.query-card .title-row.query-editing .title { display:none; }
+/* Same box as .title (margin-bottom copied from the base .node .title rule below, padding-left
+   matching the icon gutter above) so the text doesn't jump when the field swaps in — an outline
+   (not a border/background box), exactly like the canvas' own .node .title.editing, since an
+   outline is painted outside the box and never shifts layout. */
 .node.query-card .title-row.query-editing .query-input { display:block; flex:1 1 auto; min-width:0;
-  box-sizing:border-box; padding:2px 6px; border-radius:6px; border:1px solid rgba(255,255,255,.18);
-  background:rgba(0,0,0,.18); color:inherit; font:inherit; font-size:14px; font-weight:600; }
-.node.query-card .query-input:focus { outline:none; box-shadow:0 0 0 2px var(--accent); }
+  box-sizing:border-box; height:20px; line-height:20px; margin-bottom:9px; padding:0 16px 0 22px;
+  border:none; border-radius:4px; color:inherit; font:inherit; font-size:14px; font-weight:600;
+  outline:2px solid var(--accent); outline-offset:2px; background:rgba(0,0,0,.5);
+  box-shadow:0 0 0 2px rgba(0,0,0,.5); }   /* fill the outline-offset gap, same trick as .title.editing */
 .node.query-card .query-input::placeholder { color:inherit; opacity:.6; }
 .query-box { display:none; }   /* hidden by default — only a query card's own paintNode branch shows it */
 .node.query-card .query-box { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; }
 .node.query-card .query-results { flex:1 1 auto; min-height:0; overflow-y:auto; }
-.node.query-card .query-item { display:block; width:100%; box-sizing:border-box; text-align:left;
-  padding:5px 7px; margin:1px 0; border-radius:6px; border:none; background:none; color:inherit;
-  font:inherit; font-size:12px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.node.query-card .query-item:hover { background:rgba(255,255,255,.12); }
+/* each result reads as a small card — the outline's .ol-row (styles.css's .ol-row block) in
+   miniature: its own colour via the shared .c-* palette classes, a lock badge, a checklist done
+   box, and a "⋮" actions menu (see queryItemHTML/openQueryItemMenu in main.ts). No drag handle —
+   these are search hits, not siblings to reorder. */
+.node.query-card .query-item { position:relative; display:flex; align-items:center; gap:6px;
+  width:100%; box-sizing:border-box; padding:5px 7px; margin:2px 0; border-radius:8px;
+  background:var(--card, transparent); color:#fff; cursor:pointer; }
+.node.query-card .query-item.c-none { color:var(--text); }
+.node.query-card .query-item.c-white { color:#2b3645; }
+.node.query-card .query-item:hover { filter:brightness(1.12); }
+.node.query-card .query-item.done .qi-title { text-decoration:line-through; opacity:.65; }
+.node.query-card .qi-title { flex:1 1 auto; min-width:0; font-size:12px; font-weight:600;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.node.query-card .qi-lock { flex:none; width:13px; height:13px; color:inherit; display:inline-flex; }
+.node.query-card .qi-lock svg { width:100%; height:100%; }
+.node.query-card .qi-done { -webkit-appearance:none; appearance:none; width:13px; height:13px;
+  margin:0; border:none; outline:none; border-radius:3px; background:#fff; cursor:pointer; flex:none; position:relative; }
+.node.query-card .qi-done:checked { background:var(--accent); }
+.node.query-card .qi-done:checked::after { content:""; position:absolute; left:3px; top:1px; width:4px; height:7px;
+  border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
+.node.query-card .qi-more { flex:none; width:20px; height:20px; padding:0; border:0; border-radius:6px;
+  background:transparent; color:inherit; opacity:.6; font-size:15px; line-height:1; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; }
+.node.query-card .qi-more:hover { opacity:1; background:rgba(255,255,255,.12); }
 .node.query-card .query-empty { padding:5px 7px; font-size:12px; opacity:.65; }
 /* resize handles: shares the frame/image-card hit-zones (main.ts ensureFrameHandle) */
 .node.query-card .fh { position:absolute; z-index:2; touch-action:none; }
@@ -459,9 +504,9 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
    (still needs white text to stay readable on its dark background) */
 body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: #000000; }
 .node.sel { box-shadow:0 0 0 2px var(--node-sel); }
-/* while editing a title/body in place, drop the card's selection ring so only the editor's
+/* while editing a title/body/query in place, drop the card's selection ring so only the editor's
    own outline shows */
-.node.sel:has(.title.editing), .node.sel:has(.body.editing) { box-shadow:none; }
+.node.sel:has(.title.editing), .node.sel:has(.body.editing), .node.sel:has(.title-row.query-editing) { box-shadow:none; }
 /* the dragged card (and its subtree) floats above every other card — including the
    landing ghost / insert bar (z-index:5). Translucency is applied to the whole #dragLayer as
    ONE group (below), not per card, so overlapping dragged items don't shine through each other. */
@@ -502,28 +547,37 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: 
 .node .title.editing { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;
   cursor:text; white-space:pre-wrap; overflow:visible; background:rgba(0,0,0,.5);
   box-shadow:0 0 0 2px rgba(0,0,0,.5); }   /* fill the outline-offset gap so the dark reaches the border */
-/* tag pills on a card — sits below the body, above the addnote affordance. Each tag is a single
-   emoji (no name, no colour — the emoji itself is the visual identity); clicking a card's own
-   pill removes it (features/tags.ts's bindCardTagPills). */
-.node .tag-row { display:flex; flex-wrap:wrap; flex:none; gap:3px; margin-top:6px; }
-/* image card: .body fills the box absolutely (no normal-flow room for a tag row), so the tags
-   float as a caption-style overlay bar at the bottom instead — clipped to the card's own rounded
-   corners by its overflow:hidden. pointer-events:none on the row + auto on each pill lets clicks
-   on the empty parts of the bar fall through to the image/card underneath (selection, drag). */
-.node.image-card .tag-row {
-  position:absolute; left:0; right:0; bottom:0; z-index:1; margin:0;
-  padding:8px; pointer-events:none;
+/* tag pills on a card — float along the card's lower edge, OUTSIDE the border, the same way
+   .addnote floats at the opposite (bottom-left) corner, so a tagged card is exactly as tall as an
+   untagged one: tags never take up in-flow space. Anchored to the right and growing leftward as
+   more are added (mirrors the iMessage-style reaction cluster). The trailing "+" (only present on
+   the selected card, appended last — see paintNode in main.ts) is this row's own right-anchored
+   end, so it always sits exactly where the next tag would land; existing tags shift further left
+   as new ones are added, the button itself never moves. One rule now covers every card type,
+   including image/query cards — no more overlay-bar special case. Each tag is a single emoji (no
+   name, no colour — the emoji itself is the visual identity); clicking a card's own pill removes it
+   (features/tags.ts's bindCardTagPills). z-index:3 — above a frame/image card's own resize handles
+   (.fh, z-index:2), which live in the same bottom-right corner: the emoji row and its add button
+   must win hit-testing there, not the resize grip underneath it. */
+.node .tag-row {
+  position:absolute; right:8px; bottom:-11px; z-index:3;
+  display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:4px; max-width:calc(100% - 16px);
 }
-.node.image-card .tag-row .tag-pill { pointer-events:auto; }
-/* query card: a normal flex child between .title-row and .query-box (both flex:none/flex:1 — see
-   below) — no extra positioning needed, the results area just shrinks to make room for it. */
 /* fixed height + box-sizing so every pill is exactly the same height regardless of its content.
    Tight, near-square padding — an emoji glyph, not a text label — so a row of tags stays compact. */
 .tag-pill {
   display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;
   height:18px; min-width:18px; max-width:100%; overflow:hidden;
-  padding:1px 3px; border-radius:var(--r-full); font-size:12px;
+  padding:1px 3px; border-radius:var(--r-full); font-size:12px; font-weight:700;
   line-height:1; background:rgba(255,255,255,.16); color:inherit; cursor:pointer;
+}
+/* on the canvas card itself, a tag is a solid reaction-style circle — same size as the row's own
+   add-emoji button (.tag-add-btn) and a brighter tint of the card's own colour behind it (not a
+   translucent overlay), so it reads as part of the card rather than a floating badge, while still
+   standing out clearly against it. */
+.node .tag-row .tag-pill {
+  width:22px; height:22px; min-width:22px; padding:0; font-size:13px;
+  background:color-mix(in srgb, var(--card, var(--node)) 72%, white 28%);
 }
 .node .title.editing.invalid { outline-color:#e0564a; }
 .node .body  { font-size:12px; color:inherit; opacity:.9; line-height:1.4;
@@ -581,21 +635,41 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: 
   border-radius:6px; padding:1px 6px; opacity:.85; }
 .node.search-dim { opacity:.2; }         /* dimmed while a find query excludes this card */
 .node.search-active { box-shadow:0 0 0 2px #fff; }   /* the active dropdown option's card */
-/* "add note" bubble: on a lone-selected, body-less card, the centre-bottom shows a blue pill
-   (a sibling of the + bubble) that opens the in-place note editor — replaces the old faint
-   "Add note…" placeholder text that used to live inside the body. */
-.node .addnote { position:absolute; left:50%; transform:translateX(-50%); bottom:-11px;
-  height:22px; line-height:22px; padding:0 9px; border-radius:11px;
-  background:var(--accent); color:#fff; font-size:11px; font-weight:600;
-  white-space:nowrap; cursor:pointer; display:none; }
-.node.solo.no-body > .addnote { display:block; }   /* only when there's no note yet — direct child only, so a nested CHILD CARD's own .addnote (they're real DOM descendants — see nodeEl/paintNode in main.ts) doesn't also match */
-body.readonly .node .addnote { display:none !important; }
+/* "add note": a small circular button floating outside the card's RIGHT edge, vertically centred —
+   clear of the tag row's own add-emoji button, which owns the bottom-right corner (see the tag-row
+   comment above). Only shown on a lone-selected, body-less card, to open the in-place note editor;
+   direct child of .node so a nested CHILD CARD's own addnote (they're real DOM descendants — see
+   nodeEl/paintNode in main.ts) never also matches. */
+.node .addnote { position:absolute; right:-11px; top:50%; transform:translateY(-50%); z-index:2;
+  width:22px; height:22px; padding:0; border:none; border-radius:50%;
+  background:var(--accent); color:#fff; cursor:pointer; display:none;
+  align-items:center; justify-content:center; }
+.node .addnote svg { width:14px; height:14px; display:block; }
+.node .addnote:hover { transform:translateY(-50%) scale(1.08); }
+.node.solo.no-body > .addnote { display:flex; }
+body.readonly .node .addnote,
 body.grabbing .node .addnote,
 .node.collapsed .addnote { display:none !important; }
-.node .addnote:hover { transform:translateX(-50%) scale(1.06); }
-/* while a card's title or body is being edited in place, hide its selection bubbles */
+/* "add emoji": the tag row's own trailing button — shown/hidden per-card by paintNode (main.ts,
+   included in the row's own innerHTML) for ANY selected, editable card, not just solo, and
+   regardless of body/image-card, so it's available everywhere .addnote isn't. Same solid circle
+   treatment as .addnote, sized to match the tag pills either side of it. */
+.node .tag-add-btn {
+  flex:none; width:22px; height:22px; padding:0; border:none; border-radius:50%;
+  background:var(--accent); color:#fff; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.node .tag-add-btn svg { width:14px; height:14px; display:block; }
+.node .tag-add-btn:hover { transform:scale(1.08); }
+body.grabbing .node .tag-add-btn,
+.node.collapsed .tag-add-btn { display:none !important; }
+/* while a card's title or body is being edited in place, hide its selection affordances — existing
+   tag pills stay visible (only the add-emoji/add-note buttons hide), same as before the tag row
+   grew a trailing button. */
 .node:has(.title.editing) .addnote,
-.node:has(.body.editing)  .addnote { display:none !important; }
+.node:has(.body.editing)  .addnote,
+.node:has(.title.editing) .tag-add-btn,
+.node:has(.body.editing)  .tag-add-btn { display:none !important; }
 /* collapse marker at the card's upper-right corner, clear of the add-child (+) button at the
    lower-centre. A folded branch shows its hidden-descendant COUNT; a folded leaf (no children)
    shows the same bubble empty — a white dot of the same size/position. */
@@ -670,7 +744,7 @@ body.sketching #sketchPanel { display:flex; }
 body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit bar's place */
 /* emoji tag picker popover (features/emoji-picker.ts): a Slack-reaction-style grid of recent +
    curated + vault-wide emoji, opened off whichever ".tag-add-btn" triggered it — the selected
-   card's own tag row on the canvas (main.ts), or the outline properties sheet's tag row
+   card's own bottom-left button on the canvas (main.ts), or the outline properties sheet's tag row
    (properties.ts). Unlike the float bar's own colour/type/layout popovers (.fb-pop, fixed to the
    bar's own height) this one wraps to multiple rows, so it owns its own box rather than reusing
    that class. */
@@ -684,7 +758,7 @@ body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit 
 .emoji-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
 .emoji-grid { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
 .emoji-grid + .emoji-label { margin-top:6px; }   /* space above a second section (Suggestions after Recent) */
-.emoji-grid .tag-pill { cursor:pointer; font-size:16px; height:28px; min-width:28px; padding:2px 6px; }
+.emoji-grid .tag-pill { cursor:pointer; font-size:16px; height:28px; min-width:28px; padding:2px 6px; background:none; }
 .emoji-grid .tag-pill.active { box-shadow:0 0 0 2px var(--accent); }
 .emoji-input {
   height:28px; margin-top:8px; padding:2px 10px; border-radius:var(--r-full); font-size:12px;
@@ -700,9 +774,6 @@ body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit 
   font-size:13px; line-height:1; display:inline-flex; align-items:center; justify-content:center;
 }
 .tag-add-btn:hover { border-color:var(--accent); color:var(--text); }
-/* on the canvas card itself, match the compact 18px emoji pills instead of the sidebar's roomier
-   20px touch target */
-.node .tag-row .tag-add-btn { width:18px; height:18px; font-size:11px; }
 #sketchPanel .sk-title { font-size:16px; font-weight:600; color:var(--text);
   padding-bottom:8px; border-bottom:1px solid var(--grid); }
 #sketchPanel .fgroup { display:flex; flex-direction:column; gap:6px; }
@@ -746,6 +817,13 @@ body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit 
 /* hides instantly the moment a drag/pan/zoom starts (features/float-bar.ts's follow loop),
    then fades back in via the base transition above once the pointer lifts */
 #floatBar.hide-interact { opacity:0; pointer-events:none; transition:none; }
+/* a selected card's own add-emoji/add-note BUTTONS float outside its border and don't reposition
+   themselves like the bar does — same follow loop (float-bar.ts) toggles this body class instead,
+   hiding them right along with the bar for the duration of any pan/zoom/drag. The tag PILLS
+   themselves are left alone — they're card content, not a selection affordance, so they stay put
+   and visible while panning/zooming just like the rest of the card. */
+body.canvas-interacting .tag-add-btn,
+body.canvas-interacting .addnote { display:none !important; }
 /* shared sizing only — background/colour live on .fb-icon so they never fight .swatch's own
    background on the colour trigger (an ID+type rule here would otherwise beat a plain class). */
 #floatBar button, #floatBar label {
@@ -887,7 +965,11 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    every bar (#toolbar, #floatBar, .floating-btn, .oc-back, .layoutchip) picks that up for free. */
 @media (pointer: coarse) {
   #toolbar { gap:8px; padding:5px 10px; }
-  .node .addnote { height:28px; line-height:28px; bottom:-14px; padding:0 11px; border-radius:14px; font-size:12px; }
+  .node .addnote { width:28px; height:28px; right:-14px; }
+  .node .addnote svg { width:16px; height:16px; }
+  .node .tag-row { bottom:-14px; gap:6px; }
+  .node .tag-row .tag-pill, .node .tag-add-btn { width:28px; height:28px; }
+  .node .tag-add-btn svg { width:16px; height:16px; }
   /* explicit flex:none so flex-basis doesn't override width and stretch them tall */
   .swatch { flex:none; width:22px; height:22px; }
   /* wrap so swatches never escape the sidebar on narrow panels */

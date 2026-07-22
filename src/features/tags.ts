@@ -6,12 +6,12 @@
 // opening the shared MRU popover (features/emoji-picker.ts). This module owns the mutation
 // (setTagOnNodes), the shared pill markup, and the card-rendered row's own click-to-remove / add
 // wiring.
-import { state, setStatus, type MindNode } from '../core/state.js';
+import { state, setStatus, isAnnotation, type MindNode } from '../core/state.js';
 import { isLockedEffective } from '../utils/model.js';
 import { record } from './history.js';
 import { scheduleSave } from '../data/persistence.js';
 import { applyLayouts } from '../view/layout.js';
-import { paintAll } from '../main.js';
+import { paintAll, selectedIds } from '../main.js';
 import { esc } from '../utils/markdown.js';
 // two-way cycle w/ emoji-picker.ts (which imports setTagOnNodes/tagPillHTML from here), evaluated
 // only inside bindCardTagPills's own click handler below, never at module-eval time — same style as
@@ -26,10 +26,15 @@ export function tagPillHTML(tag: string, extraAttrs = ''): string {
 
 // ---- shared "add/remove tag on a set of node ids" mutation — the one path both the emoji picker
 // and the card's own pill click funnel through, so the two always produce identical results. Skips
-// locked nodes (like every other per-card mutation, e.g. properties.ts's colour swatch). ----
+// locked nodes (like every other per-card mutation, e.g. properties.ts's colour swatch) and
+// annotations — a title-less pinned note has no room for a tag row and can never carry emoji, so a
+// multi-card "add emoji" that happens to include one just leaves it untouched rather than erroring. ----
 export function setTagOnNodes(ids: string[], tag: string, on: boolean): void {
   if (state.readOnly) return;
-  const targets = ids.filter(id => !isLockedEffective(state.nodes.get(id)!));
+  const targets = ids.filter(id => {
+    const n = state.nodes.get(id);
+    return !!n && !isLockedEffective(n) && !isAnnotation(n);
+  });
   if (!targets.length) return;
   record(targets, () => {
     for (const id of targets) {
@@ -45,9 +50,11 @@ export function setTagOnNodes(ids: string[], tag: string, on: boolean): void {
   paintAll(); applyLayouts(); paintAll(); scheduleSave();
 }
 
-// ---- card-rendered tag row: click a pill to remove it, click the trailing "+" (only present on
-// the selected card, see main.ts's showAddTag) to open the picker — main.ts's paintNode calls this
-// after rebuilding a card's .tag-row. ----
+// ---- card-rendered tag row: click a pill to remove it — from every selected card if this one is
+// part of a multi-selection (mirrors the add button's own "whole selection" reach below), or just
+// this card otherwise — click the trailing "+" (only present on the selection anchor, see main.ts's
+// showAddTag) to open the picker for the WHOLE selection — main.ts's paintNode calls this after
+// rebuilding a card's .tag-row. ----
 export function bindCardTagPills(rowEl: HTMLElement, n: MindNode): void {
   rowEl.querySelectorAll<HTMLElement>('.tag-pill').forEach(pill => {
     pill.addEventListener('pointerdown', (e) => e.stopPropagation());   // don't let it start a card drag/select
@@ -55,7 +62,8 @@ export function bindCardTagPills(rowEl: HTMLElement, n: MindNode): void {
       e.stopPropagation();
       if (state.readOnly) return;
       if (isLockedEffective(n)) { setStatus('Locked — can’t edit tags'); return; }
-      setTagOnNodes([n.id], pill.dataset.tag!, false);
+      const ids = state.sel.size > 1 && state.sel.has(n.id) ? selectedIds() : [n.id];
+      setTagOnNodes(ids, pill.dataset.tag!, false);
     });
   });
   const addBtn = rowEl.querySelector<HTMLButtonElement>('.tag-add-btn');
@@ -64,7 +72,9 @@ export function bindCardTagPills(rowEl: HTMLElement, n: MindNode): void {
     addBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (state.readOnly || isLockedEffective(n)) return;
-      openEmojiPicker(addBtn, [n.id]);
+      // this button only ever renders on the selection anchor (main.ts's showAddTag), but the
+      // emoji it picks applies to every selected card, not just this one.
+      openEmojiPicker(addBtn, selectedIds());
     });
   }
 }

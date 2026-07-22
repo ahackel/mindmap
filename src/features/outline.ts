@@ -9,7 +9,7 @@
 // mm_collapsed, so jumping around the tree doesn't silently expand/save a pile of ancestors. All
 // edits reuse the existing kernels (crud / drag reparent / history), so undo, autosave and
 // read-only behave the same as on the canvas.
-import { state, setStatus, isAnnotation, isLeafType, type MindNode } from '../core/state.js';
+import { state, setStatus, isAnnotation, isLeafType, isQueryCard, type MindNode } from '../core/state.js';
 import { PHONE_MQ, PORTRAIT_MQ } from '../core/ui-state.js';
 import { childrenOf, isRoot, isAncestor, descendantCount, isLockedEffective, subtreeHasLocked } from '../utils/model.js';
 import { orderedKids, sideOf, deriveSide, orderAxisIsX, applyLayouts } from '../view/layout.js';
@@ -424,8 +424,9 @@ export function revealInOutline(id: string): void {
 // button, drag-to-reorder-or-reparent).
 function openRowMenu(n: MindNode, x: number, y: number): void {
   const locked = isLockedEffective(n);
+  const query = isQueryCard(n);   // no renamable title — its title slot shows the query text instead
   openMenu([
-    { label: 'Rename', run: () => startRowTitleEdit(n), disabled: locked },
+    { label: 'Rename', run: () => startRowTitleEdit(n), disabled: locked || query },
     { label: 'Duplicate', shortcut: 'D', run: () => { selectNode(n.id); duplicateSelection({ edit: false }); } },
     { label: locked ? 'Unlock' : 'Lock', shortcut: 'L', run: () => setLockedSelection([n.id], !locked) },
     { label: 'Delete', shortcut: 'Del', run: () => deleteNode(n.id), danger: true, disabled: subtreeHasLocked(n.id) },

@@ -364,7 +364,7 @@ export function buildCardMenu(n: MindNode, sx: number, sy: number): MenuEntry[] 
   const entries: MenuEntry[] = [];
   if (!state.readOnly){
     if (!multi){
-      if (!isImage && !isAnno) entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n), disabled: locked });   // query keeps its title
+      if (!isImage && !isAnno && !isQuery) entries.push({ label:'Rename', shortcut:'F2', run: () => startInlineEdit(n), disabled: locked });   // query has no renamable title — F2 edits its query instead (features/inline-edit.ts)
       if (!isImage && !isQuery) entries.push({ label:'Edit note', shortcut:'E', run: () => startBodyEdit(n), disabled: locked });   // annotation keeps its body; query has none
       if (!isImage && !isQuery) entries.push({ label:'Insert image…', run: () => pickImagesForNode(n.id), disabled: locked });
       if (!isLeaf){
@@ -464,6 +464,10 @@ function followLoop(): void {
     activePopover.pop.classList.toggle('hide-interact', interacting);
     popConnector.classList.toggle('hide-interact', interacting);
   }
+  // a selected card's own add-emoji/add-note buttons (main.ts's showAddTag/.addnote) float outside
+  // its border and don't reposition themselves — they'd lag behind mid-pan/zoom the same way the
+  // bar itself would, so hide them right along with it via one body-level class (styles.css).
+  document.body.classList.toggle('canvas-interacting', interacting);
   raf = bar.classList.contains('open') ? requestAnimationFrame(followLoop) : null;
 }
 window.addEventListener('resize', () => { closePopovers(); positionBar(); });
@@ -490,6 +494,7 @@ export function syncFloatBar(): void {
   if (!visible) {
     bar.classList.remove('open');
     if (raf != null) { cancelAnimationFrame(raf); raf = null; }
+    document.body.classList.remove('canvas-interacting');
     return;
   }
   if (bar.classList.contains('open')) {   // already showing — update in place, no delay needed
