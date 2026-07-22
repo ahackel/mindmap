@@ -1214,8 +1214,10 @@ body.outline:not(.readonly) .ol-head {
 .ol-search > .ic svg, .ol-search > [data-icon] svg { position:absolute; left:14px; width:14px; height:14px;
   display:block; color:var(--muted); pointer-events:none; flex:none; }
 #olSearch { width:100%; min-width:0; box-sizing:border-box; height:40px; padding:0 12px 0 34px;
-  border:none; border-radius:var(--r-full); background:var(--node); color:var(--text); font-size:15px; }
+  border:none; border-radius:var(--r-full); background:var(--node); color:var(--text); font-size:15px;
+  -webkit-appearance:none; appearance:none; }   /* type=search for the nicer "Search" return key; we draw our own icon/clear button, so strip iOS's own */
 #olSearch:focus { outline:none; box-shadow:0 0 0 2px var(--accent); }
+#olSearch::-webkit-search-decoration, #olSearch::-webkit-search-cancel-button, #olSearch::-webkit-search-results-button { display:none; -webkit-appearance:none; }
 #olAddBtn { flex:none; width:40px; height:40px; padding:0; border:none; border-radius:50%;
   display:inline-flex; align-items:center; justify-content:center;
   background:var(--accent); color:#fff; cursor:pointer; }
@@ -1227,10 +1229,14 @@ body.outline:not(.readonly) .ol-head {
 #olAddBtn.ol-clear-mode:hover { color:var(--text); }
 #olAddBtn.ol-clear-mode .ol-add-plus { font-size:18px; }
 /* docked flush against the keyboard (features/outline.ts's armKeyboardTracking): a full-width
-   flat strip sitting directly on the keyboard's own accessory bar, instead of a floating pill
-   with a gap over it — makes the two read as one continuous toolbar rather than double chrome. */
+   strip sitting directly on the keyboard's own accessory bar, instead of a floating pill with a
+   gap over it — makes the two read as one continuous toolbar rather than double chrome. A frosted
+   glass tint (like iOS's own toolbar material) rather than a flat panel colour, so it reads as
+   part of the system chrome instead of a plain rectangle pasted over the keyboard. */
 body.outline:not(.readonly) .ol-head.kb-docked { padding:6px 10px; gap:8px;
-  background:var(--panel); border-top:1px solid var(--grid); }
+  background:color-mix(in srgb, var(--panel) 72%, transparent);
+  -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px);
+  border-top:1px solid color-mix(in srgb, var(--grid) 60%, transparent); }
 .ol-head.kb-docked #olSearch { height:36px; }
 .ol-head.kb-docked #olAddBtn { width:36px; height:36px; }
 /* close outline — the drawer's top-LEFT corner, the exact same spot/size as #ocBack (so there's
