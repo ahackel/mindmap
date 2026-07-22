@@ -124,7 +124,7 @@ export function toggleOutlineView(): void { if (!outlineLocked()) setOutline(!ou
 export function setOutline(on: boolean, persist = true): void {
   if (on === outlineActive()) return;
   if (document.body.classList.contains('sketching')) { setStatus('Leave sketch mode first (S)'); return; }
-  if (!on) { closeBranchEditor(); olSearchInput.value = ''; outlineQuery = ''; }   // leaving outline: drop any open branch editor + search filter
+  if (!on) { closeBranchEditor(); olSearchInput.value = ''; outlineQuery = ''; disarmKeyboardTracking(); }   // leaving outline: drop any open branch editor + search filter
   document.body.classList.toggle('outline', on);
   outlineBtn.classList.toggle('active', on);
   if (persist) { try { localStorage.setItem(VIEW_KEY, on ? 'outline' : 'canvas'); } catch {} }
@@ -157,6 +157,7 @@ if (wantOutline()) { document.body.classList.add('outline'); outlineBtn.classLis
 // Filters the row list to matches (title OR body) plus their ancestors, so a hit stays reachable
 // in its tree position; matched branches force-unfold regardless of mm_collapsed/outlineFold
 // (restored automatically once the query is cleared, since neither is touched here).
+const olHeadEl = document.querySelector('.ol-head') as HTMLElement;
 const olSearchInput = document.getElementById('olSearch') as HTMLInputElement;
 let outlineQuery = '';
 function matchesOutlineQuery(n: MindNode, q: string): boolean {
@@ -172,11 +173,51 @@ function outlineSearchVisible(q: string): Set<string> {
   }
   return visible;
 }
-olSearchInput.addEventListener('input', () => { outlineQuery = olSearchInput.value; renderOutline(); });
+function clearOutlineSearch(): void {
+  olSearchInput.value = ''; outlineQuery = ''; renderOutline(); updateAddBtnMode();
+}
+olSearchInput.addEventListener('input', () => { outlineQuery = olSearchInput.value; renderOutline(); updateAddBtnMode(); });
 olSearchInput.addEventListener('keydown', (e) => {
   e.stopPropagation();
-  if (e.key === 'Escape') { e.preventDefault(); olSearchInput.value = ''; outlineQuery = ''; renderOutline(); olSearchInput.blur(); }
+  if (e.key === 'Escape') { e.preventDefault(); clearOutlineSearch(); olSearchInput.blur(); }
 });
+
+// ---- lift the search bar above the software keyboard (iOS: a fixed bottom bar stays UNDER the
+// keyboard because Safari doesn't resize the layout viewport when it appears — only the visual
+// viewport shrinks). While the field is focused we track window.visualViewport and reposition the
+// bar with `top` (not `bottom`) at its bottom edge; blur restores the normal docked position. A
+// no-op on desktop (no keyboard → visualViewport tracks the window almost exactly, threshold below
+// never trips) and wherever visualViewport isn't supported.
+const KEYBOARD_GAP = 8;
+function repositionOlHead(): void {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const bottomInset = window.innerHeight - (vv.height + vv.offsetTop);
+  if (bottomInset > 40) {   // keyboard (or some other viewport-shrinking overlay) is showing
+    olHeadEl.style.bottom = 'auto';
+    olHeadEl.style.top = `${vv.offsetTop + vv.height - olHeadEl.offsetHeight - KEYBOARD_GAP}px`;
+  } else {
+    olHeadEl.style.top = ''; olHeadEl.style.bottom = '';
+  }
+}
+let vvTracking = false;
+function armKeyboardTracking(): void {
+  if (vvTracking || !window.visualViewport) return;
+  vvTracking = true;
+  window.visualViewport.addEventListener('resize', repositionOlHead);
+  window.visualViewport.addEventListener('scroll', repositionOlHead);
+  repositionOlHead();
+}
+function disarmKeyboardTracking(): void {
+  if (vvTracking && window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', repositionOlHead);
+    window.visualViewport.removeEventListener('scroll', repositionOlHead);
+  }
+  vvTracking = false;
+  olHeadEl.style.top = ''; olHeadEl.style.bottom = '';
+}
+olSearchInput.addEventListener('focus', () => { armKeyboardTracking(); updateAddBtnMode(); });
+olSearchInput.addEventListener('blur', () => { disarmKeyboardTracking(); updateAddBtnMode(); });
 
 // ---- rendering ----
 // Full rebuild — called from paintAll() so every mutation path (crud, undo, reload, selection)
@@ -322,8 +363,20 @@ function rowFor(n: MindNode, depth: number, kids: MindNode[], searching = false)
 // New-card button (floating +): while the single-card editor is open it adds a child of the open
 // card (see addToBranch); in the row list — which carries no selection to be contextual about —
 // it's always a fresh root card. The routed startInlineEdit opens the new card for editing.
+// While search is active (focused or has a query) it doubles as a × that clears/cancels the
+// search instead — the same swap iOS search fields make between their trailing action and Cancel.
 const olAddBtn = document.getElementById('olAddBtn') as HTMLButtonElement;
+const olAddPlus = olAddBtn.querySelector('.ol-add-plus') as HTMLElement;
+function searchIsActive(): boolean { return document.activeElement === olSearchInput || !!outlineQuery; }
+function updateAddBtnMode(): void {
+  const active = searchIsActive();
+  olAddBtn.classList.toggle('ol-clear-mode', active);
+  olAddBtn.title = active ? 'Clear search' : 'New card — child of the selected card (Tab)';
+  olAddBtn.setAttribute('aria-label', active ? 'Clear search' : 'New card');
+  olAddPlus.textContent = active ? '×' : '+';
+}
 olAddBtn.onclick = () => {
+  if (olAddBtn.classList.contains('ol-clear-mode')) { clearOutlineSearch(); olSearchInput.blur(); return; }
   if (state.readOnly) return;
   if (branchEditorOpen()) { addToBranch(); return; }
   createNode();

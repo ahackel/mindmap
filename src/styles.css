@@ -1204,18 +1204,28 @@ body.outline:not(.readonly) .ol-head {
   display:flex; align-items:center; gap:10px;
   position:absolute; left:0; right:0; bottom:calc(12px + env(safe-area-inset-bottom)); z-index:22;
   padding:0 14px;
+  transition:top .18s ease, bottom .18s ease;   /* tracks the keyboard, see armKeyboardTracking */
 }
+/* icon sits INSIDE the pill, left-inset — mirrors #searchWrap's own icon placement (same trick:
+   .ic is display:contents, so size/position must target the svg itself, not the span; leaving
+   top/transform unset lets the flex container's align-items:center place it, since an absolutely
+   positioned flex item still resolves its static position from the flex alignment). */
 .ol-search { position:relative; flex:1 1 auto; min-width:0; display:flex; align-items:center; }
-.ol-search .ic { position:absolute; left:14px; width:14px; height:14px; color:var(--muted); pointer-events:none; }
-.ol-search .ic svg { width:100%; height:100%; display:block; }
-#olSearch { width:100%; min-width:0; box-sizing:border-box; height:44px; padding:0 12px 0 34px;
-  border:none; border-radius:var(--r-full); background:var(--node); color:var(--text); font-size:14px; }
+.ol-search > .ic svg, .ol-search > [data-icon] svg { position:absolute; left:14px; width:14px; height:14px;
+  display:block; color:var(--muted); pointer-events:none; flex:none; }
+#olSearch { width:100%; min-width:0; box-sizing:border-box; height:40px; padding:0 12px 0 34px;
+  border:none; border-radius:var(--r-full); background:var(--node); color:var(--text); font-size:15px; }
 #olSearch:focus { outline:none; box-shadow:0 0 0 2px var(--accent); }
-#olAddBtn { flex:none; width:44px; height:44px; padding:0; border:none; border-radius:50%;
+#olAddBtn { flex:none; width:40px; height:40px; padding:0; border:none; border-radius:50%;
   display:inline-flex; align-items:center; justify-content:center;
   background:var(--accent); color:#fff; cursor:pointer; }
 #olAddBtn:hover { filter:brightness(1.08); }
 .ol-add-plus { font-size:22px; font-weight:400; line-height:1; }
+/* search active (focused or has a query): the + becomes a × that clears/cancels the search,
+   styled as a secondary action (not the accent "create" colour) — see updateAddBtnMode(). */
+#olAddBtn.ol-clear-mode { background:var(--node); color:var(--muted); }
+#olAddBtn.ol-clear-mode:hover { color:var(--text); }
+#olAddBtn.ol-clear-mode .ol-add-plus { font-size:18px; }
 /* close outline — the drawer's top-LEFT corner, the exact same spot/size as #ocBack (so there's
    one consistent top-left control), and mutually exclusive with it: #ocBack shows while the
    branch editor is open (body.ol-editing), this shows the rest of the time — visible in read-only
