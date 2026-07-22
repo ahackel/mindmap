@@ -7,16 +7,15 @@
 // canvas geometry with no meaning in the outline, so the branch sheet doesn't get them.
 import { state } from '../core/state.js';
 import { isLockedEffective } from '../utils/model.js';
-import { record, touch, commitStep } from './history.js';
+import { record } from './history.js';
 import { scheduleSave } from '../data/persistence.js';
-import { applyLayouts } from '../view/layout.js';
 import { paintAll, SWATCH_BG, PALETTE } from '../main.js';
-import { allTags } from './tags.js';
-import { esc } from '../utils/markdown.js';
+import { setTagOnNodes, tagPillHTML } from './tags.js';
+import { openEmojiPicker } from './emoji-picker.js';
 
 export interface PropEls {
   colors: HTMLElement;
-  tags?: HTMLInputElement;   // omitted where the bar has no room for free-text tags
+  tagRow?: HTMLElement;   // omitted where the bar has no room (canvas float bar has its own #fbTag button instead)
   checklist: HTMLInputElement;
   bg: HTMLInputElement;
 }
@@ -77,35 +76,32 @@ export function createProperties(els: PropEls, getIds: () => string[]): Property
   els.checklist.addEventListener('change', () => setBool('checklist', els.checklist.checked));
   els.bg.addEventListener('change', () => setBool('bg', els.bg.checked));
 
-  // ---- tags: live per keystroke, but ONE undo step per focus→blur session (mirrors inline edits).
-  // Tags are per-card, so they only apply to a single target (the sidebar hides them in multi-select).
-  // Optional: the float bar has no room for free-text tags, so it omits this control entirely.
-  if (els.tags){
-    const tagsEl = els.tags;
-    // autocomplete: refresh the shared #tagSuggestions datalist (index.html) from every tag
-    // already in use, so typing doesn't create near-duplicates by typo — assists typing only,
-    // doesn't change the comma-split parsing below.
-    tagsEl.addEventListener('focus', () => {
-      const dl = document.getElementById('tagSuggestions');
-      if (dl) dl.innerHTML = allTags().map(({ name }) => `<option value="${esc(name)}">`).join('');
+  // ---- tags: emoji pills + a trailing "+" that opens the shared MRU picker (features/emoji-picker.ts).
+  // Tags are per-card, so they only apply to a single target. Optional: the canvas float bar has its
+  // own dedicated #fbTag button instead of routing through this shared row.
+  function renderTagRow(): void {
+    if (!els.tagRow) return;
+    const ids = getIds();
+    const n = ids.length === 1 ? state.nodes.get(ids[0]) : undefined;
+    const tags = n ? n.tags : [];
+    els.tagRow.innerHTML = tags.map(t => tagPillHTML(t, ' data-removable')).join('') +
+      `<button type="button" class="tag-add-btn" title="Add tag" aria-label="Add tag">+</button>`;
+    els.tagRow.querySelectorAll<HTMLElement>('.tag-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        if (!n || isLockedEffective(n)) return;
+        setTagOnNodes([n.id], pill.dataset.tag!, false);
+        renderTagRow();
+      });
     });
-    tagsEl.addEventListener('input', () => {
-      const id = getIds()[0]; const n = id ? state.nodes.get(id) : undefined; if (!n || isLockedEffective(n)) return;
-      n.tags = tagsEl.value.split(',').map(s => s.trim()).filter(Boolean);
-      n.dirty = true;
-      // paint first so the card's height is current, then reflow (a tag row can change height), then paint.
-      paintAll(); applyLayouts(); paintAll(); scheduleSave();
-    });
-    tagsEl.addEventListener('focus', () => touch(...getIds()));
-    tagsEl.addEventListener('blur', () => commitStep());
+    const addBtn = els.tagRow.querySelector<HTMLButtonElement>('.tag-add-btn')!;
+    addBtn.addEventListener('click', () => { if (n && !isLockedEffective(n)) openEmojiPicker(addBtn, [n.id], renderTagRow); });
   }
 
   function sync(): void {
     markSwatch();
     markToggle(els.checklist, 'checklist');
     markToggle(els.bg, 'bg');
-    const ids = getIds();
-    if (els.tags && ids.length === 1) { const n = state.nodes.get(ids[0]); if (n) els.tags.value = n.tags.join(', '); }
+    renderTagRow();
   }
 
   rebuildSwatches();

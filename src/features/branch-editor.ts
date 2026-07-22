@@ -34,7 +34,7 @@ let activeId: string | null = null;   // the card currently focused → the prop
 // yet (createProperties builds the swatch row eagerly), so we defer to first open.
 const bpEl = document.getElementById('branchProps') as HTMLElement;
 bpEl.inert = true;   // stays in the DOM (transform:translateY, not display:none) so its slide-up
-// animates — but that also leaves #bpTags/#bpChecklist/#bpBg focusable while "closed", which
+// animates — but that also leaves #bpTagRow/#bpChecklist/#bpBg focusable while "closed", which
 // iOS Safari counts towards showing the keyboard's Prev/Next accessory bar even for an unrelated
 // focused field elsewhere on the page. `inert` drops it from the focus/tab order without
 // touching layout or the transition; toggled alongside body.branch-props-open below.
@@ -42,7 +42,7 @@ let bpPanel: PropertyControls | null = null;
 function props(): PropertyControls {
   return bpPanel ??= createProperties({
     colors: document.getElementById('bpColors') as HTMLElement,
-    tags: document.getElementById('bpTags') as HTMLInputElement,
+    tagRow: document.getElementById('bpTagRow') as HTMLElement,
     checklist: document.getElementById('bpChecklist') as HTMLInputElement,
     bg: document.getElementById('bpBg') as HTMLInputElement,
   }, () => (activeId ? [activeId] : []));
