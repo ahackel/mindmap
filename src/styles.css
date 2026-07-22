@@ -1226,6 +1226,13 @@ body.outline:not(.readonly) .ol-head {
 #olAddBtn.ol-clear-mode { background:var(--node); color:var(--muted); }
 #olAddBtn.ol-clear-mode:hover { color:var(--text); }
 #olAddBtn.ol-clear-mode .ol-add-plus { font-size:18px; }
+/* docked flush against the keyboard (features/outline.ts's armKeyboardTracking): a full-width
+   flat strip sitting directly on the keyboard's own accessory bar, instead of a floating pill
+   with a gap over it — makes the two read as one continuous toolbar rather than double chrome. */
+body.outline:not(.readonly) .ol-head.kb-docked { padding:6px 10px; gap:8px;
+  background:var(--panel); border-top:1px solid var(--grid); }
+.ol-head.kb-docked #olSearch { height:36px; }
+.ol-head.kb-docked #olAddBtn { width:36px; height:36px; }
 /* close outline — the drawer's top-LEFT corner, the exact same spot/size as #ocBack (so there's
    one consistent top-left control), and mutually exclusive with it: #ocBack shows while the
    branch editor is open (body.ol-editing), this shows the rest of the time — visible in read-only
