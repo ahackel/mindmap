@@ -1,20 +1,32 @@
 // ---------- shared emoji-tag popover: Slack-reaction-style "add a tag" picker ----------
-// Opened from a trigger button (the canvas float bar's #fbTag, or the outline properties sheet's
-// tag-row "+"), anchored next to it (same anchor-rect + viewport-clamp math as float-bar.ts's own
-// colour/type/layout popovers — an independently-owned copy, same style as that module's own
-// relationship to context-menu.ts's openMenu, per CLAUDE.md's note on these small UI modules each
-// owning their own positioning rather than sharing one abstraction).
-// Shows recently-used emoji first (persisted in localStorage — a UI convenience, not vault data),
-// then fills any remaining grid slots with other distinct emoji already used somewhere in the
-// vault, so a tag used only once isn't hard to find again. A trailing text input accepts a
-// typed/pasted emoji (there's no embeddable browser emoji-picker API, so this leans on the OS
-// picker — Cmd+Ctrl+Space / Win+. — or paste) and takes its first grapheme cluster as the tag.
+// Opened from a trigger button — the selected card's own ".tag-add-btn" (main.ts), or the outline
+// properties sheet's tag-row "+" (properties.ts) — anchored next to it (same anchor-rect +
+// viewport-clamp math as float-bar.ts's own colour/type/layout popovers — an independently-owned
+// copy, same style as that module's own relationship to context-menu.ts's openMenu, per CLAUDE.md's
+// note on these small UI modules each owning their own positioning rather than sharing one
+// abstraction).
+// Primary path is clicking a pill: recently-used emoji first (persisted in localStorage — a UI
+// convenience, not vault data), then a curated set of common "tag-like" emoji, then any other
+// distinct emoji already used somewhere in the vault (so a tag used only once isn't hard to find
+// again) — covers the overwhelming majority of picks without ever needing to type. A trailing text
+// input is the fallback for anything outside that set (there's no embeddable browser emoji-picker
+// API, so it leans on the OS picker — Cmd+Ctrl+Space / Win+. — or paste) and takes its first
+// grapheme cluster as the tag.
 import { state } from '../core/state.js';
 import { setTagOnNodes, tagPillHTML } from './tags.js';
 
 const MRU_KEY = 'mindmap.tagMru';
 const MRU_MAX = 16;
-const GRID_MAX = 24;
+const GRID_MAX = 56;
+
+// A hand-picked set covering common "status / priority / type" reactions — chosen so clicking is
+// the normal path and the type-your-own input becomes the rare fallback, not the primary flow.
+const CURATED = [
+  '🔥','⭐','📌','✅','❌','⚠️','💡','🐛','🚀','📅',
+  '🔒','👍','👎','❤️','🎉','📝','🔗','🔍','🛠️','🚧',
+  '🔔','💬','🎯','📊','🧠','📚','🧩','⏰','💰','🏆',
+  '🚩','🌟','🧪','📎','🗂️','😀','😢','🤔','👀','💤',
+];
 
 function loadMru(): string[] {
   try { const raw = JSON.parse(localStorage.getItem(MRU_KEY) ?? '[]'); return Array.isArray(raw) ? raw.filter(t => typeof t === 'string') : []; }
@@ -77,8 +89,8 @@ export function openEmojiPicker(anchor: HTMLElement, targetIds: string[], onChan
   if (!ids.length) return;
   const current = (tag: string): boolean => ids.every(id => state.nodes.get(id)!.tags.includes(tag));
   const mru = loadMru();
-  const grid = [...mru];
-  for (const t of vaultTags()) { if (grid.length >= GRID_MAX) break; if (!grid.includes(t)) grid.push(t); }
+  const suggested: string[] = [];
+  for (const t of [...CURATED, ...vaultTags()]) { if (suggested.length >= GRID_MAX) break; if (!mru.includes(t) && !suggested.includes(t)) suggested.push(t); }
 
   const pick = (tag: string): void => {
     setTagOnNodes(ids, tag, !current(tag));
@@ -86,12 +98,12 @@ export function openEmojiPicker(anchor: HTMLElement, targetIds: string[], onChan
     close();
     onChange?.();
   };
+  const grid = (label: string, tags: string[]): string => tags.length
+    ? `<div class="emoji-label">${label}</div><div class="emoji-grid">${tags.map(t => tagPillHTML(t, current(t) ? ' class="tag-pill active"' : '')).join('')}</div>`
+    : '';
 
-  pop.innerHTML = grid.length
-    ? `<div class="emoji-grid">${grid.map(t => tagPillHTML(t, current(t) ? ' class="tag-pill active"' : '')).join('')}</div>` +
-      `<input type="text" class="emoji-input" placeholder="Type or paste an emoji, then Enter" autocomplete="off" spellcheck="false">`
-    : `<div class="emoji-empty">No tags yet</div>` +
-      `<input type="text" class="emoji-input" placeholder="Type or paste an emoji, then Enter" autocomplete="off" spellcheck="false">`;
+  pop.innerHTML = grid('Recent', mru) + grid('Suggestions', suggested) +
+    `<input type="text" class="emoji-input" placeholder="Or type/paste your own, then Enter" autocomplete="off" spellcheck="false">`;
   pop.querySelectorAll<HTMLElement>('.emoji-grid .tag-pill').forEach(el => {
     el.addEventListener('click', () => pick(el.dataset.tag!));
   });

@@ -669,23 +669,25 @@ body.empty-canvas:not(.readonly) .emptyhint { opacity:1; }
 body.sketching #sketchPanel { display:flex; }
 body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit bar's place */
 /* emoji tag picker popover (features/emoji-picker.ts): a Slack-reaction-style grid of recent +
-   vault-wide emoji, opened off whichever "+"/tag button triggered it (#fbTag on the canvas,
-   .tag-add-btn in the outline properties sheet). Unlike the float bar's own colour/type/layout
-   popovers (.fb-pop, fixed to the bar's own height) this one wraps to multiple rows, so it owns
-   its own box rather than reusing that class. */
+   curated + vault-wide emoji, opened off whichever ".tag-add-btn" triggered it — the selected
+   card's own tag row on the canvas (main.ts), or the outline properties sheet's tag row
+   (properties.ts). Unlike the float bar's own colour/type/layout popovers (.fb-pop, fixed to the
+   bar's own height) this one wraps to multiple rows, so it owns its own box rather than reusing
+   that class. */
 #emojiPop {
-  position:fixed; top:0; left:0; z-index:25; display:none; flex-direction:column; gap:8px;
-  width:220px; max-height:260px; overflow:auto; padding:10px;
+  position:fixed; top:0; left:0; z-index:25; display:none; flex-direction:column;
+  width:260px; max-height:320px; overflow:auto; padding:10px;
   background:var(--panel); border-radius:var(--r-panel);
   box-shadow:0 4px 16px rgba(0,0,0,.25);
 }
 #emojiPop.open { display:flex; }
-.emoji-grid { display:flex; flex-wrap:wrap; gap:6px; }
+.emoji-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+.emoji-grid { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+.emoji-grid + .emoji-label { margin-top:6px; }   /* space above a second section (Suggestions after Recent) */
 .emoji-grid .tag-pill { cursor:pointer; font-size:16px; height:28px; min-width:28px; padding:2px 6px; }
 .emoji-grid .tag-pill.active { box-shadow:0 0 0 2px var(--accent); }
-.emoji-empty { font-size:12px; color:var(--muted); }
 .emoji-input {
-  height:28px; padding:2px 10px; border-radius:var(--r-full); font-size:12px;
+  height:28px; margin-top:8px; padding:2px 10px; border-radius:var(--r-full); font-size:12px;
   background:var(--bg); border:1px solid var(--node-border); color:var(--text);
 }
 .emoji-input:focus { border-color:var(--accent); outline:none; }
@@ -698,6 +700,9 @@ body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit 
   font-size:13px; line-height:1; display:inline-flex; align-items:center; justify-content:center;
 }
 .tag-add-btn:hover { border-color:var(--accent); color:var(--text); }
+/* on the canvas card itself, match the compact 18px emoji pills instead of the sidebar's roomier
+   20px touch target */
+.node .tag-row .tag-add-btn { width:18px; height:18px; font-size:11px; }
 #sketchPanel .sk-title { font-size:16px; font-weight:600; color:var(--text);
   padding-bottom:8px; border-bottom:1px solid var(--grid); }
 #sketchPanel .fgroup { display:flex; flex-direction:column; gap:6px; }

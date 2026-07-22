@@ -322,6 +322,9 @@ export function paintNode(n: MindNode): void {
   const collapsedKids = n.collapsed && hasKids;            // hidden children → +N chip
   const collapsed = n.collapsed && (hasKids || hasBody);   // folded to just its title
   const showDone = showsDoneCheckbox(n);                   // checklist item of a checklist parent
+  // selected card gets an inline "+" at the end of its tag row (features/tags.ts's openEmojiPicker) —
+  // frames have no natural place for a tag row at all (see the tag-row comment below).
+  const showAddTag = state.sel.has(n.id) && !isFrameBox(n) && !state.readOnly && !isLockedEffective(n);
   el.className = 'node c-' + effectiveColor(n)
     + (isFrameBox(n) ? ' frame' : '')
     + (isImageBox(n) ? ' image-card' : '')
@@ -332,7 +335,7 @@ export function paintNode(n: MindNode): void {
     + (collapsed ? ' collapsed' : '')
     + (n.locked ? ' locked' : '')
     + (hasBody ? '' : ' no-body')
-    + (isFrameBox(n) || !n.tags.length ? ' no-tags' : '')
+    + (isFrameBox(n) || (!n.tags.length && !showAddTag) ? ' no-tags' : '')
     + (showDone ? ' show-done' : '')
     + (showDone && n.done ? ' done' : '')
     + (ui.drag?.targets?.has(n.id) ? ' dragging' : '')   // float the dragged subtree above all cards
@@ -425,10 +428,11 @@ export function paintNode(n: MindNode): void {
   // the tag list actually changed, so an unrelated repaint mid-drag can't destroy a
   // pointer-captured pill (features/tags.ts's bindCardTagPills).
   const tagRowEl = el.querySelector('.tag-row') as HTMLElement;
-  const tagsKey = (isFrameBox(n) || !n.tags.length) ? '' : n.tags.join(' ');
+  const tagsKey = isFrameBox(n) ? '' : n.tags.join(' ') + (showAddTag ? ' +' : '');
   if (tagRowEl.dataset.tagsKey !== tagsKey) {
     tagRowEl.dataset.tagsKey = tagsKey;
-    tagRowEl.innerHTML = tagsKey ? n.tags.map(t => tagPillHTML(t)).join('') : '';
+    tagRowEl.innerHTML = (isFrameBox(n) ? '' : n.tags.map(t => tagPillHTML(t)).join('')) +
+      (showAddTag ? '<button type="button" class="tag-add-btn" title="Add tag" aria-label="Add tag">+</button>' : '');
     bindCardTagPills(tagRowEl, n);
   }
   // folded branch → hidden-descendant count; folded leaf → empty bubble (a white dot)
