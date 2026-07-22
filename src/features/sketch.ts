@@ -11,7 +11,6 @@ import { screenToWorld } from '../view/camera.js';
 import { scheduleSaveSketch } from '../data/persistence.js';
 import { touchStrokes, commitStep } from './history.js';
 import { selectNode } from '../main.js';
-import { setTagPanelOpen } from './tags.js';   // two-way cycle w/ tags.ts, evaluated only in setSketchMode below
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 
@@ -176,7 +175,7 @@ function byId<T extends HTMLElement = HTMLElement>(id: string): T { return docum
 export function setSketchMode(on: boolean): void {
   ui.sketchOn = on;
   if (!on) sketchCancel();
-  else { selectNode(null); if (ui.tagPanelOn) setTagPanelOpen(false); }   // cards are locked in sketch mode — clear any selection, and the tag panel can't be open at the same time
+  else selectNode(null);   // cards are locked in sketch mode — clear any selection
   document.body.classList.toggle('sketching', on);     // opens #sketchPanel, locks .node pointer-events (styles.css)
   byId('sketchBtn').classList.toggle('active', on);
   setStatus(on ? 'Sketch mode — draw on the canvas' : 'Sketch mode off');

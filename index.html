@@ -145,13 +145,10 @@
       <label class="checkbox-label"><input id="bpBg" type="checkbox"> Group background</label>
     </div>
     <div class="fgroup fg-tags">
-      <label>Tags (comma)</label>
-      <input id="bpTags" type="text" placeholder="mechanic, system" autocomplete="off" spellcheck="false" list="tagSuggestions" />
+      <label>Tags</label>
+      <div id="bpTagRow" class="tag-row-edit"></div>
     </div>
   </div>
-
-  <!-- shared autocomplete source for every free-text tags input (populated from features/tags.ts) -->
-  <datalist id="tagSuggestions"></datalist>
 
   <!-- starts closed (no "open" class) so it doesn't flash in before syncFloatBar() runs.
        Canvas-only; floats next to the selected card (features/float-bar.ts). In outline mode
@@ -164,6 +161,8 @@
       <input id="fbChecklist" type="checkbox"><span class="ic" data-icon="checklist"></span></label>
     <label class="fb-icon fb-toggle" title="Group background" aria-label="Group background">
       <input id="fbBg" type="checkbox"><span class="ic" data-icon="group-bg"></span></label>
+    <button id="fbTag" class="fb-icon" title="Add tag" aria-label="Add tag">
+      <span class="ic" data-icon="tag"></span></button>
     <span class="fb-sep"></span>
     <button id="fbMore" class="fb-icon" title="More actions" aria-label="More actions">
       <span class="ic" data-icon="kebab"></span></button>
@@ -207,11 +206,6 @@
   <button id="sketchBtn" class="floating-btn" title="Sketch (S) — draw freehand on the canvas" aria-label="Toggle sketch mode">
     <span class="ic" data-icon="sketch"></span></button>
 
-  <!-- tag panel toggle: floating top-right, one slot further left again. Mutually exclusive with
-       sketch mode (features/tags.ts / features/sketch.ts) — opening one closes the other. -->
-  <button id="tagBtn" class="floating-btn" title="Tags — browse, assign, rename or delete tags" aria-label="Toggle tag panel">
-    <span class="ic" data-icon="tag"></span></button>
-
   <!-- background grid toggle: floating bottom-right, immediately left of help (features/../view/grid.ts) -->
   <button id="gridBtn" class="floating-btn" title="Background grid — click to cycle" aria-label="Cycle background grid"></button>
 
@@ -247,13 +241,6 @@
       <label>Width</label>
       <div id="sketchWidths" class="sketch-dots widths"></div>
     </div>
-  </div>
-
-  <!-- tag panel: lists every tag currently in use (populated by features/tags.ts). Unlike the
-       sketch panel, the floating edit bar stays visible alongside it. -->
-  <div id="tagPanel">
-    <div class="tp-title">Tags</div>
-    <div id="tagRows"></div>
   </div>
 
   <!-- ghost card in the corner — drag it onto the canvas to create a new card -->

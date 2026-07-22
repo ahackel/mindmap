@@ -36,7 +36,7 @@ import { refreshSwatches } from './features/properties.js';
 import { syncFloatBar, autoSizeSelection, groupSelectionIntoFrame } from './features/float-bar.js';   // also registers the float bar's own listeners
 import { copySelection, cutSelection, bindCardFileDrag } from './features/clipboard.js';
 import { toggleSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
-import { bindCardTagPills, renderTagPanel, parseTag, tagPillHTML } from './features/tags.js';   // also registers the tag panel toolbar wiring
+import { bindCardTagPills, tagPillHTML } from './features/tags.js';
 import { commitStep, record, touch, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 import { openImageViewer } from './features/image-viewer.js';
@@ -256,7 +256,7 @@ function queryMatches(n: MindNode): MindNode[] {
   const text = textTerms.join(' ');
   const hits = [...state.nodes.values()].filter(m => m.id !== n.id &&
     parentTerms.every(pt => hasAncestorTitleContaining(m, pt)) &&
-    tagTerms.every(tt => m.tags.some(t => parseTag(t).name.toLowerCase() === tt)) &&
+    tagTerms.every(tt => m.tags.some(t => t.toLowerCase() === tt)) &&
     (!text || m.title.toLowerCase().includes(text) || (m.body && m.body.toLowerCase().includes(text))));
   return hits.sort((a, b) => {
     const at = a.title.toLowerCase().includes(text), bt = b.title.toLowerCase().includes(text);
@@ -662,7 +662,6 @@ export function paintAll(): void {
   paintEdges();
   updateEmptyHints();
   renderOutline();   // keep the outline list in sync (no-op while the canvas view is active)
-  renderTagPanel();  // keep the tag panel's counts in sync (no-op while it's closed)
 }
 
 // First-run hints ("Drag to create a card" / "Click for help") show only on an empty canvas.

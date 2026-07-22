@@ -97,8 +97,6 @@ export const ui = {
   // single-pointer input to sketch.ts and to skip the disk-reload while mid-draw. The active
   // stroke/path themselves live in features/sketch.ts module scope.
   sketchDraw: null as { tool: 'pen' | 'eraser' } | null,
-  // ---- tag panel (features/tags.ts) ----
-  tagPanelOn: false,                              // tag panel open: mutually exclusive with sketch mode
   // ---- animated relayout (main) ----
   animToken: 0,
   // ---- last known mouse position (window pointermove, main) ----

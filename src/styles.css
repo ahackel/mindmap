@@ -168,10 +168,6 @@ button:disabled { opacity:.45; cursor:default; }
 #sketchBtn { top:12px; right:calc(12px + 2 * (var(--bar-btn) + 8px)); }
 /* reads as "on" with a solid accent fill, like the .primary buttons */
 #sketchBtn.active, #sketchBtn.active:hover { background:var(--accent); color:#fff; }
-/* tag panel toggle — one slot further left again; opening it closes sketch mode and vice versa
-   (features/tags.ts / features/sketch.ts), so only one of the two panels is ever visible. */
-#tagBtn { top:12px; right:calc(12px + 3 * (var(--bar-btn) + 8px)); }
-#tagBtn.active, #tagBtn.active:hover { background:var(--accent); color:#fff; }
 body.sketching #stage { cursor:crosshair; }
 body.sketching #ghostCard { display:none; }    /* the drag-to-create card would fight the pen */
 body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag / edit while sketching */
@@ -506,9 +502,10 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: 
 .node .title.editing { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;
   cursor:text; white-space:pre-wrap; overflow:visible; background:rgba(0,0,0,.5);
   box-shadow:0 0 0 2px rgba(0,0,0,.5); }   /* fill the outline-offset gap so the dark reaches the border */
-/* tag pills on a card — sits below the body, above the addnote affordance. Shared visual language
-   (.tag-pill) with the panel's own rows (features/tags.ts), just smaller/tighter here. */
-.node .tag-row { display:flex; flex-wrap:wrap; flex:none; gap:4px; margin-top:6px; }
+/* tag pills on a card — sits below the body, above the addnote affordance. Each tag is a single
+   emoji (no name, no colour — the emoji itself is the visual identity); clicking a card's own
+   pill removes it (features/tags.ts's bindCardTagPills). */
+.node .tag-row { display:flex; flex-wrap:wrap; flex:none; gap:3px; margin-top:6px; }
 /* image card: .body fills the box absolutely (no normal-flow room for a tag row), so the tags
    float as a caption-style overlay bar at the bottom instead — clipped to the card's own rounded
    corners by its overflow:hidden. pointer-events:none on the row + auto on each pill lets clicks
@@ -520,32 +517,13 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: 
 .node.image-card .tag-row .tag-pill { pointer-events:auto; }
 /* query card: a normal flex child between .title-row and .query-box (both flex:none/flex:1 — see
    below) — no extra positioning needed, the results area just shrinks to make room for it. */
-/* fixed height + box-sizing so every pill is exactly the same height regardless of its content —
-   a bare line-height would otherwise vary slightly by font metrics depending on what the tag's
-   text happens to be, making a title-only card's footprint depend on which tags it has. Tight
-   horizontal padding (no separate "circular" code path) so a single-letter tag already reads
-   close to a round dot on its own. */
+/* fixed height + box-sizing so every pill is exactly the same height regardless of its content.
+   Tight, near-square padding — an emoji glyph, not a text label — so a row of tags stays compact. */
 .tag-pill {
   display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;
-  height:20px; min-width:20px; max-width:100%; overflow:hidden; text-overflow:ellipsis;
-  white-space:nowrap; padding:2px 5px; border-radius:var(--r-full); font-size:12px;
-  line-height:16px; font-weight:600; background:rgba(255,255,255,.16); color:inherit;
-  cursor:default; touch-action:none;
-}
-/* a tag with an explicit colour (data-color, set in the tag panel) fills with that PALETTE colour
-   instead of the neutral translucent default — same contrast rules as a coloured CARD (.node.c-*
-   above) so light-on-dark / dark-on-light both stay readable. */
-.tag-pill[data-color] { background:var(--sw); color:#fff; }
-.tag-pill[data-color="white"] { color:#2b3645; }
-body.light .tag-pill[data-color]:not([data-color="white"]):not([data-color="grey"]):not([data-color="black"]) { color:#000; }
-/* drop-hover affordance while dragging a tag pill over a valid card target (features/tags.ts) —
-   same visual language as the existing OS-file drop highlight (.node.img-drop below). */
-.node.tag-drop-target { outline:2px dashed var(--accent); outline-offset:3px; }
-/* the pill being dragged fades in place; a floating clone (the ghost) tracks the pointer */
-.tag-pill-dragging { opacity:.35; }
-.tag-drag-ghost {
-  position:fixed; z-index:50; pointer-events:none; transform:translate(-50%,-140%);
-  box-shadow:0 2px 8px rgba(0,0,0,.35);
+  height:18px; min-width:18px; max-width:100%; overflow:hidden;
+  padding:1px 3px; border-radius:var(--r-full); font-size:12px;
+  line-height:1; background:rgba(255,255,255,.16); color:inherit; cursor:pointer;
 }
 .node .title.editing.invalid { outline-color:#e0564a; }
 .node .body  { font-size:12px; color:inherit; opacity:.9; line-height:1.4;
@@ -690,44 +668,36 @@ body.empty-canvas:not(.readonly) .emptyhint { opacity:1; }
 }
 body.sketching #sketchPanel { display:flex; }
 body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit bar's place */
-/* tag panel — same fixed-corner treatment as #sketchPanel, but the float bar stays visible
-   alongside it (editing a card's other properties while browsing tags is a reasonable thing to
-   want, unlike sketch mode which locks the canvas entirely). */
-#tagPanel {
-  position:fixed; top:50px; right:10px; width:240px; z-index:15;
-  max-height:calc(100vh - 60px); overflow:auto;
-  background:var(--panel); border-radius:var(--r-panel); padding:12px;
-  flex-direction:column; gap:8px; display:none;
+/* emoji tag picker popover (features/emoji-picker.ts): a Slack-reaction-style grid of recent +
+   vault-wide emoji, opened off whichever "+"/tag button triggered it (#fbTag on the canvas,
+   .tag-add-btn in the outline properties sheet). Unlike the float bar's own colour/type/layout
+   popovers (.fb-pop, fixed to the bar's own height) this one wraps to multiple rows, so it owns
+   its own box rather than reusing that class. */
+#emojiPop {
+  position:fixed; top:0; left:0; z-index:25; display:none; flex-direction:column; gap:8px;
+  width:220px; max-height:260px; overflow:auto; padding:10px;
+  background:var(--panel); border-radius:var(--r-panel);
+  box-shadow:0 4px 16px rgba(0,0,0,.25);
 }
-body.tagging #tagPanel { display:flex; }
-#tagPanel .tp-title { font-size:16px; font-weight:600; color:var(--text);
-  padding-bottom:8px; border-bottom:1px solid var(--grid); }
-#tagPanel .tp-empty { font-size:12px; color:var(--muted); padding:4px 0; }
-#tagRows { display:flex; flex-direction:column; gap:6px; }
-.tp-row { display:flex; align-items:center; gap:6px; }
-.tp-row .tag-pill { flex:none; max-width:100%; min-width:0; cursor:grab; margin-right:auto; }
-.tp-row .tp-count { font-size:11px; color:var(--muted); flex:none; }
-.tp-row .tp-menu-btn {
-  flex:none; width:22px; height:22px; padding:0; border:none; border-radius:var(--r-full);
-  background:transparent; color:var(--muted); cursor:pointer; display:inline-flex;
-  align-items:center; justify-content:center; font-size:14px; line-height:1;
+#emojiPop.open { display:flex; }
+.emoji-grid { display:flex; flex-wrap:wrap; gap:6px; }
+.emoji-grid .tag-pill { cursor:pointer; font-size:16px; height:28px; min-width:28px; padding:2px 6px; }
+.emoji-grid .tag-pill.active { box-shadow:0 0 0 2px var(--accent); }
+.emoji-empty { font-size:12px; color:var(--muted); }
+.emoji-input {
+  height:28px; padding:2px 10px; border-radius:var(--r-full); font-size:12px;
+  background:var(--bg); border:1px solid var(--node-border); color:var(--text);
 }
-.tp-row .tp-menu-btn:hover { color:var(--text); background:color-mix(in srgb, var(--text) 8%, transparent); }
-.tp-rename-input {
-  flex:1; min-width:0; height:22px; padding:2px 8px; border-radius:var(--r-full);
-  font-size:11px; font-weight:600; background:var(--bg); border:1px solid var(--accent); color:var(--text);
+.emoji-input:focus { border-color:var(--accent); outline:none; }
+/* the outline properties sheet's tag row: existing pills (click to remove) + a trailing "+" that
+   opens #emojiPop — same shape as the canvas card's own .tag-row, just with the add button appended. */
+.tag-row-edit { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+.tag-add-btn {
+  flex:none; width:20px; height:20px; padding:0; border:1px dashed var(--node-border);
+  border-radius:var(--r-full); background:transparent; color:var(--muted); cursor:pointer;
+  font-size:13px; line-height:1; display:inline-flex; align-items:center; justify-content:center;
 }
-/* ghost "add tag" row — same dashed-placeholder language as #ghostCard's job on the canvas, just
-   inline in the list instead of a floating corner button. Click (or Enter/Space) swaps it for a
-   .tp-rename-input (features/tags.ts's startCreateTag), same in-place-edit pattern as rename. */
-.tp-row.tp-ghost {
-  justify-content:center; gap:6px; height:26px; margin-top:2px;
-  border:1px dashed var(--node-border); border-radius:var(--r-full);
-  color:var(--muted); cursor:pointer; user-select:none;
-}
-.tp-row.tp-ghost:hover, .tp-row.tp-ghost:focus-visible { border-color:var(--accent); color:var(--text); outline:none; }
-.tp-ghost-plus { font-size:14px; line-height:1; }
-.tp-ghost-label { font-size:12px; }
+.tag-add-btn:hover { border-color:var(--accent); color:var(--text); }
 #sketchPanel .sk-title { font-size:16px; font-weight:600; color:var(--text);
   padding-bottom:8px; border-bottom:1px solid var(--grid); }
 #sketchPanel .fgroup { display:flex; flex-direction:column; gap:6px; }
@@ -927,7 +897,7 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    position math here and lets this block own left/top/bottom; frameBox also treats the docked
    bar as a bottom obstruction instead of a right one — see view/camera.ts). */
 @media (max-width: 700px) {
-  #sketchPanel, #tagPanel {
+  #sketchPanel {
     top:auto; bottom:0; left:10px; right:10px; width:auto;
     max-height:55vh;
     border-radius:var(--r-panel) var(--r-panel) 0 0;
@@ -977,7 +947,7 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    too since it would float over the drawer. #outlineBtn joins them here: once open, #olCloseBtn
    (the drawer's top-LEFT, sharing #ocBack's spot) is the way to close it. #canvasMenuBtn is the
    deliberate exception (see its own z-index rule) — it must stay reachable from the outliner too. */
-body.outline #sketchBtn, body.outline #tagBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #gridSizeBtn, body.outline #outlineBtn,
+body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #gridSizeBtn, body.outline #outlineBtn,
 body.outline #floatBar { display:none !important; }
 
 /* Below the 700px breakpoint (MUST match NARROW_MQ), outline goes full-screen instead of a
