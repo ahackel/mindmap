@@ -168,6 +168,10 @@ button:disabled { opacity:.45; cursor:default; }
 #sketchBtn { top:12px; right:calc(12px + 2 * (var(--bar-btn) + 8px)); }
 /* reads as "on" with a solid accent fill, like the .primary buttons */
 #sketchBtn.active, #sketchBtn.active:hover { background:var(--accent); color:#fff; }
+/* tag panel toggle — one slot further left again; opening it closes sketch mode and vice versa
+   (features/tags.ts / features/sketch.ts), so only one of the two panels is ever visible. */
+#tagBtn { top:12px; right:calc(12px + 3 * (var(--bar-btn) + 8px)); }
+#tagBtn.active, #tagBtn.active:hover { background:var(--accent); color:#fff; }
 body.sketching #stage { cursor:crosshair; }
 body.sketching #ghostCard { display:none; }    /* the drag-to-create card would fight the pen */
 body.sketching .node { pointer-events:none; }   /* lock cards: no select / drag / edit while sketching */
@@ -278,6 +282,7 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
 /* bodyless cards shrink to just fit the title (no reserved body height) */
 .node.no-body { min-height:0; }
 .node.no-body .title { margin-bottom:0; }
+.node.no-tags .tag-row { display:none; }
 /* checklist item: a done checkbox next to the title, shown when this card's PARENT has its own
    `checklist` turned on (Trello-style — see showsDoneCheckbox in main.ts). A body's own task
    list carries separate per-line state instead — see .taskbox below. */
@@ -434,9 +439,22 @@ svg#dragEdges path.ghost-edge { stroke-width:2; }
    a dragged card:6) so it never sits behind anything and — placed directly under #world, never in
    a frame's overflow:hidden wrapper (main.ts paintNode) — is never clipped by a frame mask. No
    title row; just the body. Looks like a card otherwise (its own colour, never inherited). */
-.node.annotation { z-index:7; min-height:32px; min-width:80px; }
+.node.annotation { z-index:7; min-height:32px; width:fit-content; max-width:280px; }
 .node.annotation .title-row { display:none; }
 .node.annotation.no-body > .body { min-height:1em; min-width:2em; }   /* stay clickable while empty */
+/* .node .body's overflow-wrap:anywhere (below) is fine on a fixed-width card, but on a
+   fit-content-sized annotation it also shrinks the box's own min-content width down to a single
+   character, collapsing the whole box to one letter wide and wrapping every character onto its
+   own line. break-word still wraps an unbreakably long word instead of overflowing, but (unlike
+   anywhere) doesn't feed into the intrinsic-width calculation, so fit-content sizes off the
+   text's natural (max-content) width instead. */
+.node.annotation .body { overflow-wrap:break-word; }
+/* while its body is being edited, a <textarea> (.body-edit, width:100%) replaces the rendered
+   text — but a textarea's own intrinsic width has nothing to do with its (typed) content, so
+   fit-content has nothing meaningful to shrink-to-fit around and collapses to the UA default
+   (a handful of px), wrapping every keystroke onto its own line. Give the box a stable editing
+   width instead; it reverts to fit-content (sized off the committed text) once editing ends. */
+.node.annotation:has(.body.editing) { width:220px; }
 /* an uncoloured card sits on the page background, so its text follows the theme, not white */
 .node.c-none { color: var(--text); }
 /* white is the one palette colour too light for white text — dark grey instead, both themes */
@@ -458,7 +476,7 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: 
 #dragLayer { position:absolute; top:0; left:0; z-index:6; opacity:.75; pointer-events:none; }
 #dragLayer > .node, #dragLayer > .frame-content { pointer-events:auto; }
 #dragLayerEdges { position:absolute; top:0; left:0; overflow:visible; pointer-events:none; }
-#dragLayerEdges path { fill:none; stroke:var(--edge); stroke-width:4; }
+#dragLayerEdges path { fill:none; stroke:var(--edge); stroke-width:4; stroke-linejoin:round; stroke-linecap:round; }
 /* while poised over a valid parent the dragged card becomes just a dotted outline,
    so the parent underneath stays visible. Border colour is set inline to match the
    dragged card's branch colour (see features/drag.ts showLandingGhost). */
@@ -488,6 +506,47 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: 
 .node .title.editing { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;
   cursor:text; white-space:pre-wrap; overflow:visible; background:rgba(0,0,0,.5);
   box-shadow:0 0 0 2px rgba(0,0,0,.5); }   /* fill the outline-offset gap so the dark reaches the border */
+/* tag pills on a card — sits below the body, above the addnote affordance. Shared visual language
+   (.tag-pill) with the panel's own rows (features/tags.ts), just smaller/tighter here. */
+.node .tag-row { display:flex; flex-wrap:wrap; flex:none; gap:4px; margin-top:6px; }
+/* image card: .body fills the box absolutely (no normal-flow room for a tag row), so the tags
+   float as a caption-style overlay bar at the bottom instead — clipped to the card's own rounded
+   corners by its overflow:hidden. pointer-events:none on the row + auto on each pill lets clicks
+   on the empty parts of the bar fall through to the image/card underneath (selection, drag). */
+.node.image-card .tag-row {
+  position:absolute; left:0; right:0; bottom:0; z-index:1; margin:0;
+  padding:8px; pointer-events:none;
+}
+.node.image-card .tag-row .tag-pill { pointer-events:auto; }
+/* query card: a normal flex child between .title-row and .query-box (both flex:none/flex:1 — see
+   below) — no extra positioning needed, the results area just shrinks to make room for it. */
+/* fixed height + box-sizing so every pill is exactly the same height regardless of its content —
+   a bare line-height would otherwise vary slightly by font metrics depending on what the tag's
+   text happens to be, making a title-only card's footprint depend on which tags it has. Tight
+   horizontal padding (no separate "circular" code path) so a single-letter tag already reads
+   close to a round dot on its own. */
+.tag-pill {
+  display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;
+  height:20px; min-width:20px; max-width:100%; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; padding:2px 5px; border-radius:var(--r-full); font-size:12px;
+  line-height:16px; font-weight:600; background:rgba(255,255,255,.16); color:inherit;
+  cursor:default; touch-action:none;
+}
+/* a tag with an explicit colour (data-color, set in the tag panel) fills with that PALETTE colour
+   instead of the neutral translucent default — same contrast rules as a coloured CARD (.node.c-*
+   above) so light-on-dark / dark-on-light both stay readable. */
+.tag-pill[data-color] { background:var(--sw); color:#fff; }
+.tag-pill[data-color="white"] { color:#2b3645; }
+body.light .tag-pill[data-color]:not([data-color="white"]):not([data-color="grey"]):not([data-color="black"]) { color:#000; }
+/* drop-hover affordance while dragging a tag pill over a valid card target (features/tags.ts) —
+   same visual language as the existing OS-file drop highlight (.node.img-drop below). */
+.node.tag-drop-target { outline:2px dashed var(--accent); outline-offset:3px; }
+/* the pill being dragged fades in place; a floating clone (the ghost) tracks the pointer */
+.tag-pill-dragging { opacity:.35; }
+.tag-drag-ghost {
+  position:fixed; z-index:50; pointer-events:none; transform:translate(-50%,-140%);
+  box-shadow:0 2px 8px rgba(0,0,0,.35);
+}
 .node .title.editing.invalid { outline-color:#e0564a; }
 .node .body  { font-size:12px; color:inherit; opacity:.9; line-height:1.4;
   overflow-wrap:anywhere; overflow:hidden; }
@@ -551,7 +610,7 @@ body.light .node:not(.c-none):not(.c-white):not(.c-grey):not(.c-black) { color: 
   height:22px; line-height:22px; padding:0 9px; border-radius:11px;
   background:var(--accent); color:#fff; font-size:11px; font-weight:600;
   white-space:nowrap; cursor:pointer; display:none; }
-.node.solo.no-body .addnote { display:block; }   /* only when there's no note yet */
+.node.solo.no-body > .addnote { display:block; }   /* only when there's no note yet — direct child only, so a nested CHILD CARD's own .addnote (they're real DOM descendants — see nodeEl/paintNode in main.ts) doesn't also match */
 body.readonly .node .addnote { display:none !important; }
 body.grabbing .node .addnote,
 .node.collapsed .addnote { display:none !important; }
@@ -631,6 +690,44 @@ body.empty-canvas:not(.readonly) .emptyhint { opacity:1; }
 }
 body.sketching #sketchPanel { display:flex; }
 body.sketching #floatBar { display:none; }   /* the sketch panel takes the edit bar's place */
+/* tag panel — same fixed-corner treatment as #sketchPanel, but the float bar stays visible
+   alongside it (editing a card's other properties while browsing tags is a reasonable thing to
+   want, unlike sketch mode which locks the canvas entirely). */
+#tagPanel {
+  position:fixed; top:50px; right:10px; width:240px; z-index:15;
+  max-height:calc(100vh - 60px); overflow:auto;
+  background:var(--panel); border-radius:var(--r-panel); padding:12px;
+  flex-direction:column; gap:8px; display:none;
+}
+body.tagging #tagPanel { display:flex; }
+#tagPanel .tp-title { font-size:16px; font-weight:600; color:var(--text);
+  padding-bottom:8px; border-bottom:1px solid var(--grid); }
+#tagPanel .tp-empty { font-size:12px; color:var(--muted); padding:4px 0; }
+#tagRows { display:flex; flex-direction:column; gap:6px; }
+.tp-row { display:flex; align-items:center; gap:6px; }
+.tp-row .tag-pill { flex:none; max-width:100%; min-width:0; cursor:grab; margin-right:auto; }
+.tp-row .tp-count { font-size:11px; color:var(--muted); flex:none; }
+.tp-row .tp-menu-btn {
+  flex:none; width:22px; height:22px; padding:0; border:none; border-radius:var(--r-full);
+  background:transparent; color:var(--muted); cursor:pointer; display:inline-flex;
+  align-items:center; justify-content:center; font-size:14px; line-height:1;
+}
+.tp-row .tp-menu-btn:hover { color:var(--text); background:color-mix(in srgb, var(--text) 8%, transparent); }
+.tp-rename-input {
+  flex:1; min-width:0; height:22px; padding:2px 8px; border-radius:var(--r-full);
+  font-size:11px; font-weight:600; background:var(--bg); border:1px solid var(--accent); color:var(--text);
+}
+/* ghost "add tag" row — same dashed-placeholder language as #ghostCard's job on the canvas, just
+   inline in the list instead of a floating corner button. Click (or Enter/Space) swaps it for a
+   .tp-rename-input (features/tags.ts's startCreateTag), same in-place-edit pattern as rename. */
+.tp-row.tp-ghost {
+  justify-content:center; gap:6px; height:26px; margin-top:2px;
+  border:1px dashed var(--node-border); border-radius:var(--r-full);
+  color:var(--muted); cursor:pointer; user-select:none;
+}
+.tp-row.tp-ghost:hover, .tp-row.tp-ghost:focus-visible { border-color:var(--accent); color:var(--text); outline:none; }
+.tp-ghost-plus { font-size:14px; line-height:1; }
+.tp-ghost-label { font-size:12px; }
 #sketchPanel .sk-title { font-size:16px; font-weight:600; color:var(--text);
   padding-bottom:8px; border-bottom:1px solid var(--grid); }
 #sketchPanel .fgroup { display:flex; flex-direction:column; gap:6px; }
@@ -830,7 +927,7 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    position math here and lets this block own left/top/bottom; frameBox also treats the docked
    bar as a bottom obstruction instead of a right one — see view/camera.ts). */
 @media (max-width: 700px) {
-  #sketchPanel {
+  #sketchPanel, #tagPanel {
     top:auto; bottom:0; left:10px; right:10px; width:auto;
     max-height:55vh;
     border-radius:var(--r-panel) var(--r-panel) 0 0;
@@ -880,7 +977,7 @@ kbd { background:var(--node); border:1px solid var(--node-border); border-radius
    too since it would float over the drawer. #outlineBtn joins them here: once open, #olCloseBtn
    (the drawer's top-LEFT, sharing #ocBack's spot) is the way to close it. #canvasMenuBtn is the
    deliberate exception (see its own z-index rule) — it must stay reachable from the outliner too. */
-body.outline #sketchBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #gridSizeBtn, body.outline #outlineBtn,
+body.outline #sketchBtn, body.outline #tagBtn, body.outline #helpBtn, body.outline #gridBtn, body.outline #gridSizeBtn, body.outline #outlineBtn,
 body.outline #floatBar { display:none !important; }
 
 /* Below the 700px breakpoint (MUST match NARROW_MQ), outline goes full-screen instead of a

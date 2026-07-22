@@ -36,6 +36,7 @@ import { refreshSwatches } from './features/properties.js';
 import { syncFloatBar, autoSizeSelection, groupSelectionIntoFrame } from './features/float-bar.js';   // also registers the float bar's own listeners
 import { copySelection, cutSelection, bindCardFileDrag } from './features/clipboard.js';
 import { toggleSketchMode } from './features/sketch.js';   // also registers the sketch toolbar wiring
+import { bindCardTagPills, renderTagPanel, parseTag, tagPillHTML } from './features/tags.js';   // also registers the tag panel toolbar wiring
 import { commitStep, record, touch, undo, redo, updateUndoButtons } from './features/history.js';
 import { resetImageCache, hydrateImages } from './features/images.js';
 import { openImageViewer } from './features/image-viewer.js';
@@ -74,6 +75,7 @@ function nodeEl(n: MindNode): HTMLElement {
   const el = document.createElement('div');
   el.dataset.id = n.id;
   el.innerHTML = `<div class="title-row"><input type="checkbox" class="donebox" title="Mark done"><span class="query-icon" title="Search">${QUERY_ICON_SVG}</span><div class="title"></div><input type="text" class="query-input" placeholder="Search…" autocomplete="off"><span class="progress"></span></div><div class="body"></div>
+    <div class="tag-row"></div>
     <div class="query-box">
       <div class="query-results"></div>
     </div>
@@ -235,21 +237,26 @@ function hasAncestorTitleContaining(n: MindNode, needle: string): boolean {
 // substring rule the toolbar find box uses (features/search.ts runSearch), but uncapped (the
 // results list scrolls) and scoped to this one card's #query-results element, not the whole canvas.
 // A "p:<parent>" token (whitespace-delimited, repeatable) filters to nodes with an ancestor whose
-// title contains <parent>; it's ANDed with any remaining plain search text and with any other
-// p: tokens, all case-insensitive substring matches.
+// title contains <parent>; a "t:<tag>" token (also repeatable) filters to nodes with an EXACT
+// (case-insensitive) tag match. Both are ANDed with each other, with any remaining plain search
+// text, and with any other tokens of their own kind — all case-insensitive.
 function queryMatches(n: MindNode): MindNode[] {
   const raw = (n.query ?? '').trim();
   if (!raw) return [];
   const parentTerms: string[] = [];
+  const tagTerms: string[] = [];
   const textTerms: string[] = [];
   for (const tok of raw.split(/\s+/)) {
-    const m = /^p:(.+)$/i.exec(tok);
-    if (m) parentTerms.push(m[1].toLowerCase());
+    const pm = /^p:(.+)$/i.exec(tok);
+    const tm = /^t:(.+)$/i.exec(tok);
+    if (pm) parentTerms.push(pm[1].toLowerCase());
+    else if (tm) tagTerms.push(tm[1].toLowerCase());
     else textTerms.push(tok.toLowerCase());
   }
   const text = textTerms.join(' ');
   const hits = [...state.nodes.values()].filter(m => m.id !== n.id &&
     parentTerms.every(pt => hasAncestorTitleContaining(m, pt)) &&
+    tagTerms.every(tt => m.tags.some(t => parseTag(t).name.toLowerCase() === tt)) &&
     (!text || m.title.toLowerCase().includes(text) || (m.body && m.body.toLowerCase().includes(text))));
   return hits.sort((a, b) => {
     const at = a.title.toLowerCase().includes(text), bt = b.title.toLowerCase().includes(text);
@@ -282,6 +289,20 @@ function onQueryInput(n: MindNode, value: string): void {
   const pending = queryDebounce.get(n.id); if (pending != null) clearTimeout(pending);
   queryDebounce.set(n.id, window.setTimeout(() => { queryDebounce.delete(n.id); renderQueryResults(n); }, 150));
 }
+// Append a whole `token` (e.g. "t:bug") to a query card's search text, if not already present —
+// used by the tag panel's drag-onto-query-card assignment (features/tags.ts). The caller owns
+// touch()/scheduleSave()/commitStep() around this, same as any other single-field mutation; this
+// just updates the model and, if the field isn't mid-edit, its rendered input + results.
+export function appendQueryToken(n: MindNode, token: string): void {
+  const raw = (n.query ?? '').trim();
+  const tokens = raw ? raw.split(/\s+/) : [];
+  if (tokens.some(t => t.toLowerCase() === token.toLowerCase())) return;
+  n.query = tokens.length ? `${raw} ${token}` : token;
+  n.dirty = true;
+  const input = n.el?.querySelector('.query-input') as HTMLInputElement | null;
+  if (input && !(ui.queryEdit && ui.queryEdit.id === n.id)) input.value = n.query;
+  renderQueryResults(n);
+}
 function endQueryEdit(n: MindNode): void {
   if (!ui.queryEdit || ui.queryEdit.id !== n.id) return;
   ui.queryEdit = null;
@@ -311,6 +332,7 @@ export function paintNode(n: MindNode): void {
     + (collapsed ? ' collapsed' : '')
     + (n.locked ? ' locked' : '')
     + (hasBody ? '' : ' no-body')
+    + (isFrameBox(n) || !n.tags.length ? ' no-tags' : '')
     + (showDone ? ' show-done' : '')
     + (showDone && n.done ? ' done' : '')
     + (ui.drag?.targets?.has(n.id) ? ' dragging' : '')   // float the dragged subtree above all cards
@@ -375,11 +397,6 @@ export function paintNode(n: MindNode): void {
     // border matches this card's EDGE tint (same colour edges use), falling back to --edge
     el.style.setProperty('--frame-stroke', SWATCH_BG[effectiveColor(n)] ?? 'var(--edge)');
     ensureFrameHandle(n);
-    // clear a stale min-height snapCardHeights left behind from when this was a plain card —
-    // it's skipped for box nodes going forward, so nothing else would ever reset it, and a
-    // leftover floor taller than n.h would silently distort the box (wrong aspect ratio, extra
-    // height) after a round-trip through a non-box layout type and back.
-    if (el.style.minHeight) el.style.minHeight = '';
     if (isFrameBox(n)) frameContentEl(n);   // create/reposition/resize this frame's overflow:hidden content wrapper
   } else if (el.style.width) {
     el.style.width = ''; el.style.height = '';
@@ -399,6 +416,20 @@ export function paintNode(n: MindNode): void {
     // don't clobber the field while the user is actively typing into it
     if (!(ui.queryEdit && ui.queryEdit.id === n.id)) qInput.value = n.query ?? '';
     renderQueryResults(n);
+  }
+  // tag pills — skipped only for frames, whose fixed box (n.h) holds arbitrary child cards rather
+  // than its own content, so there's no natural place for a tag row to live. Image/query cards ARE
+  // shown despite also being fixed-size boxes: an image card overlays them on the image, a query
+  // card's flex column just shrinks its (already-scrollable) results area to fit them — see
+  // styles.css's .image-card/.query-card rules. Keyed like renderQueryResults: only rebuild when
+  // the tag list actually changed, so an unrelated repaint mid-drag can't destroy a
+  // pointer-captured pill (features/tags.ts's bindCardTagPills).
+  const tagRowEl = el.querySelector('.tag-row') as HTMLElement;
+  const tagsKey = (isFrameBox(n) || !n.tags.length) ? '' : n.tags.join(' ');
+  if (tagRowEl.dataset.tagsKey !== tagsKey) {
+    tagRowEl.dataset.tagsKey = tagsKey;
+    tagRowEl.innerHTML = tagsKey ? n.tags.map(t => tagPillHTML(t)).join('') : '';
+    bindCardTagPills(tagRowEl, n);
   }
   // folded branch → hidden-descendant count; folded leaf → empty bubble (a white dot)
   if (collapsed) el.querySelector('.hidden-count')!.textContent = collapsedKids ? String(descendantCount(n.id)) : '';
@@ -423,9 +454,14 @@ function isQueryBox(n: MindNode): boolean { return n.type === 'query' && !n.coll
 function isBoxNode(n: MindNode): boolean { return isFrameBox(n) || isImageBox(n) || isQueryBox(n); }
 function boxDefaultW(n: MindNode): number { return isImageBox(n) ? IMAGE_W : isQueryBox(n) ? QUERY_W : FRAME_W; }
 function boxDefaultH(n: MindNode): number { return isImageBox(n) ? IMAGE_H : isQueryBox(n) ? QUERY_H : FRAME_H; }
-// A node's footprint WIDTH: an (expanded) frame/image card is its own resizable box; everything
-// else is NODE_W.
-export function nodeW(n: MindNode): number { return isBoxNode(n) ? (n.w ?? boxDefaultW(n)) : NODE_W; }
+// A node's footprint WIDTH: an (expanded) frame/image card is its own resizable box; an
+// annotation shrinks to fit its text (styles.css), so its width is measured live off the
+// element rather than assumed — everything else is the fixed NODE_W.
+export function nodeW(n: MindNode): number {
+  if (isBoxNode(n)) return n.w ?? boxDefaultW(n);
+  if (isAnnotation(n)) return (n.el && n.el.offsetWidth) || NODE_W;
+  return NODE_W;
+}
 // live height (falls back pre-render). An expanded frame/image card's height is its box (n.h), not
 // its card.
 export function nodeH(n: MindNode): number {
@@ -621,24 +657,12 @@ function startFrameResize(e: PointerEvent, n: MindNode, dir: FrameDir): void {
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
 }
-// Round every card's rendered height UP to the snap grid so all cards align on the 20px grid
-// (frames/image cards size themselves). Done in three batches — reset → measure → apply — so it
-// costs two layout flushes total, not two per card; the reset lets a shrunk card re-measure
-// smaller (no ratcheting). Box nodes (which set their own box) and hidden cards are skipped.
-function snapCardHeights(): void {
-  const cards: MindNode[] = [];
-  for (const n of state.nodes.values()) if (n.el && !isHidden(n) && !isBoxNode(n)) cards.push(n);
-  for (const n of cards) n.el!.style.minHeight = '';
-  const g = gridSnap();
-  const hs = cards.map(n => Math.ceil(n.el!.offsetHeight / g) * g);
-  cards.forEach((n, i) => { n.el!.style.minHeight = hs[i] + 'px'; });
-}
 export function paintAll(): void {
   for (const n of state.nodes.values()) paintNode(n);
-  snapCardHeights();
   paintEdges();
   updateEmptyHints();
   renderOutline();   // keep the outline list in sync (no-op while the canvas view is active)
+  renderTagPanel();  // keep the tag panel's counts in sync (no-op while it's closed)
 }
 
 // First-run hints ("Drag to create a card" / "Click for help") show only on an empty canvas.

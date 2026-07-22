@@ -11,6 +11,8 @@ import { record, touch, commitStep } from './history.js';
 import { scheduleSave } from '../data/persistence.js';
 import { applyLayouts } from '../view/layout.js';
 import { paintAll, SWATCH_BG, PALETTE } from '../main.js';
+import { allTags } from './tags.js';
+import { esc } from '../utils/markdown.js';
 
 export interface PropEls {
   colors: HTMLElement;
@@ -80,6 +82,13 @@ export function createProperties(els: PropEls, getIds: () => string[]): Property
   // Optional: the float bar has no room for free-text tags, so it omits this control entirely.
   if (els.tags){
     const tagsEl = els.tags;
+    // autocomplete: refresh the shared #tagSuggestions datalist (index.html) from every tag
+    // already in use, so typing doesn't create near-duplicates by typo — assists typing only,
+    // doesn't change the comma-split parsing below.
+    tagsEl.addEventListener('focus', () => {
+      const dl = document.getElementById('tagSuggestions');
+      if (dl) dl.innerHTML = allTags().map(({ name }) => `<option value="${esc(name)}">`).join('');
+    });
     tagsEl.addEventListener('input', () => {
       const id = getIds()[0]; const n = id ? state.nodes.get(id) : undefined; if (!n || isLockedEffective(n)) return;
       n.tags = tagsEl.value.split(',').map(s => s.trim()).filter(Boolean);

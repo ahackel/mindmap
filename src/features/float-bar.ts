@@ -31,6 +31,10 @@ const fbType = byId<HTMLButtonElement>('fbType');
 const fbLayout = byId<HTMLButtonElement>('fbLayout');
 const fbChecklist = byId<HTMLInputElement>('fbChecklist');
 const fbBg = byId<HTMLInputElement>('fbBg');
+// the <label> wrapping each toggle (markup: <label class="fb-toggle"><input id="fb...">...) —
+// hidden entirely for an annotation selection, see markChips below.
+const fbChecklistLabel = fbChecklist.parentElement!;
+const fbBgLabel = fbBg.parentElement!;
 const fbMore = byId<HTMLButtonElement>('fbMore');
 const colorPop = byId('fbColorPop');
 const typePop = byId('fbTypePop');
@@ -236,6 +240,13 @@ function markChips(): void {
   edTypes.querySelectorAll<HTMLElement>('.layoutchip').forEach(c =>
     c.classList.toggle('active', c.dataset.type === type));
   fbType.innerHTML = type ? TYPE_ICONS[type] : TYPE_ICONS.card;
+
+  // checklist / group-background are meaningless on an annotation (a title-less leaf that can
+  // never have children — no subtree to check off or tint) — hide both toggles entirely rather
+  // than leave a no-op control in the bar.
+  const isAnno = type === 'annotation';
+  fbChecklistLabel.style.display = isAnno ? 'none' : '';
+  fbBgLabel.style.display = isAnno ? 'none' : '';
 
   const forType: NodeType = type ?? 'card';
   rebuildLayoutChips(forType);
