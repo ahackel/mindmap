@@ -33,6 +33,11 @@ let activeId: string | null = null;   // the card currently focused → the prop
 // lazily: at module-import time main.ts is still evaluating and its SWATCH_BG/PALETTE aren't defined
 // yet (createProperties builds the swatch row eagerly), so we defer to first open.
 const bpEl = document.getElementById('branchProps') as HTMLElement;
+bpEl.inert = true;   // stays in the DOM (transform:translateY, not display:none) so its slide-up
+// animates — but that also leaves #bpTags/#bpChecklist/#bpBg focusable while "closed", which
+// iOS Safari counts towards showing the keyboard's Prev/Next accessory bar even for an unrelated
+// focused field elsewhere on the page. `inert` drops it from the focus/tab order without
+// touching layout or the transition; toggled alongside body.branch-props-open below.
 let bpPanel: PropertyControls | null = null;
 function props(): PropertyControls {
   return bpPanel ??= createProperties({
@@ -54,9 +59,14 @@ function setActiveCard(n: MindNode): void {
   // the outliner never touches canvas selection (see features/outline.ts's row click handler).
   markActiveCard(n.id);
   props().sync();
+  bpEl.inert = false;
   document.body.classList.add('branch-props-open');
 }
-function hideProps(): void { activeId = null; markActiveCard(null); document.body.classList.remove('branch-props-open'); }
+function hideProps(): void {
+  activeId = null; markActiveCard(null);
+  bpEl.inert = true;
+  document.body.classList.remove('branch-props-open');
+}
 // The factory repaints the canvas/outline on a colour change, but the open branch card carries its
 // own tint via its c-* class — re-apply it so the card recolours in place as you pick a swatch.
 bpEl.addEventListener('click', () => {
