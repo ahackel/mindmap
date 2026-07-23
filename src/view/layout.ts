@@ -128,7 +128,12 @@ function simulateLanding(dragged: MindNode, governor: MindNode, side: LayoutSide
 // positions, so layout re-runs after every structural or drag change (there's no manual Tidy).
 const LAYOUT_MAIN  = 60;   // gap between a card and its children along the growth axis
 const LAYOUT_CROSS = 22;   // gap between FANNED sibling subtrees (spread across the side)
-const LAYOUT_CHAIN = 12;   // gap between CHAINED sibling subtrees (a line along the direction)
+// gap between CHAINED sibling subtrees (a line along the direction) — must clear a card's own
+// tag row, which floats OUTSIDE the card's border and overhangs ~11px past its bottom edge (see
+// .node .tag-row in styles.css): anything tighter and the next chained card's opaque background
+// paints over the previous card's tag pills/add-emoji button, hiding them even though they're
+// still very much in the DOM and clickable.
+const LAYOUT_CHAIN = 22;
 // Both are multiples of GRID_SNAP so flowed content stays grid-aligned: the frame's own x/y/w/h
 // are already grid multiples (position/resize snap), and every child's w/h is too (NODE_W=200,
 // heights rounded up to the grid in main.ts's snapCardHeights) — so keeping these constants (and
